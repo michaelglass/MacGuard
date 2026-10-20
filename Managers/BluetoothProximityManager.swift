@@ -177,7 +177,7 @@ class BluetoothProximityManager: NSObject, ObservableObject {
         // Check for duplicate by ID or Bluetooth address
         guard !trustedDevices.contains(where: {
             $0.id == device.id ||
-            (device.bluetoothAddress != nil && $0.bluetoothAddress == device.bluetoothAddress)
+            (device.classicAddress != nil && $0.classicAddress == device.classicAddress)
         }) else {
             log(.bluetooth, "Device already trusted: \(device.name)")
             return false
@@ -369,8 +369,8 @@ class BluetoothProximityManager: NSObject, ObservableObject {
             return
         }
 
-        for device in trustedDevices where device.isClassicBluetooth {
-            guard let address = device.bluetoothAddress else { continue }
+        for device in trustedDevices {
+            guard case .classic(let address) = device.transport else { continue }
 
             // Find matching IOBluetooth device by address
             guard let ioDevice = pairedDevices.first(where: { $0.addressString == address }) else {
@@ -749,7 +749,7 @@ extension BluetoothProximityManager: IOBluetoothDeviceInquiryDelegate {
 
             // Check if this is a trusted Classic BT device (filter early)
             guard let trustedDevice = self.trustedDevices.first(where: {
-                $0.isClassicBluetooth && $0.bluetoothAddress == address
+                $0.classicAddress == address
             }) else { return }
 
             // Use fresh RSSI from inquiry result

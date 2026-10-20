@@ -89,13 +89,16 @@ class DeviceScannerViewModel: NSObject, ObservableObject {
     @Published var isScanning = false
 
     private var centralManager: CBCentralManager?
-    private var bleDeviceUUIDs: Set<UUID> = []  // Track which devices were found via BLE
+    /// BLE peripherals seen per advertised name (lowercased). Names are
+    /// attacker-controlled, so a name seen from more than one peripheral is
+    /// ambiguous and never used to bind a paired device to a peripheral.
+    private var blePeripheralsByName: [String: Set<UUID>] = [:]
 
     func startScanning() {
         guard !isScanning else { return }
         isScanning = true
         discoveredDevices = []
-        bleDeviceUUIDs = []
+        blePeripheralsByName = [:]
 
         // First, load all paired devices from IOBluetooth (Classic + BLE)
         loadPairedDevices()
@@ -115,12 +118,11 @@ class DeviceScannerViewModel: NSObject, ObservableObject {
 
             // Create discovered device with IOBluetooth data
             let device = DiscoveredDevice(
-                id: UUID(),  // Generate new UUID (will be replaced if found via BLE)
+                id: UUID(),
                 name: name,
                 rssi: ioDevice.isConnected() ? Int(ioDevice.rawRSSI()) : -80,
                 isPaired: true,
-                bluetoothAddress: ioDevice.addressString,
-                isClassicBluetooth: true,  // Assume classic until proven BLE
+                classicAddress: ioDevice.addressString,
                 isConnected: ioDevice.isConnected()
             )
 
@@ -141,13 +143,12 @@ class DeviceScannerViewModel: NSObject, ObservableObject {
     func selectDevice(_ device: DiscoveredDevice) {
         guard let bluetoothManager = bluetoothManager else { return }
 
-        // Create a TrustedDevice with appropriate type
-        let trustedDevice = TrustedDevice(
-            id: device.id,
-            name: device.name,
-            bluetoothAddress: device.bluetoothAddress,
-            isClassicBluetooth: device.isClassicBluetooth
-        )
+        // A Classic device without an address could never be detected
+        guard let transport = device.transport else {
+            Task { @MainActor in ActivityLogManager.shared.log(.bluetooth, "Cannot trust \(device.name): no BLE match and no Bluetooth address") }
+            return
+        }
+        let trustedDevice = TrustedDevice(id: device.trustedID, name: device.name, transport: transport)
 
         // Add device via BluetoothProximityManager
         let added = bluetoothManager.addTrustedDevice(trustedDevice)
@@ -162,8 +163,8 @@ class DeviceScannerViewModel: NSObject, ObservableObject {
 
         // Check by ID or Bluetooth address
         return manager.trustedDevices.contains {
-            $0.id == device.id ||
-            (device.bluetoothAddress != nil && $0.bluetoothAddress == device.bluetoothAddress)
+            $0.id == device.trustedID ||
+            (device.classicAddress != nil && $0.classicAddress == device.classicAddress)
         }
     }
 
@@ -205,21 +206,26 @@ extension DeviceScannerViewModel: CBCentralManagerDelegate {
         guard let name = peripheral.name, !name.isEmpty else { return }
         guard RSSI.intValue > -90 else { return }
 
+        let key = name.lowercased()
+        let peripherals = blePeripheralsByName[key, default: []].union([peripheral.identifier])
+        blePeripheralsByName[key] = peripherals
+
         // Find matching device in our paired list by name
         // Only update existing paired devices - ignore unpaired BLE devices
-        if let index = discoveredDevices.firstIndex(where: {
-            $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame
-        }) {
+        if let index = discoveredDevices.firstIndex(where: { $0.name.lowercased() == key }) {
             var device = discoveredDevices[index]
 
-            // Device found via BLE scan - it supports BLE RSSI tracking
-            // Update to use BLE (even if it was initially loaded from IOBluetooth)
-            device.id = peripheral.identifier
-            device.rssi = RSSI.intValue
-            device.isClassicBluetooth = false  // Supports BLE
+            if peripherals.count == 1 {
+                // Exactly one peripheral advertises this name: track it via BLE RSSI
+                device.blePeripheralID = peripheral.identifier
+                device.rssi = RSSI.intValue
+                Task { @MainActor in ActivityLogManager.shared.log(.bluetooth, "Device \(name) found via BLE, UUID: \(peripheral.identifier)") }
+            } else if device.blePeripheralID != nil {
+                // Another peripheral claims the same name: refuse to guess
+                device.blePeripheralID = nil
+                Task { @MainActor in ActivityLogManager.shared.log(.bluetooth, "Multiple BLE peripherals named \(name) - keeping Classic tracking") }
+            }
             discoveredDevices[index] = device
-            bleDeviceUUIDs.insert(peripheral.identifier)
-            Task { @MainActor in ActivityLogManager.shared.log(.bluetooth, "Device \(name) found via BLE, UUID: \(peripheral.identifier)") }
         }
         // Note: Unpaired BLE devices are intentionally ignored - only paired devices shown
 
@@ -231,13 +237,26 @@ extension DeviceScannerViewModel: CBCentralManagerDelegate {
 
 /// Discovered device model
 struct DiscoveredDevice: Identifiable {
-    var id: UUID
+    /// Row identity (stable for the scan); also the trusted id for Classic devices
+    let id: UUID
     let name: String
     var rssi: Int
     let isPaired: Bool
-    let bluetoothAddress: String?
-    var isClassicBluetooth: Bool
+    let classicAddress: String?
+    /// Set only while exactly one BLE peripheral advertises this name
+    var blePeripheralID: UUID? = nil
     var isConnected: Bool
+
+    var isClassicBluetooth: Bool { blePeripheralID == nil }
+
+    /// Id the trusted device will have (BLE matching needs the peripheral id)
+    var trustedID: UUID { blePeripheralID ?? id }
+
+    /// `nil` when the device cannot be tracked at all
+    var transport: TrustedDevice.Transport? {
+        if blePeripheralID != nil { return .ble }
+        return classicAddress.map { .classic(address: $0) }
+    }
 }
 
 /// Container view with glass styling

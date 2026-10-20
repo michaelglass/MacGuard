@@ -197,7 +197,8 @@ struct TrustedDevicesConfigContainerView: View {
 
     private func deviceRow(_ device: TrustedDevice) -> some View {
         let connectionStatus = bluetoothManager.connectionStatus(for: device)
-        let isNearby = device.lastRSSI.map { $0 >= AppSettings.shared.effectiveAwayThreshold } ?? false
+        // Same answer the alarm logic uses (hysteresis, debounce, BT cooldown)
+        let isNearby = bluetoothManager.isNearby(device)
 
         return HStack(spacing: Theme.Spacing.md) {
             // Device icon
