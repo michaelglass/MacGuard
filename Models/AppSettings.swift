@@ -139,6 +139,18 @@ enum CountdownDuration: Int, CaseIterable, Identifiable {
     var label: String { self == .immediate ? "Immediately" : "\(rawValue) seconds" }
 }
 
+/// Delay between arming and monitoring starting, so the owner can walk away
+/// (and so the keystroke that locked the screen is not an intrusion).
+enum ExitDelay: Int, CaseIterable, Identifiable {
+    case s1 = 1, s5 = 5, s10 = 10, s30 = 30
+
+    static let `default` = ExitDelay.s1
+
+    var id: Int { rawValue }
+    var seconds: TimeInterval { TimeInterval(rawValue) }
+    var label: String { rawValue == 1 ? "1 second" : "\(rawValue) seconds" }
+}
+
 /// How long all trusted devices must stay away before auto-arming.
 enum GracePeriod: Int, CaseIterable, Identifiable {
     case s5 = 5, s10 = 10, s15 = 15, s30 = 30, s60 = 60
@@ -177,6 +189,10 @@ class AppSettings: ObservableObject {
     @AppStorage("proximityDistance") private var proximityDistanceRaw: String = ProximityDistance.medium.rawValue
     @AppStorage("customDetectionRange") var customDetectionRange: Int = -65  // Single value, hysteresis auto-calculated
     @AppStorage("autoArmOnDeviceLeave") var autoArmOnDeviceLeave: Bool = false
+    @AppStorage("exitDelay") private var exitDelayRaw: Int = ExitDelay.default.rawValue
+    @AppStorage("usbTriggerEnabled") var usbTriggerEnabled: Bool = true
+    @AppStorage("networkTriggerEnabled") var networkTriggerEnabled: Bool = false
+    @AppStorage("autoArmOnScreenLock") var autoArmOnScreenLock: Bool = false
     @AppStorage("autoArmGracePeriod") private var autoArmGracePeriodRaw: Int = GracePeriod.default.rawValue
     @AppStorage("autoArmMode") private var autoArmModeRaw: String = AutoArmMode.allDevicesAway.rawValue
 
@@ -184,6 +200,12 @@ class AppSettings: ObservableObject {
     var countdownDuration: CountdownDuration {
         get { CountdownDuration(rawValue: countdownDurationRaw) ?? .default }
         set { countdownDurationRaw = newValue.rawValue }
+    }
+
+    /// Exit delay (parsed from the stored integer)
+    var exitDelay: ExitDelay {
+        get { ExitDelay(rawValue: exitDelayRaw) ?? .default }
+        set { exitDelayRaw = newValue.rawValue }
     }
 
     /// Auto-arm grace period (parsed from the stored integer)

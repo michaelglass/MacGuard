@@ -17,12 +17,18 @@ final class AlarmMachineTests: XCTestCase {
         devices: Bool = true,
         any: Bool = false,
         all: Bool = false,
-        stable: Bool = true
+        stable: Bool = true,
+        usb: Bool = true,
+        network: Bool = false,
+        lockArms: Bool = false,
+        exitDelay: ExitDelay = .s1
     ) -> AlarmEnvironment {
         AlarmEnvironment(
             countdown: Countdown(seconds: countdown), autoLockOnArm: autoLock,
             autoArmEnabled: autoArm, autoArmMode: mode, hasTrustedDevices: devices,
-            anyTrustedDeviceNearby: any, allTrustedDevicesNearby: all, bluetoothStable: stable
+            anyTrustedDeviceNearby: any, allTrustedDevicesNearby: all, bluetoothStable: stable,
+            usbTriggerEnabled: usb, networkTriggerEnabled: network,
+            autoArmOnScreenLock: lockArms, exitDelay: exitDelay
         )
     }
 
@@ -35,7 +41,7 @@ final class AlarmMachineTests: XCTestCase {
     func testArmEntersArmingSynchronously() {
         let (state, effects) = step(.idle, .armRequested(auto: false))
         XCTAssertEqual(state, .arming(manual))
-        XCTAssertEqual(effects, [.closeConfigWindows, .prepareAudio, .scheduleArmingDelay])
+        XCTAssertEqual(effects, [.closeConfigWindows, .prepareAudio, .scheduleArmingDelay(.s1)])
     }
 
     func testArmLocksScreenOnlyWhenConfigured() {
@@ -199,5 +205,53 @@ final class AlarmMachineTests: XCTestCase {
         for required: AlarmEffect in [.stopCountdownTimer, .stopMonitors, .stopAlarm, .hideOverlay] {
             XCTAssertTrue(effects.contains(required), "\(required)")
         }
+    }
+
+    // MARK: Exit delay
+
+    func testExitDelayIsPropagatedToTheShell() {
+        let effects = step(.idle, .armRequested(auto: false), env(exitDelay: .s30)).effects
+        XCTAssertTrue(effects.contains(.scheduleArmingDelay(.s30)))
+    }
+
+    // MARK: Optional triggers
+
+    func testUSBAttachIntrudesOnlyWhenEnabled() throws {
+        let usb = TriggerCause.usbDeviceAttached(name: "Flash Drive")
+        XCTAssertEqual(step(.armed(manual), .intrusion(usb), env(usb: true)).state,
+                       .triggered(manual, try XCTUnwrap(Countdown(seconds: 3)), usb))
+        XCTAssertEqual(step(.armed(manual), .intrusion(usb), env(usb: false)).state, .armed(manual))
+    }
+
+    func testNetworkChangeIntrudesOnlyWhenEnabled() {
+        XCTAssertEqual(step(.armed(manual), .intrusion(.networkChanged), env(network: false)).state, .armed(manual))
+        XCTAssertEqual(step(.armed(manual), .intrusion(.networkChanged), env(network: true)).state.phase, .triggered)
+    }
+
+    func testOptionalTriggersIgnoredWhenNotArmed() {
+        for state: AlarmState in [.idle, .arming(manual)] {
+            XCTAssertEqual(step(state, .intrusion(.usbDeviceAttached(name: "x")), env(usb: true)).state, state)
+            XCTAssertEqual(step(state, .intrusion(.networkChanged), env(network: true)).state, state)
+        }
+    }
+
+    func testCoreTriggersCannotBeDisabledBySensorSettings() {
+        let off = env(usb: false, network: false)
+        XCTAssertEqual(step(.armed(manual), .intrusion(key), off).state.phase, .triggered)
+        XCTAssertEqual(step(.armed(manual), .intrusion(.powerDisconnected), off).state.phase, .triggered)
+    }
+
+    // MARK: Screen lock
+
+    func testScreenLockArmsOnlyWhenEnabledAndIdle() {
+        XCTAssertEqual(step(.idle, .screenLocked, env(lockArms: true)).state, .arming(manual))
+        XCTAssertEqual(step(.idle, .screenLocked, env(lockArms: false)).state, .idle)
+        XCTAssertEqual(step(.armed(left), .screenLocked, env(lockArms: true)).state, .armed(left))
+    }
+
+    func testScreenLockArmingUsesManualArmSemantics() {
+        // The owner locked with devices present: their presence must not disarm
+        let armed = step(.arming(manual), .inputMonitoringStarted(true)).state
+        XCTAssertEqual(step(armed, .systemWoke, env(any: true)).state, armed)
     }
 }

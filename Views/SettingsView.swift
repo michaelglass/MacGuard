@@ -97,6 +97,7 @@ struct SettingsView: View {
                 // Behavior Section
                 Section {
                     behaviorSection
+                    TriggerSettingsView()
                 } header: {
                     Label("Behavior", systemImage: "gearshape.2")
                 }

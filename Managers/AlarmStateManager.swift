@@ -15,6 +15,9 @@ class AlarmStateManager: ObservableObject {
 
     @Published private(set) var state: AlarmState = .idle
     @Published var hasAccessibilityPermission = false
+    /// When monitoring starts during `.arming` (display only; the machine
+    /// still decides via `.armingDelayElapsed`).
+    @Published private(set) var armingDeadline: Date?
 
     // MARK: - Public Managers (for UI access)
 
@@ -31,6 +34,11 @@ class AlarmStateManager: ObservableObject {
     private let inputMonitor = InputMonitor()
     private let sleepMonitor = SleepMonitor()
     private let powerMonitor = PowerMonitor()
+    private let usbMonitor = USBMonitor()
+    private let networkMonitor = NetworkMonitor()
+    /// Pending exit-delay callback; cancelled on reschedule and stand-down so
+    /// a stale delay can never arm a later arming session early.
+    private var armingDelayWork: DispatchWorkItem?
     private let overlayController = CountdownWindowController()
     private var eventSinks: [(AlarmEvent) -> Void] = []
 
@@ -40,9 +48,19 @@ class AlarmStateManager: ObservableObject {
         inputMonitor.delegate = self
         sleepMonitor.delegate = self
         powerMonitor.delegate = self
+        usbMonitor.delegate = self
+        networkMonitor.delegate = self
         bluetoothManager.delegate = self
         checkPermissions()
         startPermissionPolling()
+
+        // Screen lock is an idle-time signal (auto-arm), so it is always observed;
+        // the machine decides whether it arms.
+        DistributedNotificationCenter.default().addObserver(
+            forName: Notification.Name("com.apple.screenIsLocked"), object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.send(.screenLocked) }
+        }
 
         // Forward bluetoothManager changes to trigger view updates
         bluetoothManager.objectWillChange
@@ -108,7 +126,11 @@ class AlarmStateManager: ObservableObject {
             hasTrustedDevices: !bluetoothManager.trustedDevices.isEmpty,
             anyTrustedDeviceNearby: bluetoothManager.isTrustedDeviceNearby(),
             allTrustedDevicesNearby: bluetoothManager.areAllDevicesNearby,
-            bluetoothStable: bluetoothManager.isBluetoothStable
+            bluetoothStable: bluetoothManager.isBluetoothStable,
+            usbTriggerEnabled: settings.usbTriggerEnabled,
+            networkTriggerEnabled: settings.networkTriggerEnabled,
+            autoArmOnScreenLock: settings.autoArmOnScreenLock,
+            exitDelay: settings.exitDelay
         )
     }
 
@@ -180,11 +202,16 @@ class AlarmStateManager: ObservableObject {
             PINSetupWindowController.shared.close()
             TrustedDevicesConfigWindowController.shared.close()
             DeviceScannerWindowController.shared.close()
-        case .scheduleArmingDelay:
-            // Start monitors after a delay to avoid capturing the lock keystroke
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+        case .scheduleArmingDelay(let delay):
+            // Start monitors after the exit delay (also avoids capturing the lock keystroke)
+            armingDelayWork?.cancel()
+            let work = DispatchWorkItem { [weak self] in
+                self?.armingDeadline = nil
                 self?.send(.armingDelayElapsed)
             }
+            armingDelayWork = work
+            armingDeadline = Date().addingTimeInterval(delay.seconds)
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay.seconds, execute: work)
         case .startInputMonitoring:
             let started = inputMonitor.startMonitoring()
             hasAccessibilityPermission = started
@@ -192,10 +219,17 @@ class AlarmStateManager: ObservableObject {
         case .startSystemMonitors:
             sleepMonitor.startMonitoring()
             powerMonitor.startMonitoring()
+            usbMonitor.startMonitoring()
+            networkMonitor.startMonitoring()
             bluetoothManager.startScanning()
             bluetoothManager.setArmedState(true)
         case .stopMonitors:
+            armingDelayWork?.cancel()
+            armingDelayWork = nil
+            armingDeadline = nil
             inputMonitor.stopMonitoring()
+            usbMonitor.stopMonitoring()
+            networkMonitor.stopMonitoring()
             sleepMonitor.stopMonitoring()
             powerMonitor.stopMonitoring()
             bluetoothManager.setArmedState(false)
@@ -326,6 +360,28 @@ extension AlarmStateManager: PowerMonitorDelegate {
             case .ac:
                 ActivityLogManager.shared.log(.power, "Power cable connected")
             }
+        }
+    }
+}
+
+// MARK: - USBMonitorDelegate
+
+extension AlarmStateManager: USBMonitorDelegate {
+    nonisolated func usbDeviceAttached(name: String) {
+        Task { @MainActor in
+            ActivityLogManager.shared.log(.input, "USB device attached: \(name)")
+            self.send(.intrusion(.usbDeviceAttached(name: name)))
+        }
+    }
+}
+
+// MARK: - NetworkMonitorDelegate
+
+extension AlarmStateManager: NetworkMonitorDelegate {
+    nonisolated func networkChanged() {
+        Task { @MainActor in
+            ActivityLogManager.shared.log(.system, "Network links changed")
+            self.send(.intrusion(.networkChanged))
         }
     }
 }
