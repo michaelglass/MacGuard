@@ -102,6 +102,8 @@ struct SettingsView: View {
                 }
                 .disabled(isLocked)
 
+                IntruderPhotoSettingsView(camera: .shared).disabled(isLocked)
+
                 // Startup Section
                 Section {
                     LaunchAtLoginToggle()
