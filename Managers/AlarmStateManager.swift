@@ -161,6 +161,12 @@ class AlarmStateManager: ObservableObject {
         return result
     }
 
+    /// Clear the event log - only while idle, so the record of an intrusion survives.
+    func clearActivityLog() {
+        guard state == .idle else { return }
+        ActivityLogManager.shared.clear()
+    }
+
     // MARK: - Effects
 
     private func perform(_ effect: AlarmEffect) {
