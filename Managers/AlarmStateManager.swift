@@ -359,24 +359,11 @@ class AlarmStateManager: ObservableObject {
 // MARK: - InputMonitorDelegate
 
 extension AlarmStateManager: InputMonitorDelegate {
-    nonisolated func inputDetected(eventType: CGEventType) {
+    nonisolated func inputDetected(_ input: IntrusionInput) {
         Task { @MainActor in
             guard case .armed = self.state else { return }
 
-            // Log event type
-            let eventName: String
-            switch eventType {
-            case .keyDown: eventName = "keyboard"
-            case .flagsChanged: eventName = "modifier key"
-            case .leftMouseDown, .rightMouseDown, .otherMouseDown: eventName = "mouse click"
-            case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged: eventName = "mouse drag"
-            case .mouseMoved: eventName = "mouse move"
-            case .scrollWheel: eventName = "scroll/touchpad"
-            case _ where eventType.rawValue == InputMonitor.systemDefinedEventRawValue:
-                eventName = "media/system key"
-            default: eventName = "unknown"
-            }
-            ActivityLogManager.shared.log(.input, "Input detected: \(eventName)")
+            ActivityLogManager.shared.log(.input, "Input detected: \(input.label)")
 
             self.trigger()
         }
@@ -411,18 +398,17 @@ extension AlarmStateManager: SleepMonitorDelegate {
 // MARK: - PowerMonitorDelegate
 
 extension AlarmStateManager: PowerMonitorDelegate {
-    nonisolated func powerCableDisconnected() {
+    nonisolated func powerSourceChanged(to source: PowerSource) {
         Task { @MainActor in
-            guard case .armed = self.state else { return }
-            // Power disconnect = start countdown
-            ActivityLogManager.shared.log(.power, "Power cable disconnected - starting countdown")
-            self.trigger()
-        }
-    }
-
-    nonisolated func powerCableConnected() {
-        Task { @MainActor in
-            ActivityLogManager.shared.log(.power, "Power cable connected")
+            switch source {
+            case .battery:
+                guard case .armed = self.state else { return }
+                // Power disconnect = start countdown
+                ActivityLogManager.shared.log(.power, "Power cable disconnected - starting countdown")
+                self.trigger()
+            case .ac:
+                ActivityLogManager.shared.log(.power, "Power cable connected")
+            }
         }
     }
 }

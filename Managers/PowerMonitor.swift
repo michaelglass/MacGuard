@@ -5,12 +5,15 @@
 import Foundation
 import IOKit.ps
 
+/// Where the Mac is drawing power from.
+enum PowerSource: Equatable {
+    case ac, battery
+}
+
 /// Protocol for receiving power state change events
 protocol PowerMonitorDelegate: AnyObject {
-    /// Called when power cable is disconnected
-    func powerCableDisconnected()
-    /// Called when power cable is connected
-    func powerCableConnected()
+    /// Called only on a change, never with the source it was already on
+    func powerSourceChanged(to source: PowerSource)
 }
 
 /// Monitors power cable connect/disconnect events
@@ -18,7 +21,7 @@ class PowerMonitor {
     weak var delegate: PowerMonitorDelegate?
 
     private var runLoopSource: CFRunLoopSource?
-    private var wasOnACPower = true
+    private var lastSource: PowerSource = .ac
     private var isMonitoring = false
 
     // MARK: - Logging Helper
@@ -36,7 +39,7 @@ class PowerMonitor {
         guard !isMonitoring else { return }
 
         // Check initial state
-        wasOnACPower = isOnACPower()
+        lastSource = currentSource()
 
         // Create power source notification callback
         let context = UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque())
@@ -74,34 +77,30 @@ class PowerMonitor {
     /// Asks which source is *providing* power. Reading the state of the first
     /// listed source instead could pick an attached UPS, which reports
     /// "AC Power" even after the laptop's own cable is pulled.
-    func isOnACPower() -> Bool {
+    func currentSource() -> PowerSource {
         guard let snapshot = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
               let providing = IOPSGetProvidingPowerSourceType(snapshot)?.takeUnretainedValue() else {
-            return true // Assume AC if unknown
+            return .ac // Assume AC if unknown
         }
-        return (providing as String) == kIOPSACPowerValue
+        return (providing as String) == kIOPSACPowerValue ? .ac : .battery
+    }
+
+    /// The source to report for a power notification, or `nil` when nothing
+    /// changed (IOKit also notifies on battery-level changes).
+    static func transition(from previous: PowerSource, to current: PowerSource) -> PowerSource? {
+        current == previous ? nil : current
     }
 
     // MARK: - Private
 
     private func handlePowerSourceChange() {
-        let isAC = isOnACPower()
+        guard let source = Self.transition(from: lastSource, to: currentSource()) else { return }
+        lastSource = source
 
-        if wasOnACPower && !isAC {
-            // Power cable disconnected
-            log(.power, "Power cable disconnected")
-            DispatchQueue.main.async {
-                self.delegate?.powerCableDisconnected()
-            }
-        } else if !wasOnACPower && isAC {
-            // Power cable connected
-            log(.power, "Power cable connected")
-            DispatchQueue.main.async {
-                self.delegate?.powerCableConnected()
-            }
+        log(.power, source == .ac ? "Power cable connected" : "Power cable disconnected")
+        DispatchQueue.main.async {
+            self.delegate?.powerSourceChanged(to: source)
         }
-
-        wasOnACPower = isAC
     }
 
     deinit {
