@@ -31,17 +31,27 @@ class InputMonitor {
         }
     }
 
+    /// NX_SYSDEFINED: media, volume, brightness and other special keys.
+    /// Not a named `CGEventType` case, so it is matched by raw value.
+    static let systemDefinedEventRawValue: UInt32 = 14
+
     // Event types to monitor
     private static let eventMask: CGEventMask = {
         let types: [CGEventType] = [
             .keyDown,
+            .flagsChanged,          // modifier-only presses (⌘, ⌥, fn, ...)
             .leftMouseDown,
             .rightMouseDown,
             .otherMouseDown,
+            .leftMouseDragged,
+            .rightMouseDragged,
+            .otherMouseDragged,
             .mouseMoved,
             .scrollWheel
         ]
-        return types.reduce(0) { $0 | (1 << $1.rawValue) }
+        let named = types.reduce(CGEventMask(0)) { $0 | (CGEventMask(1) << $1.rawValue) }
+        // Without this, pressing mute or volume-down while armed went unnoticed
+        return named | (CGEventMask(1) << systemDefinedEventRawValue)
     }()
 
     // MARK: - Permission Check
@@ -68,6 +78,11 @@ class InputMonitor {
         }
 
         guard !isMonitoring else { return true }
+
+        // The tap's source is added to the current run loop, so the callback
+        // runs on the main thread. `lastEventTime` relies on that: it is
+        // read and written from the callback without synchronisation.
+        dispatchPrecondition(condition: .onQueue(.main))
 
         // Create event tap callback
         let callback: CGEventTapCallBack = { proxy, type, event, refcon -> Unmanaged<CGEvent>? in
@@ -133,6 +148,10 @@ class InputMonitor {
 
         if let tap = eventTap {
             CGEvent.tapEnable(tap: tap, enable: false)
+            // Invalidate so the window server drops the tap now rather than
+            // whenever the port is deallocated; the callback holds an
+            // unretained pointer to self.
+            CFMachPortInvalidate(tap)
         }
 
         if let source = runLoopSource {

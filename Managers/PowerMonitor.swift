@@ -47,7 +47,8 @@ class PowerMonitor {
             monitor.handlePowerSourceChange()
         }, context).takeRetainedValue()
 
-        CFRunLoopAddSource(CFRunLoopGetCurrent(), runLoopSource, .defaultMode)
+        // Common modes: still delivered while a menu or modal is tracking
+        CFRunLoopAddSource(CFRunLoopGetCurrent(), runLoopSource, .commonModes)
         isMonitoring = true
 
         log(.power, "Started monitoring power state")
@@ -58,7 +59,7 @@ class PowerMonitor {
         guard isMonitoring else { return }
 
         if let source = runLoopSource {
-            CFRunLoopRemoveSource(CFRunLoopGetCurrent(), source, .defaultMode)
+            CFRunLoopRemoveSource(CFRunLoopGetCurrent(), source, .commonModes)
             runLoopSource = nil
         }
 
@@ -70,20 +71,15 @@ class PowerMonitor {
 
     /// Check if currently on AC power
     /// - Returns: true if on AC power, false if on battery
+    /// Asks which source is *providing* power. Reading the state of the first
+    /// listed source instead could pick an attached UPS, which reports
+    /// "AC Power" even after the laptop's own cable is pulled.
     func isOnACPower() -> Bool {
         guard let snapshot = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
-              let sources = IOPSCopyPowerSourcesList(snapshot)?.takeRetainedValue() as? [CFTypeRef] else {
+              let providing = IOPSGetProvidingPowerSourceType(snapshot)?.takeUnretainedValue() else {
             return true // Assume AC if unknown
         }
-
-        for source in sources {
-            if let info = IOPSGetPowerSourceDescription(snapshot, source)?.takeUnretainedValue() as? [String: Any],
-               let powerSource = info[kIOPSPowerSourceStateKey as String] as? String {
-                return powerSource == kIOPSACPowerValue as String
-            }
-        }
-
-        return true
+        return (providing as String) == kIOPSACPowerValue
     }
 
     // MARK: - Private

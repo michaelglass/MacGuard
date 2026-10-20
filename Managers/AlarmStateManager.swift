@@ -367,9 +367,13 @@ extension AlarmStateManager: InputMonitorDelegate {
             let eventName: String
             switch eventType {
             case .keyDown: eventName = "keyboard"
+            case .flagsChanged: eventName = "modifier key"
             case .leftMouseDown, .rightMouseDown, .otherMouseDown: eventName = "mouse click"
+            case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged: eventName = "mouse drag"
             case .mouseMoved: eventName = "mouse move"
             case .scrollWheel: eventName = "scroll/touchpad"
+            case _ where eventType.rawValue == InputMonitor.systemDefinedEventRawValue:
+                eventName = "media/system key"
             default: eventName = "unknown"
             }
             ActivityLogManager.shared.log(.input, "Input detected: \(eventName)")
