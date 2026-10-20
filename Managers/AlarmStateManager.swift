@@ -103,6 +103,9 @@ class AlarmStateManager: ObservableObject {
         // arm() or a disarm() used to be overridden by the delayed block below.
         state = .arming(ArmSession(trustedDeviceHasLeft: isAutoArm))
 
+        // Config windows opened while idle must not stay editable once armed
+        PINSetupWindowController.shared.close()
+
         // Pre-load audio for instant playback
         audioManager.prepare()
 

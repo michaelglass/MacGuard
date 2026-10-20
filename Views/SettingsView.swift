@@ -10,6 +10,11 @@ struct SettingsView: View {
     @ObservedObject var alarmManager: AlarmStateManager
     @ObservedObject private var settings = AppSettings.shared
 
+    /// Configuration is read-only unless idle: while armed, anyone a trusted
+    /// device lets past the trigger could otherwise lower the volume, change
+    /// the PIN or remove devices without authenticating.
+    private var isLocked: Bool { alarmManager.state != .idle }
+
     var body: some View {
         VStack(spacing: 0) {
             // Modern header with animated top bar
@@ -18,6 +23,12 @@ struct SettingsView: View {
             Divider()
 
             Form {
+                if isLocked {
+                    Label("Disarm to change settings", systemImage: "lock.fill")
+                        .font(.callout)
+                        .foregroundColor(.secondary)
+                }
+
                 // Permissions Section
                 Section {
                     permissionRow(
@@ -72,6 +83,7 @@ struct SettingsView: View {
                         }
                     }
                 }
+                .disabled(isLocked)
 
                 // Security Section
                 Section {
@@ -80,6 +92,7 @@ struct SettingsView: View {
                 } header: {
                     Label("Security", systemImage: "lock.fill")
                 }
+                .disabled(isLocked)
 
                 // Behavior Section
                 Section {
@@ -87,6 +100,7 @@ struct SettingsView: View {
                 } header: {
                     Label("Behavior", systemImage: "gearshape.2")
                 }
+                .disabled(isLocked)
 
                 // Startup Section
                 Section {
@@ -94,6 +108,7 @@ struct SettingsView: View {
                 } header: {
                     Label("Startup", systemImage: "power")
                 }
+                .disabled(isLocked)
 
                 // Event Log Section
                 Section {
@@ -234,7 +249,7 @@ struct SettingsView: View {
 
     private func simpleTrustedDeviceRow(_ device: TrustedDevice) -> some View {
         let connectionStatus = alarmManager.bluetoothManager.connectionStatus(for: device)
-        let isNearby = device.lastRSSI.map { $0 >= AppSettings.shared.effectiveAwayThreshold } ?? false
+        let isNearby = alarmManager.bluetoothManager.isNearby(device)
 
         return HStack(spacing: Theme.Spacing.md) {
             Image(systemName: device.icon)
@@ -297,12 +312,12 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundColor(Theme.StateColor.armed)
                 Button("Change") {
-                    PINSetupWindowController.shared.show(authManager: alarmManager.authManager)
+                    PINSetupWindowController.shared.show(alarmManager: alarmManager)
                 }
                 .buttonStyle(GlassSecondaryButtonStyle())
             } else {
                 Button("Set PIN") {
-                    PINSetupWindowController.shared.show(authManager: alarmManager.authManager)
+                    PINSetupWindowController.shared.show(alarmManager: alarmManager)
                 }
                 .buttonStyle(GlassBorderedProminentButtonStyle(tint: Theme.Accent.primary))
             }
@@ -543,6 +558,7 @@ struct SettingsView: View {
 
 // MARK: - PIN Setup Window Controller
 
+@MainActor
 class PINSetupWindowController: NSObject, NSWindowDelegate {
     static let shared = PINSetupWindowController()
 
@@ -554,8 +570,9 @@ class PINSetupWindowController: NSObject, NSWindowDelegate {
         super.init()
     }
 
-    func show(authManager: AuthManager) {
-        viewModel.authManager = authManager
+    func show(alarmManager: AlarmStateManager) {
+        guard alarmManager.state == .idle else { return }
+        viewModel.alarmManager = alarmManager
         viewModel.pin = ""
         viewModel.confirmPIN = ""
         viewModel.showError = false
@@ -576,6 +593,11 @@ class PINSetupWindowController: NSObject, NSWindowDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
             self?.focusFirstTextField()
         }
+    }
+
+    /// Close without saving (used when arming).
+    func close() {
+        window?.close()
     }
 
     private func createWindow() {
@@ -630,7 +652,7 @@ class PINSetupWindowController: NSObject, NSWindowDelegate {
 }
 
 class PINSetupViewModel: ObservableObject {
-    var authManager: AuthManager?
+    weak var alarmManager: AlarmStateManager?
     @Published var pin = ""
     @Published var confirmPIN = ""
     @Published var showError = false
@@ -690,7 +712,14 @@ struct PINSetupContainerView: View {
             return
         }
 
-        if viewModel.authManager?.savePIN(pin) == true {
+        // Re-checked at save time: the window may have been open when arming.
+        guard let alarmManager = viewModel.alarmManager, alarmManager.state == .idle else {
+            viewModel.errorMessage = "Disarm to change the PIN"
+            viewModel.showError = true
+            return
+        }
+
+        if alarmManager.authManager.savePIN(pin) {
             onDismiss()
         } else {
             viewModel.errorMessage = "Failed to save PIN"
