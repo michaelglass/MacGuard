@@ -74,7 +74,7 @@ struct CountdownOverlayView: View {
                 .tracking(alarmManager.state.phase == .alarming ? 4 : 2)
 
             // Countdown ring (triggered state)
-            if case .triggered(_, let countdown) = alarmManager.state {
+            if case .triggered(_, let countdown, _) = alarmManager.state {
                 countdownRing(countdown)
 
                 Text("Authenticate to disarm")

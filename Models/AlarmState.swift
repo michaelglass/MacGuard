@@ -47,15 +47,15 @@ enum AlarmState: Equatable {
     /// Theft mode ON, monitoring for unauthorized input
     case armed(ArmSession)
     /// Intrusion detected, countdown active before alarm
-    case triggered(ArmSession, Countdown)
+    case triggered(ArmSession, Countdown, TriggerCause)
     /// Alarm is actively playing
-    case alarming(ArmSession)
+    case alarming(ArmSession, TriggerCause)
 
     /// The session for every state except `.idle`.
     var session: ArmSession? {
         switch self {
         case .idle: return nil
-        case .arming(let s), .armed(let s), .triggered(let s, _), .alarming(let s): return s
+        case .arming(let s), .armed(let s), .triggered(let s, _, _), .alarming(let s, _): return s
         }
     }
 
@@ -65,8 +65,8 @@ enum AlarmState: Equatable {
         case .idle: return self
         case .arming(var s): update(&s); return .arming(s)
         case .armed(var s): update(&s); return .armed(s)
-        case .triggered(var s, let c): update(&s); return .triggered(s, c)
-        case .alarming(var s): update(&s); return .alarming(s)
+        case .triggered(var s, let c, let cause): update(&s); return .triggered(s, c, cause)
+        case .alarming(var s, let cause): update(&s); return .alarming(s, cause)
         }
     }
 

@@ -84,7 +84,7 @@ struct MenuBarView: View {
             armingView
         case .armed:
             armedView
-        case .triggered(_, let countdown):
+        case .triggered(_, let countdown, _):
             triggeredView(countdown)
         case .alarming:
             alarmingView

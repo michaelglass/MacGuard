@@ -49,15 +49,15 @@ final class AlarmStateTests: XCTestCase {
 
     func testUpdatingSessionKeepsCaseAndCountdown() throws {
         let countdown = try XCTUnwrap(Countdown(seconds: 5))
-        let updated = AlarmState.triggered(manual, countdown)
+        let updated = AlarmState.triggered(manual, countdown, .lidClosed)
             .updatingSession { $0.trustedDeviceHasLeft = true }
-        XCTAssertEqual(updated, .triggered(ArmSession(trustedDeviceHasLeft: true), countdown))
+        XCTAssertEqual(updated, .triggered(ArmSession(trustedDeviceHasLeft: true), countdown, .lidClosed))
     }
 
     func testPhaseIgnoresPayload() throws {
         let countdown = try XCTUnwrap(Countdown(seconds: 5))
         XCTAssertEqual(AlarmState.arming(manual).phase, .arming)
-        XCTAssertEqual(AlarmState.triggered(manual, countdown).phase, .triggered)
-        XCTAssertEqual(AlarmState.alarming(manual).phase, .alarming)
+        XCTAssertEqual(AlarmState.triggered(manual, countdown, .powerDisconnected).phase, .triggered)
+        XCTAssertEqual(AlarmState.alarming(manual, .lidClosed).phase, .alarming)
     }
 }
