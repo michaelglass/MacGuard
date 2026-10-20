@@ -89,13 +89,6 @@ class AuthManager: ObservableObject {
 
     private var throttle = PINThrottle()
 
-    // MARK: - Logging Helper
-
-    private func log(_ category: ActivityLogCategory, _ message: String) {
-        Task { @MainActor in
-            ActivityLogManager.shared.log(category, message)
-        }
-    }
 
     // MARK: - Initialization
 
@@ -113,7 +106,7 @@ class AuthManager: ObservableObject {
         hasBiometrics = context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error)
 
         if let error = error {
-            log(.system, "Biometrics not available: \(error.localizedDescription)")
+            logActivity(.system, "Biometrics not available: \(error.localizedDescription)")
         }
     }
 
@@ -152,9 +145,9 @@ class AuthManager: ObservableObject {
         hasPIN = status == errSecSuccess
 
         if hasPIN {
-            log(.system, "PIN saved to Keychain")
+            logActivity(.system, "PIN saved to Keychain")
         } else {
-            log(.system, "Failed to save PIN: \(status)")
+            logActivity(.system, "Failed to save PIN: \(status)")
         }
 
         return hasPIN
@@ -191,7 +184,7 @@ class AuthManager: ObservableObject {
         }
 
         let until = throttle.recordFailure(at: now)
-        log(.system, "Incorrect PIN (attempt \(throttle.failedAttempts))")
+        logActivity(.system, "Incorrect PIN (attempt \(throttle.failedAttempts))")
         return until.map { .lockedOut(until: $0) } ?? .rejected
     }
 
@@ -213,7 +206,7 @@ class AuthManager: ObservableObject {
         let status = SecItemDelete(query as CFDictionary)
         if status == errSecSuccess || status == errSecItemNotFound {
             hasPIN = false
-            log(.system, "PIN deleted from Keychain")
+            logActivity(.system, "PIN deleted from Keychain")
             return true
         }
         return false

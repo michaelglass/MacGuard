@@ -64,7 +64,8 @@ class DeviceScannerWindowController: NSObject, NSWindowDelegate {
         window = newWindow
     }
 
-    private func close() {
+    func close() {
+        guard window?.isVisible == true else { return }
         viewModel.stopScanning()
         window?.orderOut(nil)
         refocusParent()
@@ -128,7 +129,7 @@ class DeviceScannerViewModel: NSObject, ObservableObject {
             )
 
             discoveredDevices.append(device)
-            Task { @MainActor in ActivityLogManager.shared.log(.bluetooth, "Paired device: \(name) (addr: \(ioDevice.addressString ?? "?"), connected: \(ioDevice.isConnected()))") }
+            logActivity(.bluetooth, "Paired device: \(name) (addr: \(ioDevice.addressString ?? "?"), connected: \(ioDevice.isConnected()))")
         }
 
         // Sort by connection status, then by signal strength
@@ -146,7 +147,7 @@ class DeviceScannerViewModel: NSObject, ObservableObject {
 
         // A Classic device without an address could never be detected
         guard let transport = device.transport else {
-            Task { @MainActor in ActivityLogManager.shared.log(.bluetooth, "Cannot trust \(device.name): no BLE match and no Bluetooth address") }
+            logActivity(.bluetooth, "Cannot trust \(device.name): no BLE match and no Bluetooth address")
             return
         }
         let trustedDevice = TrustedDevice(id: device.trustedID, name: device.name, transport: transport)
@@ -154,7 +155,7 @@ class DeviceScannerViewModel: NSObject, ObservableObject {
         // Add device via BluetoothProximityManager
         let added = bluetoothManager.addTrustedDevice(trustedDevice)
         if added {
-            Task { @MainActor in ActivityLogManager.shared.log(.bluetooth, "Added device: \(device.name) (classic: \(device.isClassicBluetooth))") }
+            logActivity(.bluetooth, "Added device: \(device.name) (classic: \(device.isClassicBluetooth))")
         }
     }
 
@@ -194,7 +195,7 @@ extension DeviceScannerViewModel: CBCentralManagerDelegate {
                 withServices: nil,
                 options: [CBCentralManagerScanOptionAllowDuplicatesKey: false]
             )
-            Task { @MainActor in ActivityLogManager.shared.log(.bluetooth, "Started BLE scanning to identify device types") }
+            logActivity(.bluetooth, "Started BLE scanning to identify device types")
         }
     }
 
@@ -220,11 +221,11 @@ extension DeviceScannerViewModel: CBCentralManagerDelegate {
                 // Exactly one peripheral advertises this name: track it via BLE RSSI
                 device.blePeripheralID = peripheral.identifier
                 device.rssi = RSSI.intValue
-                Task { @MainActor in ActivityLogManager.shared.log(.bluetooth, "Device \(name) found via BLE, UUID: \(peripheral.identifier)") }
+                logActivity(.bluetooth, "Device \(name) found via BLE, UUID: \(peripheral.identifier)")
             } else if device.blePeripheralID != nil {
                 // Another peripheral claims the same name: refuse to guess
                 device.blePeripheralID = nil
-                Task { @MainActor in ActivityLogManager.shared.log(.bluetooth, "Multiple BLE peripherals named \(name) - keeping Classic tracking") }
+                logActivity(.bluetooth, "Multiple BLE peripherals named \(name) - keeping Classic tracking")
             }
             discoveredDevices[index] = device
         }

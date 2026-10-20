@@ -45,7 +45,7 @@ class AlarmStateManager: ObservableObject {
         startPermissionPolling()
 
         // Forward bluetoothManager changes to trigger view updates
-        bluetoothManager.$trustedDevices
+        bluetoothManager.objectWillChange
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 self?.objectWillChange.send()
@@ -172,6 +172,8 @@ class AlarmStateManager: ObservableObject {
         case .closeConfigWindows:
             // Config windows opened while idle must not stay editable once armed
             PINSetupWindowController.shared.close()
+            TrustedDevicesConfigWindowController.shared.close()
+            DeviceScannerWindowController.shared.close()
         case .scheduleArmingDelay:
             // Start monitors after a delay to avoid capturing the lock keystroke
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
@@ -210,9 +212,9 @@ class AlarmStateManager: ObservableObject {
             countdownTimer = nil
         case .startAutoArmTimer:
             autoArmTimer?.invalidate()
-            let delay = AppSettings.shared.autoArmGracePeriod
-            ActivityLogManager.shared.log(.system, "Auto-arm timer started (\(delay)s grace period)")
-            autoArmTimer = scheduleOnMain(every: TimeInterval(delay), repeats: false) { $0.send(.autoArmTimerFired) }
+            let grace = AppSettings.shared.autoArmGracePeriod
+            ActivityLogManager.shared.log(.system, "Auto-arm timer started (\(grace.rawValue)s grace period)")
+            autoArmTimer = scheduleOnMain(every: grace.seconds, repeats: false) { $0.send(.autoArmTimerFired) }
         case .cancelAutoArmTimer(let reason):
             if autoArmTimer != nil {
                 ActivityLogManager.shared.log(.system, reason ?? "Auto-arm timer cancelled")

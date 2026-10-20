@@ -13,26 +13,25 @@ enum ProximityDistance: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    /// RSSI threshold for device presence (signal stronger than this = nearby)
-    /// For custom, returns a default - actual value comes from AppSettings
-    var presentThreshold: Int {
+    /// Hysteresis band for this distance. Total: `.custom` derives its band
+    /// from the (clamped) user range instead of returning a placeholder.
+    func thresholds(customDetectionRange: Int) -> ProximityThresholds {
         switch self {
-        case .near: return -60
-        case .medium: return -70
-        case .far: return -80
-        case .custom: return -70  // Default, overridden by AppSettings
+        case .near: return ProximityThresholds(present: -60, away: -70)
+        case .medium: return ProximityThresholds(present: -70, away: -80)
+        case .far: return ProximityThresholds(present: -80, away: -95)
+        case .custom:
+            // Hysteresis: nearby 5 dBm stronger, away 5 dBm weaker than the range
+            let center = Self.clampedCustomRange(customDetectionRange)
+            return ProximityThresholds(present: center + 5, away: center - 5)
         }
     }
 
-    /// RSSI threshold for device away (signal weaker than this = away)
-    /// For custom, returns a default - actual value comes from AppSettings
-    var awayThreshold: Int {
-        switch self {
-        case .near: return -70
-        case .medium: return -80
-        case .far: return -95
-        case .custom: return -80  // Default, overridden by AppSettings
-        }
+    /// Range the custom-distance slider offers (dBm).
+    static let customRange: ClosedRange<Int> = -100 ... -55
+
+    static func clampedCustomRange(_ raw: Int) -> Int {
+        min(max(raw, customRange.lowerBound), customRange.upperBound)
     }
 
     /// Human-readable description
@@ -140,6 +139,17 @@ enum CountdownDuration: Int, CaseIterable, Identifiable {
     var label: String { self == .immediate ? "Immediately" : "\(rawValue) seconds" }
 }
 
+/// How long all trusted devices must stay away before auto-arming.
+enum GracePeriod: Int, CaseIterable, Identifiable {
+    case s5 = 5, s10 = 10, s15 = 15, s30 = 30, s60 = 60
+
+    static let `default` = GracePeriod.s15
+
+    var id: Int { rawValue }
+    var seconds: TimeInterval { TimeInterval(rawValue) }
+    var label: String { "\(rawValue) sec" }
+}
+
 /// Alarm volume, always within `range` (a near-silent alarm is not offered).
 struct AlarmVolume: Equatable {
     static let range: ClosedRange<Double> = 0.5...1.0
@@ -155,13 +165,6 @@ struct AlarmVolume: Equatable {
 class AppSettings: ObservableObject {
     static let shared = AppSettings()
 
-    // MARK: - Logging Helper
-
-    private func log(_ category: ActivityLogCategory, _ message: String) {
-        Task { @MainActor in
-            ActivityLogManager.shared.log(category, message)
-        }
-    }
 
     // MARK: - Published Settings
 
@@ -174,13 +177,19 @@ class AppSettings: ObservableObject {
     @AppStorage("proximityDistance") private var proximityDistanceRaw: String = ProximityDistance.medium.rawValue
     @AppStorage("customDetectionRange") var customDetectionRange: Int = -65  // Single value, hysteresis auto-calculated
     @AppStorage("autoArmOnDeviceLeave") var autoArmOnDeviceLeave: Bool = false
-    @AppStorage("autoArmGracePeriod") var autoArmGracePeriod: Int = 15
+    @AppStorage("autoArmGracePeriod") private var autoArmGracePeriodRaw: Int = GracePeriod.default.rawValue
     @AppStorage("autoArmMode") private var autoArmModeRaw: String = AutoArmMode.allDevicesAway.rawValue
 
     /// Countdown before the alarm (parsed from the stored integer)
     var countdownDuration: CountdownDuration {
         get { CountdownDuration(rawValue: countdownDurationRaw) ?? .default }
         set { countdownDurationRaw = newValue.rawValue }
+    }
+
+    /// Auto-arm grace period (parsed from the stored integer)
+    var autoArmGracePeriod: GracePeriod {
+        get { GracePeriod(rawValue: autoArmGracePeriodRaw) ?? .default }
+        set { autoArmGracePeriodRaw = newValue.rawValue }
     }
 
     /// Alarm volume, clamped on read so the core never sees an out-of-range value
@@ -207,22 +216,9 @@ class AppSettings: ObservableObject {
         }
     }
 
-    /// Effective present threshold (considers custom setting)
-    /// Hysteresis: nearby threshold is 5 dBm stronger than the detection range
-    var effectivePresentThreshold: Int {
-        if proximityDistance == .custom {
-            return customDetectionRange + 5  // Stronger signal = nearby
-        }
-        return proximityDistance.presentThreshold
-    }
-
-    /// Effective away threshold (considers custom setting)
-    /// Hysteresis: away threshold is 5 dBm weaker than the detection range
-    var effectiveAwayThreshold: Int {
-        if proximityDistance == .custom {
-            return customDetectionRange - 5  // Weaker signal = away
-        }
-        return proximityDistance.awayThreshold
+    /// RSSI hysteresis band for the selected distance
+    var proximityThresholds: ProximityThresholds {
+        proximityDistance.thresholds(customDetectionRange: customDetectionRange)
     }
 
     /// Lid close protection with pmset control
@@ -255,10 +251,10 @@ class AppSettings: ObservableObject {
         if let scriptObject = NSAppleScript(source: script) {
             scriptObject.executeAndReturnError(&error)
             if error == nil {
-                log(.system, "disablesleep enabled")
+                logActivity(.system, "disablesleep enabled")
                 return true
             } else {
-                log(.system, "Failed to enable disablesleep: \(error ?? [:])")
+                logActivity(.system, "Failed to enable disablesleep: \(error ?? [:])")
             }
         }
         return false
@@ -274,9 +270,9 @@ class AppSettings: ObservableObject {
         if let scriptObject = NSAppleScript(source: script) {
             scriptObject.executeAndReturnError(&error)
             if error == nil {
-                log(.system, "disablesleep disabled")
+                logActivity(.system, "disablesleep disabled")
             } else {
-                log(.system, "Failed to disable disablesleep: \(error ?? [:])")
+                logActivity(.system, "Failed to disable disablesleep: \(error ?? [:])")
             }
         }
     }
@@ -294,7 +290,7 @@ class AppSettings: ObservableObject {
         if let scriptObject = NSAppleScript(source: script) {
             scriptObject.executeAndReturnError(&error)
             if error == nil {
-                log(.system, "disablesleep reset on app exit")
+                logActivity(.system, "disablesleep reset on app exit")
             }
         }
         _lidCloseProtection = false

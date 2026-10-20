@@ -22,13 +22,6 @@ class AlarmAudioManager: ObservableObject {
     private var isPrepared = false
     private var targetVolume: Float = 1.0
 
-    // MARK: - Logging Helper
-
-    private func log(_ category: ActivityLogCategory, _ message: String) {
-        Task { @MainActor in
-            ActivityLogManager.shared.log(category, message)
-        }
-    }
 
     // MARK: - Preparation
 
@@ -45,9 +38,9 @@ class AlarmAudioManager: ObservableObject {
                 audioPlayer?.volume = 1.0
                 audioPlayer?.prepareToPlay()
                 isPrepared = true
-                log(.alarm, "Audio pre-loaded and ready")
+                logActivity(.alarm, "Audio pre-loaded and ready")
             } catch {
-                log(.alarm, "Failed to pre-load audio: \(error)")
+                logActivity(.alarm, "Failed to pre-load audio: \(error)")
             }
         }
     }
@@ -58,7 +51,7 @@ class AlarmAudioManager: ObservableObject {
             audioPlayer?.stop()
             audioPlayer = nil
             isPrepared = false
-            log(.alarm, "Audio released")
+            logActivity(.alarm, "Audio released")
         }
     }
 
@@ -75,7 +68,7 @@ class AlarmAudioManager: ObservableObject {
 
         // Save original volume
         originalVolume = outputVolume()
-        log(.alarm, "Saved original volume: \(originalVolume.map { String($0) } ?? "unknown")")
+        logActivity(.alarm, "Saved original volume: \(originalVolume.map { String($0) } ?? "unknown")")
 
         // Store target volume for enforcement
         targetVolume = Float(settings.alarmVolume)
@@ -93,13 +86,13 @@ class AlarmAudioManager: ObservableObject {
         if isPrepared, let player = audioPlayer {
             player.play()
             isPlaying = true
-            log(.alarm, "Playing alarm sound (pre-loaded)")
+            logActivity(.alarm, "Playing alarm sound (pre-loaded)")
         } else if let soundPath = settings.effectiveSoundPath,
            FileManager.default.fileExists(atPath: soundPath) {
             playAudioFile(URL(fileURLWithPath: soundPath))
         } else {
             // Fallback to system beep
-            log(.alarm, "Alarm sound not found, using system beep")
+            logActivity(.alarm, "Alarm sound not found, using system beep")
             playSystemAlert()
         }
     }
@@ -125,7 +118,7 @@ class AlarmAudioManager: ObservableObject {
         // Restore original output device
         restoreOutputDevice()
 
-        log(.alarm, "Alarm stopped")
+        logActivity(.alarm, "Alarm stopped")
     }
 
     // MARK: - Volume Enforcement
@@ -136,7 +129,7 @@ class AlarmAudioManager: ObservableObject {
         volumeEnforcementTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { [weak self] _ in
             self?.enforceVolume()
         }
-        log(.alarm, "Volume enforcement started")
+        logActivity(.alarm, "Volume enforcement started")
     }
 
     private func stopVolumeEnforcement() {
@@ -151,12 +144,12 @@ class AlarmAudioManager: ObservableObject {
         if outputMuted() == true {
             unmuteSpeaker()
             setSystemVolume(targetVolume)
-            log(.alarm, "Mute blocked - volume restored")
+            logActivity(.alarm, "Mute blocked - volume restored")
         }
 
         if let current = outputVolume(), current < targetVolume - 0.05 {
             setSystemVolume(targetVolume)
-            log(.alarm, "Volume restored from \(Int(current * 100))% to \(Int(targetVolume * 100))%")
+            logActivity(.alarm, "Volume restored from \(Int(current * 100))% to \(Int(targetVolume * 100))%")
         }
     }
 
@@ -170,9 +163,9 @@ class AlarmAudioManager: ObservableObject {
             audioPlayer?.prepareToPlay() // Pre-load audio buffers
             audioPlayer?.play()
             isPlaying = true
-            log(.alarm, "Playing alarm sound")
+            logActivity(.alarm, "Playing alarm sound")
         } catch {
-            log(.alarm, "Failed to play alarm: \(error)")
+            logActivity(.alarm, "Failed to play alarm: \(error)")
             playSystemAlert()
         }
     }
@@ -191,7 +184,7 @@ class AlarmAudioManager: ObservableObject {
             var address = outputAddress(kAudioDevicePropertyVolumeScalar, element)
             AudioObjectSetPropertyData(device, &address, 0, nil, UInt32(MemoryLayout<Float32>.size), &value)
         }
-        log(.alarm, "Set volume to \(Int(value * 100))%")
+        logActivity(.alarm, "Set volume to \(Int(value * 100))%")
     }
 
     private func unmuteSpeaker() {
@@ -260,12 +253,12 @@ class AlarmAudioManager: ObservableObject {
         if builtInSpeakerID != 0 && builtInSpeakerID != originalOutputDeviceID {
             setDefaultOutputDevice(builtInSpeakerID)
             shouldRestoreOutputDevice = true
-            log(.alarm, "Switched from device \(originalOutputDeviceID) to built-in speaker \(builtInSpeakerID)")
+            logActivity(.alarm, "Switched from device \(originalOutputDeviceID) to built-in speaker \(builtInSpeakerID)")
         } else if builtInSpeakerID == originalOutputDeviceID {
-            log(.alarm, "Already using built-in speaker")
+            logActivity(.alarm, "Already using built-in speaker")
             shouldRestoreOutputDevice = false
         } else {
-            log(.alarm, "Could not find built-in speaker, using current device")
+            logActivity(.alarm, "Could not find built-in speaker, using current device")
             shouldRestoreOutputDevice = false
         }
     }
@@ -274,7 +267,7 @@ class AlarmAudioManager: ObservableObject {
     private func restoreOutputDevice() {
         guard shouldRestoreOutputDevice, originalOutputDeviceID != 0 else { return }
         setDefaultOutputDevice(originalOutputDeviceID)
-        log(.alarm, "Restored output device to \(originalOutputDeviceID)")
+        logActivity(.alarm, "Restored output device to \(originalOutputDeviceID)")
         shouldRestoreOutputDevice = false
     }
 
@@ -298,7 +291,7 @@ class AlarmAudioManager: ObservableObject {
         )
 
         if status != noErr {
-            log(.alarm, "Failed to get default output device: \(status)")
+            logActivity(.alarm, "Failed to get default output device: \(status)")
         }
         return deviceID
     }
@@ -322,7 +315,7 @@ class AlarmAudioManager: ObservableObject {
         )
 
         if status != noErr {
-            log(.alarm, "Failed to set output device: \(status)")
+            logActivity(.alarm, "Failed to set output device: \(status)")
         }
     }
 
@@ -344,7 +337,7 @@ class AlarmAudioManager: ObservableObject {
         )
 
         guard status == noErr else {
-            log(.alarm, "Failed to get devices size: \(status)")
+            logActivity(.alarm, "Failed to get devices size: \(status)")
             return 0
         }
 
@@ -361,7 +354,7 @@ class AlarmAudioManager: ObservableObject {
         )
 
         guard status == noErr else {
-            log(.alarm, "Failed to get devices: \(status)")
+            logActivity(.alarm, "Failed to get devices: \(status)")
             return 0
         }
 
@@ -402,7 +395,7 @@ class AlarmAudioManager: ObservableObject {
 
         let isBuiltIn = transportType == kAudioDeviceTransportTypeBuiltIn
         if isBuiltIn {
-            log(.alarm, "Found built-in speaker: device ID \(deviceID)")
+            logActivity(.alarm, "Found built-in speaker: device ID \(deviceID)")
         }
         return isBuiltIn
     }

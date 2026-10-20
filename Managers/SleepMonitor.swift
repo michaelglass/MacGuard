@@ -28,13 +28,6 @@ class SleepMonitor {
     private var lidStateTimer: Timer?
     private var lastLidClosed = false
 
-    // MARK: - Logging Helper
-
-    private func log(_ category: ActivityLogCategory, _ message: String) {
-        Task { @MainActor in
-            ActivityLogManager.shared.log(category, message)
-        }
-    }
 
     // MARK: - Monitoring
 
@@ -65,7 +58,7 @@ class SleepMonitor {
         )
 
         isMonitoring = true
-        log(.system, "Started monitoring sleep events")
+        logActivity(.system, "Started monitoring sleep events")
     }
 
     /// Stop monitoring sleep/wake events
@@ -77,7 +70,7 @@ class SleepMonitor {
         allowSleep()
 
         isMonitoring = false
-        log(.system, "Stopped monitoring sleep events")
+        logActivity(.system, "Stopped monitoring sleep events")
     }
 
     // MARK: - Lid State Monitoring (IOKit)
@@ -86,7 +79,7 @@ class SleepMonitor {
     private func startLidStateMonitoring() {
         // Get initial state
         lastLidClosed = isLidClosed()
-        log(.system, "Lid state monitoring started (closed: \(lastLidClosed))")
+        logActivity(.system, "Lid state monitoring started (closed: \(lastLidClosed))")
 
         // Poll every 1.0 second for lid state changes (reduced from 0.5s to lower CPU)
         // 1.0s is still responsive for physical lid close action
@@ -110,11 +103,11 @@ class SleepMonitor {
 
         if currentClosed && !lastLidClosed {
             // Lid just closed
-            log(.system, "Lid closed detected (IOKit)")
+            logActivity(.system, "Lid closed detected (IOKit)")
             delegate?.lidWillClose()
         } else if !currentClosed && lastLidClosed {
             // Lid just opened
-            log(.system, "Lid opened detected (IOKit)")
+            logActivity(.system, "Lid opened detected (IOKit)")
             delegate?.systemDidWake()
         }
 
@@ -149,14 +142,14 @@ class SleepMonitor {
     // MARK: - Event Handlers
 
     @objc private func willSleep(_ notification: Notification) {
-        log(.system, "Lid closing / sleep initiated")
+        logActivity(.system, "Lid closing / sleep initiated")
         // Note: caffeinate already running from startMonitoring()
         // Notify delegate immediately
         delegate?.lidWillClose()
     }
 
     @objc private func didWake(_ notification: Notification) {
-        log(.system, "System woke from sleep")
+        logActivity(.system, "System woke from sleep")
 
         allowSleep()
         delegate?.systemDidWake()
@@ -184,7 +177,7 @@ class SleepMonitor {
 
         if sleepSuccess == kIOReturnSuccess {
             sleepAssertionID = sleepID
-            log(.system, "System sleep prevented (IOPMAssertion)")
+            logActivity(.system, "System sleep prevented (IOPMAssertion)")
         }
 
         // 3. Prevent display sleep
@@ -198,11 +191,11 @@ class SleepMonitor {
 
         if displaySuccess == kIOReturnSuccess {
             displayAssertionID = displayID
-            log(.system, "Display sleep prevented")
+            logActivity(.system, "Display sleep prevented")
         }
 
         isDelayingSleep = true
-        log(.system, "Sleep prevention active while armed")
+        logActivity(.system, "Sleep prevention active while armed")
     }
 
     /// Start caffeinate process to prevent sleep (runs until terminated)
@@ -218,9 +211,9 @@ class SleepMonitor {
         do {
             try process.run()
             caffeinateProcess = process
-            log(.system, "Caffeinate started (preventing sleep while armed)")
+            logActivity(.system, "Caffeinate started (preventing sleep while armed)")
         } catch {
-            log(.system, "Failed to start caffeinate: \(error)")
+            logActivity(.system, "Failed to start caffeinate: \(error)")
         }
     }
 
@@ -228,7 +221,7 @@ class SleepMonitor {
     private func stopCaffeinate() {
         if let process = caffeinateProcess, process.isRunning {
             process.terminate()
-            log(.system, "Caffeinate stopped")
+            logActivity(.system, "Caffeinate stopped")
         }
         caffeinateProcess = nil
     }
@@ -250,7 +243,7 @@ class SleepMonitor {
         }
 
         isDelayingSleep = false
-        log(.system, "Sleep allowed")
+        logActivity(.system, "Sleep allowed")
     }
 
     deinit {

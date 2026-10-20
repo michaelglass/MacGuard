@@ -60,7 +60,8 @@ class TrustedDevicesConfigWindowController: NSObject, NSWindowDelegate {
         window = newWindow
     }
 
-    private func close() {
+    func close() {
+        guard window?.isVisible == true else { return }
         window?.orderOut(nil)
         refocusParent()
     }
@@ -322,11 +323,9 @@ struct TrustedDevicesConfigContainerView: View {
                     Text("Grace period")
                     Spacer()
                     Picker("", selection: $settings.autoArmGracePeriod) {
-                        Text("5 sec").tag(5)
-                        Text("10 sec").tag(10)
-                        Text("15 sec").tag(15)
-                        Text("30 sec").tag(30)
-                        Text("60 sec").tag(60)
+                        ForEach(GracePeriod.allCases) { period in
+                            Text(period.label).tag(period)
+                        }
                     }
                     .pickerStyle(.menu)
                     .frame(width: 100)
@@ -378,7 +377,7 @@ struct TrustedDevicesConfigContainerView: View {
                             get: { Double(settings.customDetectionRange) },
                             set: { settings.customDetectionRange = Int($0) }
                         ),
-                        in: -100...(-55),
+                        in: Double(ProximityDistance.customRange.lowerBound)...Double(ProximityDistance.customRange.upperBound),
                         step: 5
 
                     )
@@ -432,9 +431,9 @@ struct TrustedDevicesConfigContainerView: View {
         .glassBorder(cornerRadius: Theme.CornerRadius.md)
     }
 
-    /// User-friendly range description based on awayThreshold (slider - 5)
+    /// User-friendly range description based on the effective away threshold
     private var rangeDescription: String {
-        let awayThreshold = settings.customDetectionRange - 5  // Actual detection threshold
+        let awayThreshold = settings.proximityThresholds.away
         if awayThreshold >= -70 { return "\(settings.customDetectionRange)dBm [~1-2m (Near)]" }
         if awayThreshold >= -80 { return "\(settings.customDetectionRange)dBm [~3-5m (Medium)]" }
         if awayThreshold >= -95 { return "\(settings.customDetectionRange)dBm [~7-10m (Far)]" }

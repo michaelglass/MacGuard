@@ -19,3 +19,21 @@ final class SettingsParsingTests: XCTestCase {
         XCTAssertEqual(AlarmVolume(clamping: .nan).value, 1.0)
     }
 }
+
+final class ProximityDistanceTests: XCTestCase {
+    func testEveryDistanceHasAProperBand() {
+        for distance in ProximityDistance.allCases {
+            for raw in [-200, -100, -65, -55, 0] {
+                let band = distance.thresholds(customDetectionRange: raw)
+                XCTAssertGreaterThan(band.present, band.away, "\(distance) @ \(raw)")
+            }
+        }
+    }
+
+    func testCustomRangeIsClampedToTheSliderRange() {
+        XCTAssertEqual(ProximityDistance.custom.thresholds(customDetectionRange: 0),
+                       ProximityThresholds(present: -50, away: -60))
+        XCTAssertEqual(ProximityDistance.custom.thresholds(customDetectionRange: -500),
+                       ProximityThresholds(present: -95, away: -105))
+    }
+}

@@ -24,13 +24,6 @@ class PowerMonitor {
     private var lastSource: PowerSource = .ac
     private var isMonitoring = false
 
-    // MARK: - Logging Helper
-
-    private func log(_ category: ActivityLogCategory, _ message: String) {
-        Task { @MainActor in
-            ActivityLogManager.shared.log(category, message)
-        }
-    }
 
     // MARK: - Monitoring
 
@@ -54,7 +47,7 @@ class PowerMonitor {
         CFRunLoopAddSource(CFRunLoopGetCurrent(), runLoopSource, .commonModes)
         isMonitoring = true
 
-        log(.power, "Started monitoring power state")
+        logActivity(.power, "Started monitoring power state")
     }
 
     /// Stop monitoring power state changes
@@ -67,7 +60,7 @@ class PowerMonitor {
         }
 
         isMonitoring = false
-        log(.power, "Stopped monitoring power state")
+        logActivity(.power, "Stopped monitoring power state")
     }
 
     // MARK: - Power State
@@ -97,7 +90,7 @@ class PowerMonitor {
         guard let source = Self.transition(from: lastSource, to: currentSource()) else { return }
         lastSource = source
 
-        log(.power, source == .ac ? "Power cable connected" : "Power cable disconnected")
+        logActivity(.power, source == .ac ? "Power cable connected" : "Power cable disconnected")
         DispatchQueue.main.async {
             self.delegate?.powerSourceChanged(to: source)
         }

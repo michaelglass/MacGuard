@@ -792,7 +792,7 @@ enum LaunchAtLoginManager {
                     try SMAppService.mainApp.unregister()
                 }
             } catch {
-                Task { @MainActor in ActivityLogManager.shared.log(.system, "Failed to update launch at login: \(error)") }
+                logActivity(.system, "Failed to update launch at login: \(error)")
             }
         }
     }
