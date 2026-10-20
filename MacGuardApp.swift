@@ -10,6 +10,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     /// Owned here (not by the SwiftUI scene) so termination can consult it.
     let alarmManager = AlarmStateManager()
 
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        // Opt-in remote notifications (all channels off by default)
+        alarmManager.onEvent(NotificationDispatcher.shared.handle)
+    }
+
     /// While the overlay is up the app is a regular, frontmost app with an
     /// app menu, so ⌘Q would otherwise silence the alarm without authentication.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
