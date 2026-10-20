@@ -72,9 +72,6 @@ class BluetoothProximityManager: NSObject, ObservableObject {
     private let btStabilityWindow: TimeInterval = 300.0  // 5 min window
     private let btStabilityThreshold: Int = 3  // 3+ changes = unstable
 
-    /// Published state for UI binding (derived from isBluetoothStable)
-    @Published var isBluetoothUnstable: Bool = false
-
     // Dynamic debounce for low power mode
     private var effectiveBleDebounce: TimeInterval {
         ProcessInfo.processInfo.isLowPowerModeEnabled ? 15.0 : 5.0
@@ -112,11 +109,6 @@ class BluetoothProximityManager: NSObject, ObservableObject {
     }
 
     // MARK: - Computed Properties
-
-    /// Backward compatibility: returns first trusted device
-    var trustedDevice: TrustedDevice? {
-        trustedDevices.first
-    }
 
     /// ALL devices away = away (for auto-arm logic)
     var areAllDevicesAway: Bool {
@@ -247,17 +239,6 @@ class BluetoothProximityManager: NSObject, ObservableObject {
         disconnectAllPeripherals()
         isDeviceNearby = false
         log(.bluetooth, "Removed all trusted devices")
-    }
-
-    /// Backward compatibility: remove the single device (removes all)
-    func removeTrustedDevice() {
-        removeAllTrustedDevices()
-    }
-
-    /// Reload trusted devices from UserDefaults (called after external update)
-    func reloadTrustedDevices() {
-        loadTrustedDevices()
-        startScanningIfNeeded()
     }
 
     private func loadTrustedDevices() {
@@ -552,9 +533,16 @@ class BluetoothProximityManager: NSObject, ObservableObject {
         isDeviceNearby = deviceProximityStates.values.contains(true)
     }
 
-    /// Check if any trusted device is currently nearby
+    /// Whether any trusted device is nearby, as evidence the owner is present.
+    /// During the BT recovery cooldown proximity states are *assumed* nearby
+    /// (to avoid false auto-arm), not observed, so they vouch for nobody.
     func isTrustedDeviceNearby() -> Bool {
-        isDeviceNearby
+        isDeviceNearby && !isInRecoveryCooldown
+    }
+
+    /// Whether every trusted device is nearby (same evidence rule as above).
+    var areAllDevicesNearby: Bool {
+        !trustedDevices.isEmpty && !isInRecoveryCooldown && trustedDevices.allSatisfy(isNearby)
     }
 
     /// Check if a specific device is nearby
@@ -631,8 +619,7 @@ extension BluetoothProximityManager: CBCentralManagerDelegate {
             btStateChangeCount = 1
             btStateChangeWindowStart = Date()
         }
-        isBluetoothUnstable = btStateChangeCount >= btStabilityThreshold
-        if isBluetoothUnstable {
+        if btStateChangeCount >= btStabilityThreshold {
             log(.bluetooth, "BT unstable - \(btStateChangeCount) state changes in \(Int(btStabilityWindow))s window")
         }
 

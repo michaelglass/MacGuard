@@ -24,7 +24,7 @@ struct CountdownOverlayView: View {
                 LinearGradient(
                     stops: [
                         .init(color: .black.opacity(0.60), location: 0.0),
-                        .init(color: .black.opacity(alarmManager.state == .alarming ? 0.40 : 0.50), location: 1.0)
+                        .init(color: .black.opacity(alarmManager.state.phase == .alarming ? 0.40 : 0.50), location: 1.0)
                     ],
                     startPoint: .top,
                     endPoint: .bottom
@@ -32,7 +32,7 @@ struct CountdownOverlayView: View {
                 .ignoresSafeArea()
 
                 // Pulsing background circle for alarm state - centered and fixed
-                if alarmManager.state == .alarming {
+                if alarmManager.state.phase == .alarming {
                     Circle()
                         .fill(Theme.StateColor.alarming.opacity(pulseOpacity))
                         .frame(width: 350, height: 350)
@@ -50,10 +50,10 @@ struct CountdownOverlayView: View {
             // Auto-trigger Touch ID when overlay appears (alarming state)
             autoTriggerBiometrics()
         }
-        .onChange(of: alarmManager.state) { newState in
+        .onChange(of: alarmManager.state.phase) { newPhase in
             startAnimations()
             // Reset auto-auth flag when state changes
-            if newState == .alarming {
+            if newPhase == .alarming {
                 hasAttemptedAutoAuth = false
                 autoTriggerBiometrics()
             }
@@ -71,11 +71,11 @@ struct CountdownOverlayView: View {
             Text(titleText)
                 .font(.system(size: 28, weight: .bold, design: .rounded))
                 .foregroundStyle(.white)
-                .tracking(alarmManager.state == .alarming ? 4 : 2)
+                .tracking(alarmManager.state.phase == .alarming ? 4 : 2)
 
             // Countdown ring (triggered state)
-            if alarmManager.state == .triggered {
-                countdownRing
+            if case .triggered(_, let countdown) = alarmManager.state {
+                countdownRing(countdown)
 
                 Text("Authenticate to disarm")
                     .font(.body)
@@ -124,7 +124,7 @@ struct CountdownOverlayView: View {
 
     // MARK: - Countdown Ring
 
-    private var countdownRing: some View {
+    private func countdownRing(_ countdown: Countdown) -> some View {
         ZStack {
             // Background ring
             Circle()
@@ -133,7 +133,7 @@ struct CountdownOverlayView: View {
 
             // Progress ring
             Circle()
-                .trim(from: 0, to: ringProgress)
+                .trim(from: 0, to: countdown.progress)
                 .stroke(
                     LinearGradient(
                         colors: [Theme.StateColor.alarming, Theme.StateColor.triggered],
@@ -144,54 +144,49 @@ struct CountdownOverlayView: View {
                 )
                 .frame(width: 160, height: 160)
                 .rotationEffect(.degrees(-90))
-                .animation(.linear(duration: 1), value: ringProgress)
+                .animation(.linear(duration: 1), value: countdown.progress)
 
             // Countdown number
-            Text("\(alarmManager.countdownSeconds)")
+            Text("\(countdown.remaining)")
                 .font(.system(size: 72, weight: .bold, design: .rounded))
                 .foregroundStyle(.white)
         }
     }
 
-    private var ringProgress: CGFloat {
-        guard AppSettings.shared.countdownDuration > 0 else { return 0 }
-        return CGFloat(alarmManager.countdownSeconds) / CGFloat(AppSettings.shared.countdownDuration)
-    }
 
     // MARK: - Auth Buttons
 
     private var authButtons: some View {
         VStack(spacing: Theme.Spacing.lg) {
-            // Touch ID button (if available)
-            if alarmManager.authManager.hasBiometrics {
-                Button(action: authenticateWithBiometrics) {
-                    HStack(spacing: Theme.Spacing.md) {
-                        Image(systemName: "touchid")
-                            .font(.title2)
-                        Text("Touch ID")
-                            .font(.headline)
-                    }
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, Theme.Spacing.xxl)
-                    .padding(.vertical, Theme.Spacing.lg)
-                    .contentShape(Capsule())
+            // Touch ID / password button (always available, so a Mac without
+            // Touch ID and without a PIN can still be disarmed)
+            Button(action: authenticateWithSystem) {
+                HStack(spacing: Theme.Spacing.md) {
+                    Image(systemName: alarmManager.authManager.hasBiometrics ? "touchid" : "key.fill")
+                        .font(.title2)
+                    Text(alarmManager.authManager.hasBiometrics ? "Touch ID" : "Password")
+                        .font(.headline)
                 }
-                .buttonStyle(.plain)
-                .background {
-                    Capsule()
-                        .fill(.clear)
-                        .background(
-                            VisualEffectView(
-                                material: .hudWindow,
-                                blendingMode: .withinWindow,
-                                isEmphasized: true
-                            )
-                        )
-                        .clipShape(Capsule())
-                }
-                .glassCapsuleBorder(prominent: true)
+                .foregroundStyle(.white)
+                .padding(.horizontal, Theme.Spacing.xxl)
+                .padding(.vertical, Theme.Spacing.lg)
                 .contentShape(Capsule())
             }
+            .buttonStyle(.plain)
+            .background {
+                Capsule()
+                    .fill(.clear)
+                    .background(
+                        VisualEffectView(
+                            material: .hudWindow,
+                            blendingMode: .withinWindow,
+                            isEmphasized: true
+                        )
+                    )
+                    .clipShape(Capsule())
+            }
+            .glassCapsuleBorder(prominent: true)
+            .contentShape(Capsule())
 
             // PIN button
             if alarmManager.authManager.hasPIN {
@@ -228,15 +223,15 @@ struct CountdownOverlayView: View {
     // MARK: - Computed Properties
 
     private var iconName: String {
-        alarmManager.state == .alarming ? "bell.badge.waveform.fill" : "exclamationmark.shield.fill"
+        alarmManager.state.phase == .alarming ? "bell.badge.waveform.fill" : "exclamationmark.shield.fill"
     }
 
     private var iconColor: Color {
-        alarmManager.state == .alarming ? Theme.StateColor.alarming : Theme.StateColor.triggered
+        alarmManager.state.phase == .alarming ? Theme.StateColor.alarming : Theme.StateColor.triggered
     }
 
     private var titleText: String {
-        alarmManager.state == .alarming ? "ALARM ACTIVE" : "UNAUTHORIZED ACCESS"
+        alarmManager.state.phase == .alarming ? "ALARM ACTIVE" : "UNAUTHORIZED ACCESS"
     }
 
     // MARK: - Animations
@@ -244,11 +239,11 @@ struct CountdownOverlayView: View {
     private func startAnimations() {
         // Icon pulse animation
         withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
-            iconScale = alarmManager.state == .alarming ? 1.15 : 1.05
+            iconScale = alarmManager.state.phase == .alarming ? 1.15 : 1.05
         }
 
         // Background pulse for alarm state
-        if alarmManager.state == .alarming {
+        if alarmManager.state.phase == .alarming {
             withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
                 pulseOpacity = 0.6
                 pulseScale = 1.1
@@ -258,9 +253,9 @@ struct CountdownOverlayView: View {
 
     // MARK: - Actions
 
-    private func authenticateWithBiometrics() {
-        alarmManager.attemptBiometricDisarm { success in
-            if !success {
+    private func authenticateWithSystem() {
+        alarmManager.requestDisarm { success in
+            if !success && alarmManager.authManager.hasPIN {
                 withAnimation { showPINEntry = true }
             }
         }
@@ -270,14 +265,14 @@ struct CountdownOverlayView: View {
     private func autoTriggerBiometrics() {
         // Only auto-trigger once per alarm cycle and if biometrics available
         guard !hasAttemptedAutoAuth,
-              alarmManager.state == .alarming,
+              alarmManager.state.phase == .alarming,
               alarmManager.authManager.hasBiometrics else { return }
 
         hasAttemptedAutoAuth = true
 
         // Small delay to ensure UI is ready
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            authenticateWithBiometrics()
+            authenticateWithSystem()
         }
     }
 }
@@ -288,7 +283,7 @@ struct PINOverlay: View {
     @ObservedObject var alarmManager: AlarmStateManager
 
     @State private var pin = ""
-    @State private var showError = false
+    @State private var errorText: String?
     @State private var shakeOffset: CGFloat = 0
 
     var body: some View {
@@ -313,10 +308,10 @@ struct PINOverlay: View {
                 .offset(x: shakeOffset)
 
             // Error message
-            if showError {
+            if let errorText {
                 HStack(spacing: Theme.Spacing.xs) {
                     Image(systemName: "xmark.circle.fill")
-                    Text("Incorrect PIN")
+                    Text(errorText)
                 }
                 .font(.system(.callout, design: .rounded))
                 .foregroundStyle(Theme.StateColor.alarming)
@@ -354,24 +349,30 @@ struct PINOverlay: View {
     }
 
     private func validate() {
-        if alarmManager.attemptPINDisarm(pin) {
+        switch alarmManager.attemptPINDisarm(pin) {
+        case .accepted:
             withAnimation { isPresented = false }
-        } else {
-            showError = true
-            pin = ""
-            // Shake animation
+            return
+        case .rejected:
+            errorText = "Incorrect PIN"
+        case .lockedOut(let until):
+            errorText = "Too many attempts - try again \(until.formatted(.relative(presentation: .named)))"
+        case .noPINConfigured:
+            errorText = "No PIN configured"
+        }
+        pin = ""
+        // Shake animation
+        withAnimation(.default.speed(2)) {
+            shakeOffset = -10
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             withAnimation(.default.speed(2)) {
-                shakeOffset = -10
+                shakeOffset = 10
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                withAnimation(.default.speed(2)) {
-                    shakeOffset = 10
-                }
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                withAnimation(.default.speed(2)) {
-                    shakeOffset = 0
-                }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            withAnimation(.default.speed(2)) {
+                shakeOffset = 0
             }
         }
     }
