@@ -152,6 +152,11 @@ class AlarmStateManager: ObservableObject {
         }
     }
 
+    /// A previous instance was killed while armed: come back sounding.
+    func resumeAfterTamper(_ session: ArmSession) {
+        send(.resumeAfterTamper(session))
+    }
+
     /// Try a PIN, disarming on success.
     func attemptPINDisarm(_ pin: String) -> PINVerification {
         let result = authManager.verifyPIN(pin)
@@ -227,6 +232,10 @@ class AlarmStateManager: ObservableObject {
             ActivityLogManager.shared.log(category, message)
         case .emit(let event):
             eventSinks.forEach { $0(event) }
+        case .persistArmedMarker(let session):
+            TamperGuard.shared.persist(session)
+        case .clearArmedMarker:
+            TamperGuard.shared.clear()
         }
     }
 

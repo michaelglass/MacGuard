@@ -58,6 +58,10 @@ if [ -d "$SPARKLE_FRAMEWORK" ]; then
     install_name_tool -add_rpath "@executable_path/../Frameworks" "$APP_BUNDLE/Contents/MacOS/$APP_NAME" 2>/dev/null || true
 fi
 
+# Tamper watchdog launch agent (registered at runtime via SMAppService.agent)
+mkdir -p "$APP_BUNDLE/Contents/Library/LaunchAgents"
+cp LaunchAgents/com.shenglong.macguard.watchdog.plist "$APP_BUNDLE/Contents/Library/LaunchAgents/"
+
 # Copy resources - bundle goes in Contents/Resources for code signing
 RESOURCE_BUNDLE="$BUILD_DIR/${APP_NAME}_${APP_NAME}.bundle"
 if [ -d "$RESOURCE_BUNDLE" ]; then

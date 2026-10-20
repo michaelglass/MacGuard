@@ -9,12 +9,15 @@ enum TriggerCause: Equatable {
     case input(IntrusionInput)
     case powerDisconnected
     case lidClosed
+    /// MacGuard was killed or crashed while not idle and came back
+    case tamper
 
     var label: String {
         switch self {
         case .input(let input): return input.label
         case .powerDisconnected: return "power cable disconnected"
         case .lidClosed: return "lid closed"
+        case .tamper: return "MacGuard was terminated while armed"
         }
     }
 }
@@ -46,6 +49,8 @@ enum AlarmInput {
     case allTrustedDevicesAway
     case systemWoke
     case autoArmTimerFired
+    /// Launch found the armed marker of a process that died while armed.
+    case resumeAfterTamper(ArmSession)
 }
 
 /// Snapshot of parsed settings and proximity *evidence* the machine decides on.
@@ -81,6 +86,9 @@ enum AlarmEffect: Equatable {
     case resumeIdleScanning
     case log(ActivityLogCategory, String)
     case emit(AlarmEvent)
+    /// Record that this session is armed, so a killed process is detectable.
+    case persistArmedMarker(ArmSession)
+    case clearArmedMarker
 }
 
 /// The alarm's decision logic as a pure function. No timers, singletons or
@@ -104,6 +112,7 @@ enum AlarmMachine {
 
         case (.arming(let session), .inputMonitoringStarted(true)):
             return (.armed(session), [
+                .persistArmedMarker(session),
                 .startSystemMonitors,
                 .log(.armed, "System armed - monitoring active"),
                 .emit(.armed(auto: session.trustedDeviceHasLeft)),
@@ -176,6 +185,12 @@ enum AlarmMachine {
             }
             return (state, [.log(.system, "System woke from sleep")])
 
+        // Killed while armed: come back sounding. The marker is re-written so
+        // a second kill is caught too.
+        case (.idle, .resumeAfterTamper(let session)):
+            let (next, effects) = soundAlarm(session, .tamper, "Restarted after being terminated while armed - ALARM ACTIVE", overlay: true)
+            return (next, [.persistArmedMarker(session), .startSystemMonitors] + effects)
+
         case (.idle, .autoArmTimerFired):
             let (next, effects) = step(.idle, .armRequested(auto: true), env)
             return (next, [.log(.armed, "Auto-arming - trusted device still away")] + effects)
@@ -231,6 +246,7 @@ enum AlarmMachine {
             .stopMonitors,
             .stopAlarm,
             .hideOverlay,
+            .clearArmedMarker,
             .log(.disarmed, reason),
             .emit(.disarmed(reason: reason)),
         ]
