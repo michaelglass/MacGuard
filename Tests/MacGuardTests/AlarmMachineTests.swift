@@ -10,26 +10,14 @@ final class AlarmMachineTests: XCTestCase {
     private let key = TriggerCause.input(.keyboard)
 
     private func env(
-        countdown: Int = 3,
-        autoLock: Bool = false,
-        autoArm: Bool = false,
-        mode: AutoArmMode = .allDevicesAway,
-        devices: Bool = true,
-        any: Bool = false,
-        all: Bool = false,
-        stable: Bool = true,
-        usb: Bool = true,
-        network: Bool = false,
-        lockArms: Bool = false,
-        exitDelay: ExitDelay = .s1
+        countdown: Int = 3, autoLock: Bool = false, autoArm: Bool = false,
+        mode: AutoArmMode = .allDevicesAway, devices: Bool = true, any: Bool = false,
+        all: Bool = false, stable: Bool = true, usb: Bool = true, network: Bool = false,
+        lockArms: Bool = false, exitDelay: ExitDelay = .s1
     ) -> AlarmEnvironment {
-        AlarmEnvironment(
-            countdown: Countdown(seconds: countdown), autoLockOnArm: autoLock,
-            autoArmEnabled: autoArm, autoArmMode: mode, hasTrustedDevices: devices,
-            anyTrustedDeviceNearby: any, allTrustedDevicesNearby: all, bluetoothStable: stable,
-            usbTriggerEnabled: usb, networkTriggerEnabled: network,
-            autoArmOnScreenLock: lockArms, exitDelay: exitDelay
-        )
+        .fixture(countdown: countdown, autoLock: autoLock, autoArm: autoArm, mode: mode,
+                 devices: devices, any: any, all: all, stable: stable, usb: usb,
+                 network: network, lockArms: lockArms, exitDelay: exitDelay)
     }
 
     private func step(_ s: AlarmState, _ i: AlarmInput, _ e: AlarmEnvironment? = nil) -> AlarmMachine.Transition {
