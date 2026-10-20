@@ -104,6 +104,7 @@ struct SettingsView: View {
                 .disabled(isLocked)
 
                 IntruderPhotoSettingsView(camera: .shared).disabled(isLocked)
+                NotificationSettingsSection().disabled(isLocked)
 
                 // Startup Section
                 Section {
