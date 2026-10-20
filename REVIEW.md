@@ -91,13 +91,38 @@ and performs the returned `AlarmEffect`s. Every input is parsed at the edge, so 
 
 ### Tests
 
-The suite has 68 tests: the machine (27 table tests, including regressions for S4, the arming race and the suppression modes), the proximity tracker, parsers, settings, `PINThrottle` and the models. Line coverage of the decision core: `AlarmMachine` 99%, `AlarmState` 100%, `ProximityTracker` 85%. Mutation checks: removing the manual-arm guard, the suppression mode check, or the BT-stability guard each fails tests. Not yet covered: the shell's effect → I/O wiring, and the views.
+There are 115 tests in three layers:
+
+| Layer | What it proves | Line coverage |
+|---|---|---|
+| Pure core: `AlarmMachine`, `AlarmState`, `ProximityTracker`, parsers, `PINThrottle`, `Alert`, notifier values | every transition and rule, including regressions for S4, the arming race and the suppression modes | 85–100% |
+| Seam: the real `AlarmRuntime` (machine + effect interpreter + timers) against a recording `AlarmHardware` and a manual clock | effects reach the right I/O; feedback loops close; stale timers can't fire after stand-down; exit-delay re-arm | 86% |
+| Shell: IOKit, CoreBluetooth, CoreAudio, AVFoundation, keychain, AppleScript, SwiftUI views | thin adapters; verified on hardware only | low or none |
+
+Mutation checks:
+- Each of these makes tests fail: removing the manual-arm guard, the suppression mode check or the BT-stability guard; wiring `startSystemMonitors` to `stopMonitors`; dropping the exit-delay cancel; never cancelling the countdown timer; letting webhooks accept `http`; ignoring the USB trigger setting; restoring the −100 dBm "disconnected" sentinel.
+- The marker-clear mutation fails 4 tests.
+
+## Round 3: features (all approved; defaults chosen as noted)
+
+| Feature | Default | Notes |
+|---|---|---|
+| **Pluggable notifications**: Notification Center, Mail, Messages, Shortcuts, Webhook | all **off** (opt-in) | A channel can't be enabled until its recipient parses (`EmailAddress`, phone/Apple ID, Shortcut name, **https-only** `WebhookURL`). Alerts are a pure function of `AlarmEvent`. Delivery runs concurrently off the main actor, and one failing channel never affects another. Mail and Messages pass values as `osascript` *arguments*, never interpolated into the script. Shortcuts is the bridge to anything else (Pushover, Telegram, HomeKit). Each channel has a "Send test" button. |
+| **Intruder photo** | **off** | One photo per arm session, taken at countdown start (or when the alarm sounds if there's no countdown). The newest 50 are kept in `~/Library/Application Support/MacGuard/Intruders/` and attached to notifications. Camera permission is requested only when the setting is turned on. |
+| **Tamper watchdog** | **on** | Arming writes a marker file. A headless `--watchdog` launchd agent (`SMAppService.agent`, KeepAlive) relaunches the app if it dies while armed, and it comes back sounding (`TriggerCause.tamper`). A single-instance guard prevents duplicates. The launch decision is a pure, tested function. |
+| **USB attach trigger** | **on** | Devices already attached at arm time are drained and don't fire. |
+| **Network change trigger** | **off** | Fires when a Wi-Fi or wired link is lost or changes. The first reading is the baseline. Switching Wi-Fi networks on the same interface is not detected (that would need CoreWLAN). |
+| **Auto-arm on screen lock** | **off** | Arms with manual-arm semantics: a device must leave before its return can disarm. |
+| **Exit delay** | **1 s** (as before) | 1 / 5 / 10 / 30 s. The menu shows the remaining time. |
+
+Packaging: verified locally that `create-dmg.sh` builds a bundle with `Contents/Library/LaunchAgents/…watchdog.plist`, a `BundleProgram` that resolves, camera and Apple Events usage strings, and `codesign --verify --deep --strict` passing. `release.yml` makes the same additions.
 
 ## Open (not fixed)
 
 - **Fork users auto-update back to upstream.** `Info.plist` `SUFeedURL` points at `shenglong209/MacGuard`, and `SUPublicEDKey` is upstream's key. A build from this fork will offer upstream's release and silently replace these changes. To distribute the fork, change both values and sign the appcast with your own key.
 - **Lid-close protection.** `pmset -a disablesleep 1` is a system-wide, persistent setting. If MacGuard crashes or is force-quit, sleep stays disabled until the user notices. On quit, `resetLidCloseProtection` prompts for an administrator password, although its comment says "silent". A privileged helper (`SMAppService`) or a launchd watchdog that resets the setting would be more robust. This needs on-device testing, so it was left unchanged.
-- **Force Quit (⌥⌘⎋) / Activity Monitor / `kill`** can still stop the alarm (a watchdog is in progress).
+- **Killing both the app and its watchdog** stops protection until launchd restarts the watchdog (about 10–15 s). A user-space design can't do better without a privileged daemon.
+- **Hardened runtime is not enabled** (`codesign` never passes `--options runtime` or the entitlements file). If it is turned on, add the camera and Apple Events entitlements to `MacGuard.entitlements` and pass it.
 - **Likely blind spot after "lock on arm".** Secure input (the lock-screen password field) stops keystrokes reaching other processes' event taps ([TN2150](https://developer.apple.com/library/mac/technotes/tn2150/_index.html)). Whether pointer events still arrive needs testing on hardware. If they don't, only the lid, power, USB and Bluetooth triggers protect a locked Mac.
 - **Bluetooth identity is spoofable.** Classic-BT trusted devices are matched by MAC address (`bluetoothAddress`), and that address can be spoofed with commodity hardware. A connected Classic device whose RSSI is unavailable is treated as −50 dBm (strong, nearby). BLE matching by `CBPeripheral.identifier` is harder to spoof because iPhones use resolvable private addresses. Proximity should be documented as a convenience, not as authentication.
 - **Custom sound path** is a free-form path in `UserDefaults`. Pointing it at a missing or silent file degrades the alarm to a system beep. This is low severity: it requires prior access to the user's account.
@@ -110,3 +135,23 @@ The suite has 68 tests: the machine (27 table tests, including regressions for S
 - `swift test`: 7 tests for `Countdown`, `PIN`, and `AlarmState` (new `MacGuardTests` target). As a positive control, removing the `isASCII` guard makes the PIN tests fail.
 - Compile-time check: `m.disarm(OwnerAuthentication(.pin))` from another file is rejected (`initializer is inaccessible due to 'fileprivate' protection level`).
 - **Not** exercised on hardware: the ⌘Q block, the overlay auth flow, and Bluetooth behaviour need a signed build with Accessibility permission and real devices.
+
+## Hardware verification checklist (not done here)
+
+None of these have been run on a real machine. They need a signed build on a real Mac:
+1. The ⌘Q block while the overlay is up.
+2. The Touch ID / password prompt above the overlay.
+3. The PIN lockout message.
+4. Pointer and keyboard events still trigger after "lock on arm" (the secure input question).
+5. Media keys, USB plug-in, cable unplug with and without a UPS, network-cable pull.
+6. The watchdog:
+   - registration, and Login Items approval
+   - `kill -9` while armed: the alarm returns in about 2–4 s
+   - a clean idle quit leaves no relaunch
+   - no duplicate menu-bar icons at login
+7. The camera:
+   - the permission prompt and the denied state
+   - exposure after the 1 s warm-up
+   - the camera light turns off after each capture
+8. Notifications: a real send through each channel, and the Apple Events prompts for Mail and Messages.
+9. BLE: identifier rotation for devices that aren't bonded (possible false "away").

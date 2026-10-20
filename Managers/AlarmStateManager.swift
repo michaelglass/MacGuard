@@ -27,20 +27,27 @@ class AlarmStateManager: ObservableObject {
 
     // MARK: - Private Properties
 
-    private var countdownTimer: Timer?
     private var permissionCheckTimer: Timer?
     private var cancellables = Set<AnyCancellable>()
-    private var autoArmTimer: Timer?
     private let inputMonitor = InputMonitor()
     private let sleepMonitor = SleepMonitor()
     private let powerMonitor = PowerMonitor()
     private let usbMonitor = USBMonitor()
     private let networkMonitor = NetworkMonitor()
-    /// Pending exit-delay callback; cancelled on reschedule and stand-down so
-    /// a stale delay can never arm a later arming session early.
-    private var armingDelayWork: DispatchWorkItem?
     private let overlayController = CountdownWindowController()
-    private var eventSinks: [(AlarmEvent) -> Void] = []
+
+    /// Steps the machine and owns timers; this class is its `AlarmHardware`.
+    private lazy var runtime: AlarmRuntime = {
+        let runtime = AlarmRuntime(
+            hardware: self,
+            scheduler: RunLoopScheduler(),
+            environment: { [unowned self] in self.environment },
+            gracePeriod: { AppSettings.shared.autoArmGracePeriod }
+        )
+        runtime.onStateChange = { [unowned self] in self.state = $0 }
+        runtime.onArmingDeadlineChange = { [unowned self] in self.armingDeadline = $0 }
+        return runtime
+    }()
 
     // MARK: - Initialization
 
@@ -134,16 +141,13 @@ class AlarmStateManager: ObservableObject {
         )
     }
 
-    /// Feed one input through the machine and run its effects.
     private func send(_ input: AlarmInput) {
-        let (next, effects) = AlarmMachine.step(state, input, environment)
-        state = next
-        effects.forEach(perform)
+        runtime.send(input)
     }
 
     /// Subscribe to security-relevant events (notifiers, recorders).
     func onEvent(_ sink: @escaping (AlarmEvent) -> Void) {
-        eventSinks.append(sink)
+        runtime.onEvent(sink)
     }
 
     // MARK: - Actions (UI)
@@ -194,104 +198,8 @@ class AlarmStateManager: ObservableObject {
         ActivityLogManager.shared.clear()
     }
 
-    // MARK: - Effects
-
-    private func perform(_ effect: AlarmEffect) {
-        switch effect {
-        case .prepareAudio:
-            audioManager.prepare()
-        case .lockScreen:
-            lockScreen()
-        case .closeConfigWindows:
-            // Config windows opened while idle must not stay editable once armed
-            PINSetupWindowController.shared.close()
-            TrustedDevicesConfigWindowController.shared.close()
-            DeviceScannerWindowController.shared.close()
-        case .scheduleArmingDelay(let delay):
-            // Start monitors after the exit delay (also avoids capturing the lock keystroke)
-            armingDelayWork?.cancel()
-            let work = DispatchWorkItem { [weak self] in
-                self?.armingDeadline = nil
-                self?.send(.armingDelayElapsed)
-            }
-            armingDelayWork = work
-            armingDeadline = Date().addingTimeInterval(delay.seconds)
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay.seconds, execute: work)
-        case .startInputMonitoring:
-            let started = inputMonitor.startMonitoring()
-            hasAccessibilityPermission = started
-            send(.inputMonitoringStarted(started))
-        case .startSystemMonitors:
-            sleepMonitor.startMonitoring()
-            powerMonitor.startMonitoring()
-            usbMonitor.startMonitoring()
-            networkMonitor.startMonitoring()
-            bluetoothManager.startScanning()
-            bluetoothManager.setArmedState(true)
-        case .stopMonitors:
-            armingDelayWork?.cancel()
-            armingDelayWork = nil
-            armingDeadline = nil
-            inputMonitor.stopMonitoring()
-            usbMonitor.stopMonitoring()
-            networkMonitor.stopMonitoring()
-            sleepMonitor.stopMonitoring()
-            powerMonitor.stopMonitoring()
-            bluetoothManager.setArmedState(false)
-            bluetoothManager.stopScanning()
-        case .showOverlay:
-            overlayController.show(alarmManager: self)
-        case .hideOverlay:
-            overlayController.hide()
-        case .playAlarm:
-            audioManager.playAlarm()
-        case .stopAlarm:
-            // Stop audio and release pre-loaded audio
-            audioManager.stopAlarm()
-            audioManager.unprepare()
-        case .startCountdownTimer:
-            countdownTimer?.invalidate()
-            countdownTimer = scheduleOnMain(every: 1, repeats: true) { $0.send(.countdownTick) }
-        case .stopCountdownTimer:
-            countdownTimer?.invalidate()
-            countdownTimer = nil
-        case .startAutoArmTimer:
-            autoArmTimer?.invalidate()
-            let grace = AppSettings.shared.autoArmGracePeriod
-            ActivityLogManager.shared.log(.system, "Auto-arm timer started (\(grace.rawValue)s grace period)")
-            autoArmTimer = scheduleOnMain(every: grace.seconds, repeats: false) { $0.send(.autoArmTimerFired) }
-        case .cancelAutoArmTimer(let reason):
-            if autoArmTimer != nil {
-                ActivityLogManager.shared.log(.system, reason ?? "Auto-arm timer cancelled")
-            }
-            autoArmTimer?.invalidate()
-            autoArmTimer = nil
-        case .resumeIdleScanning:
-            bluetoothManager.startScanning()
-        case .log(let category, let message):
-            ActivityLogManager.shared.log(category, message)
-        case .emit(let event):
-            eventSinks.forEach { $0(event) }
-        case .persistArmedMarker(let session):
-            TamperGuard.shared.persist(session)
-        case .clearArmedMarker:
-            TamperGuard.shared.clear()
-        }
-    }
-
-    /// A main-run-loop timer in `.common` mode, so it keeps firing while a
-    /// menu is open (the default mode pauses during menu tracking).
-    private func scheduleOnMain(every interval: TimeInterval, repeats: Bool,
-                                _ action: @escaping (AlarmStateManager) -> Void) -> Timer {
-        let timer = Timer(timeInterval: interval, repeats: repeats) { [weak self] _ in
-            MainActor.assumeIsolated { self.map(action) }
-        }
-        RunLoop.main.add(timer, forMode: .common)
-        return timer
-    }
-
     /// Lock the Mac screen
-    private func lockScreen() {
+    func lockScreen() {
         // Primary method: pmset displaysleepnow (reliable on modern macOS)
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")
@@ -335,6 +243,59 @@ class AlarmStateManager: ObservableObject {
             ActivityLogManager.shared.log(.bluetooth, "Stopped scanning (auto-arm disabled)")
         }
     }
+}
+
+// MARK: - AlarmHardware
+
+extension AlarmStateManager: AlarmHardware {
+    func prepareAudio() { audioManager.prepare() }
+
+    func closeConfigWindows() {
+        // Config windows opened while idle must not stay editable once armed
+        PINSetupWindowController.shared.close()
+        TrustedDevicesConfigWindowController.shared.close()
+        DeviceScannerWindowController.shared.close()
+    }
+
+    func startInputMonitoring() -> Bool {
+        let started = inputMonitor.startMonitoring()
+        hasAccessibilityPermission = started
+        return started
+    }
+
+    func startSystemMonitors() {
+        sleepMonitor.startMonitoring()
+        powerMonitor.startMonitoring()
+        usbMonitor.startMonitoring()
+        networkMonitor.startMonitoring()
+        bluetoothManager.startScanning()
+        bluetoothManager.setArmedState(true)
+    }
+
+    func stopMonitors() {
+        inputMonitor.stopMonitoring()
+        usbMonitor.stopMonitoring()
+        networkMonitor.stopMonitoring()
+        sleepMonitor.stopMonitoring()
+        powerMonitor.stopMonitoring()
+        bluetoothManager.setArmedState(false)
+        bluetoothManager.stopScanning()
+    }
+
+    func resumeIdleScanning() { bluetoothManager.startScanning() }
+    func showOverlay() { overlayController.show(alarmManager: self) }
+    func hideOverlay() { overlayController.hide() }
+    func playAlarm() { audioManager.playAlarm() }
+
+    func stopAlarm() {
+        // Stop audio and release pre-loaded audio
+        audioManager.stopAlarm()
+        audioManager.unprepare()
+    }
+
+    func persistArmedMarker(_ session: ArmSession) { TamperGuard.shared.persist(session) }
+    func clearArmedMarker() { TamperGuard.shared.clear() }
+    func log(_ category: ActivityLogCategory, _ message: String) { ActivityLogManager.shared.log(category, message) }
 }
 
 // MARK: - InputMonitorDelegate
