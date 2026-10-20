@@ -124,6 +124,33 @@ enum AlarmSound: String, CaseIterable, Identifiable {
     }
 }
 
+/// Countdown before the alarm sounds. Only the offered choices are
+/// representable; anything else found in UserDefaults parses to the default.
+enum CountdownDuration: Int, CaseIterable, Identifiable {
+    case immediate = 0
+    case s3 = 3, s5 = 5, s10 = 10, s15 = 15, s30 = 30
+
+    static let `default` = CountdownDuration.s3
+
+    var id: Int { rawValue }
+
+    /// `nil` means the alarm sounds immediately.
+    var countdown: Countdown? { Countdown(seconds: rawValue) }
+
+    var label: String { self == .immediate ? "Immediately" : "\(rawValue) seconds" }
+}
+
+/// Alarm volume, always within `range` (a near-silent alarm is not offered).
+struct AlarmVolume: Equatable {
+    static let range: ClosedRange<Double> = 0.5...1.0
+
+    let value: Double
+
+    init(clamping raw: Double) {
+        value = raw.isFinite ? min(max(raw, Self.range.lowerBound), Self.range.upperBound) : Self.range.upperBound
+    }
+}
+
 /// App settings manager with UserDefaults persistence
 class AppSettings: ObservableObject {
     static let shared = AppSettings()
@@ -140,15 +167,27 @@ class AppSettings: ObservableObject {
 
     @AppStorage("autoLockOnArm") var autoLockOnArm: Bool = false
     @AppStorage("alarmSound") private var alarmSoundRaw: String = AlarmSound.dontTouchMyMac.rawValue
-    @AppStorage("alarmVolume") var alarmVolume: Double = 1.0
-    @AppStorage("customSoundPath") var customSoundPath: String = ""
-    @AppStorage("countdownDuration") var countdownDuration: Int = 3
+    @AppStorage("alarmVolume") private var alarmVolumeRaw: Double = 1.0
+    @AppStorage("customSoundPath") private var customSoundPath: String = ""
+    @AppStorage("countdownDuration") private var countdownDurationRaw: Int = CountdownDuration.default.rawValue
     @AppStorage("lidCloseProtection") private var _lidCloseProtection: Bool = false
     @AppStorage("proximityDistance") private var proximityDistanceRaw: String = ProximityDistance.medium.rawValue
     @AppStorage("customDetectionRange") var customDetectionRange: Int = -65  // Single value, hysteresis auto-calculated
     @AppStorage("autoArmOnDeviceLeave") var autoArmOnDeviceLeave: Bool = false
     @AppStorage("autoArmGracePeriod") var autoArmGracePeriod: Int = 15
     @AppStorage("autoArmMode") private var autoArmModeRaw: String = AutoArmMode.allDevicesAway.rawValue
+
+    /// Countdown before the alarm (parsed from the stored integer)
+    var countdownDuration: CountdownDuration {
+        get { CountdownDuration(rawValue: countdownDurationRaw) ?? .default }
+        set { countdownDurationRaw = newValue.rawValue }
+    }
+
+    /// Alarm volume, clamped on read so the core never sees an out-of-range value
+    var alarmVolume: Double {
+        get { AlarmVolume(clamping: alarmVolumeRaw).value }
+        set { alarmVolumeRaw = AlarmVolume(clamping: newValue).value }
+    }
 
     /// Auto-arm trigger mode (all devices away vs any device away)
     var autoArmMode: AutoArmMode {
@@ -261,21 +300,23 @@ class AppSettings: ObservableObject {
         _lidCloseProtection = false
     }
 
-    /// Selected alarm sound
+    /// Selected alarm sound. `.custom` without a chosen file is not a usable
+    /// state, so it parses to the default sound.
     var alarmSound: AlarmSound {
-        get { AlarmSound(rawValue: alarmSoundRaw) ?? .funk }
+        get {
+            let sound = AlarmSound(rawValue: alarmSoundRaw) ?? .dontTouchMyMac
+            return sound == .custom && customSoundPath.isEmpty ? .dontTouchMyMac : sound
+        }
         set {
             alarmSoundRaw = newValue.rawValue
             objectWillChange.send()
         }
     }
 
-    /// Get the actual sound file path (custom or system)
+    /// Get the actual sound file path (custom or system). `nil` only when the
+    /// file is genuinely missing (the caller falls back to a beep).
     var effectiveSoundPath: String? {
-        if alarmSound == .custom {
-            return customSoundPath.isEmpty ? nil : customSoundPath
-        }
-        return alarmSound.soundPath
+        alarmSound == .custom ? customSoundPath : alarmSound.soundPath
     }
 
     /// Custom sound file name for display

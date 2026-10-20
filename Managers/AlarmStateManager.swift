@@ -267,7 +267,7 @@ class AlarmStateManager: ObservableObject {
         // Show fullscreen overlay
         overlayController.show(alarmManager: self)
 
-        guard let countdown = Countdown(seconds: AppSettings.shared.countdownDuration) else {
+        guard let countdown = AppSettings.shared.countdownDuration.countdown else {
             soundAlarm(session, reason: "Immediate alarm triggered (no countdown)")
             return
         }

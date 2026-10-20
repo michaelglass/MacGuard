@@ -25,6 +25,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if AppSettings.shared.lidCloseProtection {
             AppSettings.shared.resetLidCloseProtection()
         }
+        ActivityLogManager.shared.flush()
     }
 }
 

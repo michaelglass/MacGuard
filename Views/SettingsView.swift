@@ -353,12 +353,9 @@ struct SettingsView: View {
         Toggle("Lock screen when armed", isOn: $settings.autoLockOnArm)
 
         Picker("Countdown duration", selection: $settings.countdownDuration) {
-            Text("Immediately").tag(0)
-            Text("3 seconds").tag(3)
-            Text("5 seconds").tag(5)
-            Text("10 seconds").tag(10)
-            Text("15 seconds").tag(15)
-            Text("30 seconds").tag(30)
+            ForEach(CountdownDuration.allCases) { duration in
+                Text(duration.label).tag(duration)
+            }
         }
 
         // Lid Close Protection with warning
@@ -418,7 +415,7 @@ struct SettingsView: View {
 
         HStack {
             Text("Volume")
-            Slider(value: $settings.alarmVolume, in: 0.5...1.0)
+            Slider(value: $settings.alarmVolume, in: AlarmVolume.range)
             Button {
                 settings.previewSound()
             } label: {

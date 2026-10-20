@@ -44,6 +44,37 @@ enum PINVerification {
     case noPINConfigured
 }
 
+/// Attempt limiting for PIN entry, as a pure value so the schedule is testable.
+/// `freeAttempts` wrong guesses are allowed; each further one locks out for
+/// 30s, doubling (capped at 30s * 2^10 ≈ 8.5h).
+struct PINThrottle: Equatable {
+    static let freeAttempts = 3
+    static let baseLockout: TimeInterval = 30
+
+    private(set) var failedAttempts = 0
+    private(set) var lockedUntil: Date?
+
+    /// The lockout end if `now` is still inside one.
+    func lockout(at now: Date) -> Date? {
+        guard let lockedUntil, now < lockedUntil else { return nil }
+        return lockedUntil
+    }
+
+    mutating func recordSuccess() {
+        self = PINThrottle()
+    }
+
+    /// Records a wrong attempt; returns the new lockout end, if one starts.
+    mutating func recordFailure(at now: Date) -> Date? {
+        failedAttempts += 1
+        let excess = failedAttempts - Self.freeAttempts
+        guard excess > 0 else { return nil }
+        let until = now.addingTimeInterval(Self.baseLockout * pow(2, Double(min(excess - 1, 10))))
+        lockedUntil = until
+        return until
+    }
+}
+
 /// Manages authentication for disarming the alarm (Touch ID / password + PIN fallback)
 class AuthManager: ObservableObject {
     // MARK: - Published Properties
@@ -56,10 +87,7 @@ class AuthManager: ObservableObject {
     private let keychainService = "com.shenglong.macguard"
     private let keychainAccount = "userPIN"
 
-    /// Wrong attempts allowed before a lockout begins.
-    private let freeAttempts = 3
-    private var failedAttempts = 0
-    private var lockedUntil: Date?
+    private var throttle = PINThrottle()
 
     // MARK: - Logging Helper
 
@@ -147,34 +175,27 @@ class AuthManager: ObservableObject {
         return result as? Data
     }
 
-    /// Check an entered PIN. Wrong attempts beyond `freeAttempts` lock out
-    /// for a doubling period (30s, 60s, 120s, ...) so a 4-digit PIN cannot be
-    /// brute-forced while the alarm counts down.
+    /// Check an entered PIN, rate-limited by `PINThrottle` so a 4-digit PIN
+    /// cannot be brute-forced while the alarm counts down.
     /// The input is not parsed as a `PIN`: PINs saved by older versions were
     /// not restricted to digits and must keep working.
     func verifyPIN(_ input: String, now: Date = Date()) -> PINVerification {
-        if let lockedUntil, now < lockedUntil {
-            return .lockedOut(until: lockedUntil)
+        if let until = throttle.lockout(at: now) {
+            return .lockedOut(until: until)
         }
         guard let stored = retrievePIN() else { return .noPINConfigured }
 
         if Self.constantTimeEquals(stored, Data(input.utf8)) {
-            failedAttempts = 0
-            lockedUntil = nil
+            throttle.recordSuccess()
             return .accepted(OwnerAuthentication(.pin))
         }
 
-        failedAttempts += 1
-        log(.system, "Incorrect PIN (attempt \(failedAttempts))")
-        let excess = failedAttempts - freeAttempts
-        guard excess > 0 else { return .rejected }
-
-        let until = now.addingTimeInterval(30 * pow(2, Double(min(excess - 1, 10))))
-        lockedUntil = until
-        return .lockedOut(until: until)
+        let until = throttle.recordFailure(at: now)
+        log(.system, "Incorrect PIN (attempt \(throttle.failedAttempts))")
+        return until.map { .lockedOut(until: $0) } ?? .rejected
     }
 
-    private static func constantTimeEquals(_ a: Data, _ b: Data) -> Bool {
+    static func constantTimeEquals(_ a: Data, _ b: Data) -> Bool {
         guard a.count == b.count else { return false }
         return zip(a, b).reduce(UInt8(0)) { $0 | ($1.0 ^ $1.1) } == 0
     }
