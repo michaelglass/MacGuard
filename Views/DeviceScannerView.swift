@@ -120,9 +120,10 @@ class DeviceScannerViewModel: NSObject, ObservableObject {
             let device = DiscoveredDevice(
                 id: UUID(),
                 name: name,
-                rssi: ioDevice.isConnected() ? Int(ioDevice.rawRSSI()) : -80,
+                // Display/sort estimate only; -80 when no real reading is available
+                rssi: (ioDevice.isConnected() ? RSSI(Int(ioDevice.rawRSSI()))?.dBm : nil) ?? -80,
                 isPaired: true,
-                classicAddress: ioDevice.addressString,
+                classicAddress: ioDevice.addressString.flatMap(BluetoothAddress.init),
                 isConnected: ioDevice.isConnected()
             )
 
@@ -242,7 +243,7 @@ struct DiscoveredDevice: Identifiable {
     let name: String
     var rssi: Int
     let isPaired: Bool
-    let classicAddress: String?
+    let classicAddress: BluetoothAddress?
     /// Set only while exactly one BLE peripheral advertises this name
     var blePeripheralID: UUID? = nil
     var isConnected: Bool

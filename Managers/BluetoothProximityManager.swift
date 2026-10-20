@@ -18,8 +18,21 @@ protocol BluetoothProximityDelegate: AnyObject {
     func bluetoothStateChanged(_ state: CBManagerState)
 }
 
+/// Runtime state for one trusted device (never persisted).
+struct DeviceTracking: Equatable {
+    var proximity = ProximityTracker()
+    var classicLink = ClassicLinkTracker()
+
+    mutating func resetForScan() {
+        proximity.resetForScan()
+        classicLink.resetForScan()
+    }
+}
+
 /// Manages Bluetooth proximity detection for multiple trusted devices
-/// Supports both BLE (CoreBluetooth) and Classic Bluetooth (IOBluetooth) devices
+/// Supports both BLE (CoreBluetooth) and Classic Bluetooth (IOBluetooth) devices.
+/// This class is the I/O shell: it parses callbacks into `Observation`s and
+/// leaves the decisions to `ProximityTracker` / `ClassicLinkTracker`.
 class BluetoothProximityManager: NSObject, ObservableObject {
     weak var delegate: BluetoothProximityDelegate?
 
@@ -29,33 +42,17 @@ class BluetoothProximityManager: NSObject, ObservableObject {
     @Published private(set) var trustedDevices: [TrustedDevice] = []
     @Published var isScanning = false
     @Published private(set) var isDeviceNearby = false
+    /// Per-device runtime state, keyed by `TrustedDevice.id`
+    @Published private(set) var tracking: [UUID: DeviceTracking] = [:]
 
     // MARK: - Private Properties
 
     private var centralManager: CBCentralManager!
     private var connectedPeripherals: [UUID: CBPeripheral] = [:]  // deviceID → peripheral (BLE)
-    private var deviceProximityStates: [UUID: Bool] = [:]  // deviceID → isNearby
     private var rssiReadTimer: Timer?
-
-    // BLE device debounce tracking
-    private var bleDeviceLastNearby: [UUID: Date] = [:]  // deviceID → last time device was nearby
-    private let bleDebounceInterval: TimeInterval = 5.0  // Ignore brief disconnects within 5s
-
-    // RSSI-based proximity debounce (prevents flapping on momentary signal drops)
-    private var deviceLastNearbyRSSI: [UUID: Date] = [:]  // deviceID → last time device had nearby RSSI
-    private let rssiAwayDebounceInterval: TimeInterval = 3.0  // Require 3s of low RSSI before marking away
-
-    // Classic Bluetooth (IOBluetooth) tracking
-    private var classicDeviceLastConnected: [UUID: Bool] = [:]  // deviceID → last known connection state
-    private var classicDeviceLastStateChange: [UUID: Date] = [:]  // deviceID → timestamp of last state change
-    private let classicDeviceDebounceInterval: TimeInterval = 5.0  // Ignore rapid state changes within 5s
 
     // IOBluetoothDeviceInquiry for active Classic BT scanning
     private var deviceInquiry: IOBluetoothDeviceInquiry?
-
-    // RSSI unavailable tracking for Classic BT fallback
-    private var classicDeviceLastValidRSSI: [UUID: Date] = [:]  // deviceID → last time valid RSSI received
-    private let rssiUnavailableTimeout: TimeInterval = 1.0  // Fallback after 1s of no valid RSSI
 
     // Armed state optimization
     private var isArmed = false
@@ -63,8 +60,7 @@ class BluetoothProximityManager: NSObject, ObservableObject {
     private let armedPollingInterval: TimeInterval = 0.5
 
     // BT state recovery cooldown (prevents false "away" after BT powers on)
-    private var lastPoweredOnTime: Date?
-    private let btRecoveryCooldown: TimeInterval = 15.0  // 15s cooldown after power on
+    private var recoveryCooldown = RecoveryCooldown()
 
     // BT stability tracking (prevents auto-arm during BT instability)
     private var btStateChangeCount: Int = 0
@@ -72,24 +68,15 @@ class BluetoothProximityManager: NSObject, ObservableObject {
     private let btStabilityWindow: TimeInterval = 300.0  // 5 min window
     private let btStabilityThreshold: Int = 3  // 3+ changes = unstable
 
-    // Dynamic debounce for low power mode
-    private var effectiveBleDebounce: TimeInterval {
-        ProcessInfo.processInfo.isLowPowerModeEnabled ? 15.0 : 5.0
-    }
-    private var effectiveRssiAwayDebounce: TimeInterval {
-        ProcessInfo.processInfo.isLowPowerModeEnabled ? 10.0 : 3.0
-    }
-
-    // Fallback RSSI for connected devices when actual RSSI unavailable
-    // Uses -50 dBm (strong signal, conservative near range)
-    private let fallbackRSSI: Int = -50
+    private var isLowPower: Bool { ProcessInfo.processInfo.isLowPowerModeEnabled }
+    private var lowPowerSuffix: String { isLowPower ? " (low power)" : "" }
 
     // Dynamic thresholds from user settings (hysteresis to prevent oscillation)
-    private var rssiPresentThreshold: Int {
-        AppSettings.shared.effectivePresentThreshold
-    }
-    private var rssiAwayThreshold: Int {
-        AppSettings.shared.effectiveAwayThreshold
+    private var thresholds: ProximityThresholds {
+        ProximityThresholds(
+            present: AppSettings.shared.effectivePresentThreshold,
+            away: AppSettings.shared.effectiveAwayThreshold
+        )
     }
 
     // UserDefaults keys for persistence
@@ -110,16 +97,14 @@ class BluetoothProximityManager: NSObject, ObservableObject {
 
     // MARK: - Computed Properties
 
-    /// ALL devices away = away (for auto-arm logic)
+    /// ALL observed devices away (for auto-arm logic). Devices not observed
+    /// since scanning started are ignored here, as before.
     var areAllDevicesAway: Bool {
         guard !trustedDevices.isEmpty else { return false }
-        return deviceProximityStates.values.allSatisfy { !$0 }
-    }
-
-    /// Check if in BT recovery cooldown period (after poweredOn)
-    private var isInRecoveryCooldown: Bool {
-        guard let lastPoweredOn = lastPoweredOnTime else { return false }
-        return Date().timeIntervalSince(lastPoweredOn) < btRecoveryCooldown
+        return tracking.values
+            .map(\.proximity.proximity)
+            .filter { $0 != .unobserved }
+            .allSatisfy { $0 == .away }
     }
 
     /// Check if Bluetooth is stable (few state changes, powered on)
@@ -207,12 +192,7 @@ class BluetoothProximityManager: NSObject, ObservableObject {
     /// Remove a specific trusted device
     func removeTrustedDevice(_ device: TrustedDevice) {
         trustedDevices.removeAll { $0.id == device.id }
-        deviceProximityStates.removeValue(forKey: device.id)
-        bleDeviceLastNearby.removeValue(forKey: device.id)
-        deviceLastNearbyRSSI.removeValue(forKey: device.id)
-        classicDeviceLastConnected.removeValue(forKey: device.id)
-        classicDeviceLastStateChange.removeValue(forKey: device.id)
-        classicDeviceLastValidRSSI.removeValue(forKey: device.id)
+        tracking.removeValue(forKey: device.id)
         saveTrustedDevices()
 
         // Disconnect peripheral if connected (BLE only)
@@ -229,12 +209,7 @@ class BluetoothProximityManager: NSObject, ObservableObject {
     /// Remove all trusted devices
     func removeAllTrustedDevices() {
         trustedDevices.removeAll()
-        deviceProximityStates.removeAll()
-        bleDeviceLastNearby.removeAll()
-        deviceLastNearbyRSSI.removeAll()
-        classicDeviceLastConnected.removeAll()
-        classicDeviceLastStateChange.removeAll()
-        classicDeviceLastValidRSSI.removeAll()
+        tracking.removeAll()
         saveTrustedDevices()
         disconnectAllPeripherals()
         isDeviceNearby = false
@@ -283,13 +258,9 @@ class BluetoothProximityManager: NSObject, ObservableObject {
 
         guard !isScanning else { return }
 
-        // Reset lastRSSI for all devices
-        for i in trustedDevices.indices {
-            trustedDevices[i].lastRSSI = nil
+        for id in tracking.keys {
+            tracking[id]?.resetForScan()
         }
-        deviceProximityStates.removeAll()
-        classicDeviceLastConnected.removeAll()
-        classicDeviceLastValidRSSI.removeAll()
         isDeviceNearby = false
 
         // Scan for BLE peripherals
@@ -332,34 +303,25 @@ class BluetoothProximityManager: NSObject, ObservableObject {
 
     /// Unified polling for both BLE and Classic Bluetooth devices
     private func pollAllDevices() {
-        // Poll BLE devices
         pollBLEDevices()
-        // Poll Classic Bluetooth devices
         pollClassicBluetoothDevices()
     }
 
     private func pollBLEDevices() {
+        let now = Date()
         for (deviceID, peripheral) in connectedPeripherals {
             if peripheral.state == .connected {
                 peripheral.readRSSI()
-            } else {
-                // Device disconnected - apply debounce to prevent rapid oscillation
-                let lastNearby = bleDeviceLastNearby[deviceID] ?? .distantPast
-                let timeSinceNearby = Date().timeIntervalSince(lastNearby)
-                let debounceInterval = effectiveBleDebounce
-
-                if timeSinceNearby < debounceInterval {
-                    // Recently was nearby - debounce the disconnect
-                    if let device = trustedDevices.first(where: { $0.id == deviceID }) {
-                        let lowPowerSuffix = ProcessInfo.processInfo.isLowPowerModeEnabled ? " (low power)" : ""
-                        log(.bluetooth, "BLE device (\(device.name)) disconnect debounced - ignoring brief disconnect\(lowPowerSuffix)")
-                    }
-                    continue
-                }
-
-                // Enough time passed - mark as away
-                updateProximityState(for: deviceID, rssi: -100)
+                continue
             }
+            // Device disconnected - apply debounce to prevent rapid oscillation
+            if tracking[deviceID, default: DeviceTracking()].proximity.shouldDebounceDisconnect(at: now, lowPower: isLowPower) {
+                if let device = trustedDevices.first(where: { $0.id == deviceID }) {
+                    log(.bluetooth, "BLE device (\(device.name)) disconnect debounced - ignoring brief disconnect\(lowPowerSuffix)")
+                }
+                continue
+            }
+            observe(.disconnected, for: deviceID, at: now)
         }
     }
 
@@ -368,194 +330,108 @@ class BluetoothProximityManager: NSObject, ObservableObject {
         guard let pairedDevices = IOBluetoothDevice.pairedDevices() as? [IOBluetoothDevice] else {
             return
         }
+        let now = Date()
 
         for device in trustedDevices {
-            guard case .classic(let address) = device.transport else { continue }
+            guard case .classic(let address) = device.transport,
+                  let ioDevice = pairedDevices.first(where: {
+                      $0.addressString.flatMap(BluetoothAddress.init) == address
+                  }) else { continue }
 
-            // Find matching IOBluetooth device by address
-            guard let ioDevice = pairedDevices.first(where: { $0.addressString == address }) else {
-                continue
-            }
-
-            let isConnected = ioDevice.isConnected()
-            let wasConnected = classicDeviceLastConnected[device.id]
-            let lastChange = classicDeviceLastStateChange[device.id] ?? .distantPast
-            let timeSinceLastChange = Date().timeIntervalSince(lastChange)
-
-            // First poll for this device - initialize state
-            if wasConnected == nil {
-                classicDeviceLastConnected[device.id] = isConnected
-                classicDeviceLastStateChange[device.id] = Date()
-
-                if isConnected {
-                    log(.bluetooth, "Classic device connected: \(device.name)")
-                    let rssi = ioDevice.rawRSSI()
-                    let effectiveRSSI = (rssi != 127 && rssi != 0) ? Int(rssi) : fallbackRSSI
-                    updateProximityState(for: device.id, rssi: effectiveRSSI)
-                } else {
-                    // Device not connected on first poll - mark as away
-                    log(.bluetooth, "Classic device not connected: \(device.name)")
-                    updateProximityState(for: device.id, rssi: -100)
+            let result = tracking[device.id, default: DeviceTracking()].classicLink.poll(
+                isConnected: ioDevice.isConnected(),
+                rssi: RSSI(Int(ioDevice.rawRSSI())),
+                at: now,
+                lowPower: isLowPower
+            )
+            switch result {
+            case .none:
+                break
+            case .disconnectDebounced:
+                log(.bluetooth, "Classic device (\(device.name)) disconnect debounced - ignoring rapid state change\(lowPowerSuffix)")
+            case .observe(let observation, let event):
+                switch event {
+                case .initiallyConnected?, .connected?: log(.bluetooth, "Classic device connected: \(device.name)")
+                case .initiallyDisconnected?: log(.bluetooth, "Classic device not connected: \(device.name)")
+                case .disconnected?: log(.bluetooth, "Classic device disconnected: \(device.name)")
+                case nil: break
                 }
-                continue
-            }
-
-            // Connection state changed - apply debounce to prevent rapid oscillation
-            if isConnected != wasConnected {
-                // Debounce: Ignore disconnect if it happens within debounce interval of connect
-                // This handles AirPods and other devices with flaky connection behavior
-                // Uses dynamic debounce (longer in low power mode)
-                let debounceInterval = effectiveBleDebounce
-                if !isConnected && timeSinceLastChange < debounceInterval {
-                    let lowPowerSuffix = ProcessInfo.processInfo.isLowPowerModeEnabled ? " (low power)" : ""
-                    log(.bluetooth, "Classic device (\(device.name)) disconnect debounced - ignoring rapid state change\(lowPowerSuffix)")
-                    continue
-                }
-
-                classicDeviceLastConnected[device.id] = isConnected
-                classicDeviceLastStateChange[device.id] = Date()
-
-                if isConnected {
-                    // Device connected = nearby
-                    log(.bluetooth, "Classic device connected: \(device.name)")
-                    // Try to get RSSI, fallback to strong signal
-                    // Note: rawRSSI() returns 0 or 127 when unavailable
-                    let rssi = ioDevice.rawRSSI()
-                    let effectiveRSSI = (rssi != 127 && rssi != 0) ? Int(rssi) : fallbackRSSI
-                    updateProximityState(for: device.id, rssi: effectiveRSSI)
-                } else {
-                    // Device disconnected = away
-                    log(.bluetooth, "Classic device disconnected: \(device.name)")
-                    updateProximityState(for: device.id, rssi: -100)
-                }
-            } else if isConnected {
-                // Device still connected - update RSSI if available
-                // Note: rawRSSI() returns 0 or 127 when unavailable
-                let rssi = ioDevice.rawRSSI()
-                if rssi != 127 && rssi != 0 {
-                    // Valid RSSI - update state and timestamp
-                    classicDeviceLastValidRSSI[device.id] = Date()
-                    updateProximityState(for: device.id, rssi: Int(rssi))
-                } else {
-                    // RSSI unavailable - check timeout for fallback
-                    let lastValid = classicDeviceLastValidRSSI[device.id] ?? .distantPast
-                    if Date().timeIntervalSince(lastValid) > rssiUnavailableTimeout {
-                        // Timeout - use fallback RSSI for connected device (assume nearby)
-                        updateProximityState(for: device.id, rssi: fallbackRSSI)
-                    }
-                }
-                // Update lastSeen
-                if let index = trustedDevices.firstIndex(where: { $0.id == device.id }) {
-                    trustedDevices[index].lastSeen = Date()
-                }
+                observe(observation, for: device.id, at: now)
             }
         }
     }
 
-    // MARK: - RSSI Handling
+    // MARK: - Observation Handling
 
-    private func updateProximityState(for deviceID: UUID, rssi: Int) {
-        guard let deviceIndex = trustedDevices.firstIndex(where: { $0.id == deviceID }) else { return }
+    private func observe(_ observation: Observation, for deviceID: UUID, at now: Date) {
+        guard let device = trustedDevices.first(where: { $0.id == deviceID }) else { return }
 
         let wasOverallNearby = isDeviceNearby
-        let currentState = deviceProximityStates[deviceID] ?? false
+        let change = tracking[deviceID, default: DeviceTracking()].proximity.observe(
+            observation,
+            at: now,
+            thresholds: thresholds,
+            lowPower: isLowPower,
+            recoveryCooldownActive: recoveryCooldown.isActive(at: now)
+        )
 
-        // Hysteresis logic (per device)
-        var newState: Bool
-        if currentState {
-            newState = rssi >= rssiAwayThreshold  // Stay nearby unless below away threshold
-        } else {
-            newState = rssi >= rssiPresentThreshold  // Become nearby only above present threshold
+        let reading = observation.rssi.map(\.description) ?? "\(observation)"
+        switch change {
+        case .becameNearby:
+            log(.bluetooth, "\(device.name) nearby (RSSI: \(reading))")
+            delegate?.trustedDeviceNearby(device)
+        case .becameAway:
+            log(.bluetooth, "\(device.name) away (RSSI: \(reading))")
+            delegate?.trustedDeviceAway(device)
+        case .awaySuppressedByCooldown:
+            log(.bluetooth, "\(device.name) away blocked (BT recovery cooldown)")
+        case .awayDebounced(let since):
+            log(.bluetooth, "\(device.name) RSSI drop debounced (last nearby: \(String(format: "%.1f", since))s ago)\(lowPowerSuffix)")
+        case .unchanged:
+            break
         }
 
-        // Block away transitions during BT recovery cooldown (prevents false "away" after power on)
-        if currentState && !newState && isInRecoveryCooldown {
-            newState = true
-            log(.bluetooth, "\(trustedDevices[deviceIndex].name) away blocked (BT recovery cooldown)")
-            // Still update RSSI tracking below, but don't transition state
-        }
-
-        // RSSI-based debounce: if transitioning from nearby→away, require sustained low RSSI
-        // Uses dynamic debounce interval (longer in low power mode)
-        if currentState && !newState {
-            // Check if we've had sustained low RSSI for debounce interval
-            let lastNearby = deviceLastNearbyRSSI[deviceID] ?? .distantPast
-            let timeSinceNearby = Date().timeIntervalSince(lastNearby)
-            let debounceInterval = effectiveRssiAwayDebounce
-
-            if timeSinceNearby < debounceInterval {
-                // Recent nearby RSSI - debounce, keep as nearby
-                newState = true
-                let lowPowerSuffix = ProcessInfo.processInfo.isLowPowerModeEnabled ? " (low power)" : ""
-                log(.bluetooth, "\(trustedDevices[deviceIndex].name) RSSI drop debounced (last nearby: \(String(format: "%.1f", timeSinceNearby))s ago)\(lowPowerSuffix)")
-            }
-        }
-
-        // Track last time we had "nearby" RSSI (before debounce override)
-        if rssi >= rssiAwayThreshold {
-            deviceLastNearbyRSSI[deviceID] = Date()
-        }
-
-        deviceProximityStates[deviceID] = newState
-
-        // Update runtime data on device
-        trustedDevices[deviceIndex].lastRSSI = rssi
-        trustedDevices[deviceIndex].lastSeen = Date()
-
-        // Track last nearby time for BLE debounce
-        if newState {
-            bleDeviceLastNearby[deviceID] = Date()
-        }
-
-        // Handle state transitions
-        if !currentState && newState {
-            // Device became nearby
-            log(.bluetooth, "\(trustedDevices[deviceIndex].name) nearby (RSSI: \(rssi))")
-            delegate?.trustedDeviceNearby(trustedDevices[deviceIndex])
-        } else if currentState && !newState {
-            // Device went away
-            log(.bluetooth, "\(trustedDevices[deviceIndex].name) away (RSSI: \(rssi))")
-            delegate?.trustedDeviceAway(trustedDevices[deviceIndex])
-        }
-
-        // Update overall nearby state
         updateOverallNearbyState()
 
         // Check if all devices now away (for auto-arm)
-        let isNowOverallNearby = isDeviceNearby
-        if wasOverallNearby && !isNowOverallNearby && areAllDevicesAway {
+        if wasOverallNearby && !isDeviceNearby && areAllDevicesAway {
             delegate?.allTrustedDevicesAway()
         }
     }
 
     private func updateOverallNearbyState() {
         // ANY device nearby = nearby
-        isDeviceNearby = deviceProximityStates.values.contains(true)
+        isDeviceNearby = tracking.values.contains { $0.proximity.isNearby }
     }
 
     /// Whether any trusted device is nearby, as evidence the owner is present.
     /// During the BT recovery cooldown proximity states are *assumed* nearby
     /// (to avoid false auto-arm), not observed, so they vouch for nobody.
     func isTrustedDeviceNearby() -> Bool {
-        isDeviceNearby && !isInRecoveryCooldown
+        recoveryCooldown.vouchesForPresence(isDeviceNearby, at: Date())
     }
 
     /// Whether every trusted device is nearby (same evidence rule as above).
     var areAllDevicesNearby: Bool {
-        !trustedDevices.isEmpty && !isInRecoveryCooldown && trustedDevices.allSatisfy(isNearby)
+        !trustedDevices.isEmpty
+            && recoveryCooldown.vouchesForPresence(trustedDevices.allSatisfy(isNearby), at: Date())
     }
 
     /// Check if a specific device is nearby
     func isNearby(_ device: TrustedDevice) -> Bool {
-        deviceProximityStates[device.id] ?? false
+        tracking[device.id]?.proximity.isNearby ?? false
+    }
+
+    /// The latest reading for a device, `nil` if none since scanning started
+    func lastObservation(for device: TrustedDevice) -> Observation? {
+        tracking[device.id]?.proximity.lastObservation
     }
 
     /// Get connection status for a specific device
     func connectionStatus(for device: TrustedDevice) -> DeviceConnectionStatus {
         if device.isClassicBluetooth {
             // Classic Bluetooth - check IOBluetooth connection state
-            let isConnected = classicDeviceLastConnected[device.id] ?? false
-            if isConnected {
+            if tracking[device.id]?.classicLink.connected == true {
                 return .connected
             }
             return isScanning ? .searching : .disconnected
@@ -637,15 +513,14 @@ extension BluetoothProximityManager: CBCentralManagerDelegate {
 
         // Handle power on - set recovery cooldown and reset proximity states
         if central.state == .poweredOn {
-            lastPoweredOnTime = Date()
-            log(.bluetooth, "BT recovery cooldown started (\(Int(btRecoveryCooldown))s)")
-            // Assume all devices nearby during recovery (prevent false "away")
-            for deviceID in deviceProximityStates.keys {
-                deviceProximityStates[deviceID] = true
+            recoveryCooldown.start(at: Date())
+            log(.bluetooth, "BT recovery cooldown started (\(Int(RecoveryCooldown.duration))s)")
+            // Assume observed devices nearby during recovery (prevent false "away")
+            for id in tracking.keys {
+                tracking[id]?.proximity.assumeNearbyForRecovery()
             }
             startScanningIfNeeded()
         }
-
 
         delegate?.bluetoothStateChanged(central.state)
     }
@@ -654,7 +529,7 @@ extension BluetoothProximityManager: CBCentralManagerDelegate {
         _ central: CBCentralManager,
         didDiscover peripheral: CBPeripheral,
         advertisementData: [String: Any],
-        rssi RSSI: NSNumber
+        rssi RSSINumber: NSNumber
     ) {
         // Check if this peripheral matches ANY BLE trusted device
         guard let matchingDevice = trustedDevices.first(where: {
@@ -671,7 +546,10 @@ extension BluetoothProximityManager: CBCentralManagerDelegate {
             centralManager.connect(peripheral, options: nil)
         }
 
-        updateProximityState(for: peripheral.identifier, rssi: RSSI.intValue)
+        // 127 = RSSI unavailable: no reading, not a strong one
+        if let rssi = RSSI(RSSINumber.intValue) {
+            observe(.signal(rssi), for: peripheral.identifier, at: Date())
+        }
     }
 
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
@@ -695,13 +573,13 @@ extension BluetoothProximityManager: CBCentralManagerDelegate {
 
         log(.bluetooth, "Disconnected: \(peripheral.name ?? "Unknown")")
         connectedPeripherals.removeValue(forKey: deviceID)
-        deviceProximityStates[deviceID] = false
+        tracking[deviceID, default: DeviceTracking()].proximity.markDisconnected()
 
         // Update overall state
         updateOverallNearbyState()
 
         // Reconnect if still trusted and scanning
-        if isScanning, trustedDevices.contains(where: { $0.id == deviceID }) {
+        if isScanning {
             // Resume scanning to rediscover device
             centralManager.scanForPeripherals(
                 withServices: nil,
@@ -712,7 +590,7 @@ extension BluetoothProximityManager: CBCentralManagerDelegate {
         }
 
         // Check if all devices now away
-        if areAllDevicesAway && !trustedDevices.isEmpty {
+        if areAllDevicesAway {
             delegate?.allTrustedDevicesAway()
         }
     }
@@ -725,12 +603,15 @@ extension BluetoothProximityManager: CBCentralManagerDelegate {
 // MARK: - CBPeripheralDelegate
 
 extension BluetoothProximityManager: CBPeripheralDelegate {
-    func peripheral(_ peripheral: CBPeripheral, didReadRSSI RSSI: NSNumber, error: Error?) {
-        guard error == nil else {
-            log(.bluetooth, "RSSI read error: \(error!.localizedDescription)")
+    func peripheral(_ peripheral: CBPeripheral, didReadRSSI RSSINumber: NSNumber, error: Error?) {
+        if let error {
+            log(.bluetooth, "RSSI read error: \(error.localizedDescription)")
             return
         }
-        updateProximityState(for: peripheral.identifier, rssi: RSSI.intValue)
+        // 127 = RSSI unavailable: no reading, not a strong one
+        if let rssi = RSSI(RSSINumber.intValue) {
+            observe(.signal(rssi), for: peripheral.identifier, at: Date())
+        }
     }
 }
 
@@ -739,25 +620,18 @@ extension BluetoothProximityManager: CBPeripheralDelegate {
 extension BluetoothProximityManager: IOBluetoothDeviceInquiryDelegate {
     /// Device discovered during inquiry - provides fresh RSSI
     func deviceInquiryDeviceFound(_ sender: IOBluetoothDeviceInquiry!, device: IOBluetoothDevice!) {
-        guard let address = device.addressString else { return }
-
-        // Get RSSI value before dispatching to main thread
-        let rssi = device.rawRSSI()
+        // Parse at the boundary: unparseable address or unavailable RSSI = nothing to report
+        guard let address = device.addressString.flatMap(BluetoothAddress.init),
+              let rssi = RSSI(Int(device.rawRSSI())) else { return }
 
         DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
+            guard let self,
+                  let trustedDevice = self.trustedDevices.first(where: { $0.classicAddress == address }) else { return }
 
-            // Check if this is a trusted Classic BT device (filter early)
-            guard let trustedDevice = self.trustedDevices.first(where: {
-                $0.classicAddress == address
-            }) else { return }
-
-            // Use fresh RSSI from inquiry result
-            if rssi != 127 && rssi != 0 {
-                self.classicDeviceLastValidRSSI[trustedDevice.id] = Date()
-                self.updateProximityState(for: trustedDevice.id, rssi: Int(rssi))
-                self.log(.bluetooth, "Inquiry RSSI for \(trustedDevice.name): \(rssi) dBm")
-            }
+            let now = Date()
+            self.tracking[trustedDevice.id, default: DeviceTracking()].classicLink.noteSignal(at: now)
+            self.observe(.signal(rssi), for: trustedDevice.id, at: now)
+            self.log(.bluetooth, "Inquiry RSSI for \(trustedDevice.name): \(rssi)")
         }
     }
 
