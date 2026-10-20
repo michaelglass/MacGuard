@@ -5,9 +5,58 @@
 import Cocoa
 import ApplicationServices
 
+/// The kinds of user input that count as an intrusion. `InputMonitor`
+/// parses raw `CGEventType`s into this at the boundary, so the alarm core
+/// never sees an event type it has to classify (or call "unknown").
+enum IntrusionInput: CaseIterable {
+    case keyboard, mediaKey, modifier, click, drag, pointerMove, scroll
+
+    /// NX_SYSDEFINED: media, volume, brightness and other special keys.
+    /// Not a named `CGEventType` case, so it is listed by raw value.
+    private static let systemDefinedRawValue: UInt32 = 14
+
+    /// Raw `CGEventType` values that parse to this input. The tap's event
+    /// mask is derived from these, so mask and parser cannot disagree.
+    var eventTypeRawValues: [UInt32] {
+        switch self {
+        case .keyboard: return [CGEventType.keyDown.rawValue]
+        // Without this, pressing mute or volume-down while armed went unnoticed
+        case .mediaKey: return [Self.systemDefinedRawValue]
+        case .modifier: return [CGEventType.flagsChanged.rawValue]   // ⌘, ⌥, fn, ... alone
+        case .click: return [CGEventType.leftMouseDown, .rightMouseDown, .otherMouseDown].map(\.rawValue)
+        case .drag: return [CGEventType.leftMouseDragged, .rightMouseDragged, .otherMouseDragged].map(\.rawValue)
+        case .pointerMove: return [CGEventType.mouseMoved.rawValue]
+        case .scroll: return [CGEventType.scrollWheel.rawValue]
+        }
+    }
+
+    init?(_ type: CGEventType) {
+        guard let input = Self.allCases.first(where: { $0.eventTypeRawValues.contains(type.rawValue) }) else {
+            return nil
+        }
+        self = input
+    }
+
+    var label: String {
+        switch self {
+        case .keyboard: return "keyboard"
+        case .mediaKey: return "media/system key"
+        case .modifier: return "modifier key"
+        case .click: return "mouse click"
+        case .drag: return "mouse drag"
+        case .pointerMove: return "mouse move"
+        case .scroll: return "scroll/touchpad"
+        }
+    }
+
+    static let eventMask: CGEventMask = allCases
+        .flatMap(\.eventTypeRawValues)
+        .reduce(CGEventMask(0)) { $0 | (CGEventMask(1) << $1) }
+}
+
 /// Protocol for receiving input detection events
 protocol InputMonitorDelegate: AnyObject {
-    func inputDetected(eventType: CGEventType)
+    func inputDetected(_ input: IntrusionInput)
 }
 
 /// Monitors global keyboard, mouse, and touchpad input using CGEventTap
@@ -30,19 +79,6 @@ class InputMonitor {
             ActivityLogManager.shared.log(category, message)
         }
     }
-
-    // Event types to monitor
-    private static let eventMask: CGEventMask = {
-        let types: [CGEventType] = [
-            .keyDown,
-            .leftMouseDown,
-            .rightMouseDown,
-            .otherMouseDown,
-            .mouseMoved,
-            .scrollWheel
-        ]
-        return types.reduce(0) { $0 | (1 << $1.rawValue) }
-    }()
 
     // MARK: - Permission Check
 
@@ -69,6 +105,11 @@ class InputMonitor {
 
         guard !isMonitoring else { return true }
 
+        // The tap's source is added to the current run loop, so the callback
+        // runs on the main thread. `lastEventTime` relies on that: it is
+        // read and written from the callback without synchronisation.
+        dispatchPrecondition(condition: .onQueue(.main))
+
         // Create event tap callback
         let callback: CGEventTapCallBack = { proxy, type, event, refcon -> Unmanaged<CGEvent>? in
             // Handle tap disabled by system - re-enable via monitor's eventTap
@@ -83,7 +124,7 @@ class InputMonitor {
             }
 
             // Notify delegate with debouncing
-            if let refcon = refcon {
+            if let refcon = refcon, let input = IntrusionInput(type) {
                 let monitor = Unmanaged<InputMonitor>.fromOpaque(refcon).takeUnretainedValue()
 
                 // Debounce check
@@ -91,7 +132,7 @@ class InputMonitor {
                 if now.timeIntervalSince(monitor.lastEventTime) > monitor.debounceInterval {
                     monitor.lastEventTime = now
                     DispatchQueue.main.async {
-                        monitor.delegate?.inputDetected(eventType: type)
+                        monitor.delegate?.inputDetected(input)
                     }
                 }
             }
@@ -105,7 +146,7 @@ class InputMonitor {
             tap: .cgSessionEventTap,
             place: .headInsertEventTap,
             options: .listenOnly,
-            eventsOfInterest: Self.eventMask,
+            eventsOfInterest: IntrusionInput.eventMask,
             callback: callback,
             userInfo: Unmanaged.passUnretained(self).toOpaque()
         ) else {
@@ -133,6 +174,10 @@ class InputMonitor {
 
         if let tap = eventTap {
             CGEvent.tapEnable(tap: tap, enable: false)
+            // Invalidate so the window server drops the tap now rather than
+            // whenever the port is deallocated; the callback holds an
+            // unretained pointer to self.
+            CFMachPortInvalidate(tap)
         }
 
         if let source = runLoopSource {

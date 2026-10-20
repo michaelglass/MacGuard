@@ -90,9 +90,12 @@ class SleepMonitor {
 
         // Poll every 1.0 second for lid state changes (reduced from 0.5s to lower CPU)
         // 1.0s is still responsive for physical lid close action
-        lidStateTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+        // Common modes: a default-mode timer pauses while a menu is open
+        let timer = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
             self?.checkLidState()
         }
+        RunLoop.main.add(timer, forMode: .common)
+        lidStateTimer = timer
     }
 
     /// Stop polling lid state

@@ -5,12 +5,15 @@
 import Foundation
 import IOKit.ps
 
+/// Where the Mac is drawing power from.
+enum PowerSource: Equatable {
+    case ac, battery
+}
+
 /// Protocol for receiving power state change events
 protocol PowerMonitorDelegate: AnyObject {
-    /// Called when power cable is disconnected
-    func powerCableDisconnected()
-    /// Called when power cable is connected
-    func powerCableConnected()
+    /// Called only on a change, never with the source it was already on
+    func powerSourceChanged(to source: PowerSource)
 }
 
 /// Monitors power cable connect/disconnect events
@@ -18,7 +21,7 @@ class PowerMonitor {
     weak var delegate: PowerMonitorDelegate?
 
     private var runLoopSource: CFRunLoopSource?
-    private var wasOnACPower = true
+    private var lastSource: PowerSource = .ac
     private var isMonitoring = false
 
     // MARK: - Logging Helper
@@ -36,7 +39,7 @@ class PowerMonitor {
         guard !isMonitoring else { return }
 
         // Check initial state
-        wasOnACPower = isOnACPower()
+        lastSource = currentSource()
 
         // Create power source notification callback
         let context = UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque())
@@ -47,7 +50,8 @@ class PowerMonitor {
             monitor.handlePowerSourceChange()
         }, context).takeRetainedValue()
 
-        CFRunLoopAddSource(CFRunLoopGetCurrent(), runLoopSource, .defaultMode)
+        // Common modes: still delivered while a menu or modal is tracking
+        CFRunLoopAddSource(CFRunLoopGetCurrent(), runLoopSource, .commonModes)
         isMonitoring = true
 
         log(.power, "Started monitoring power state")
@@ -58,7 +62,7 @@ class PowerMonitor {
         guard isMonitoring else { return }
 
         if let source = runLoopSource {
-            CFRunLoopRemoveSource(CFRunLoopGetCurrent(), source, .defaultMode)
+            CFRunLoopRemoveSource(CFRunLoopGetCurrent(), source, .commonModes)
             runLoopSource = nil
         }
 
@@ -70,42 +74,33 @@ class PowerMonitor {
 
     /// Check if currently on AC power
     /// - Returns: true if on AC power, false if on battery
-    func isOnACPower() -> Bool {
+    /// Asks which source is *providing* power. Reading the state of the first
+    /// listed source instead could pick an attached UPS, which reports
+    /// "AC Power" even after the laptop's own cable is pulled.
+    func currentSource() -> PowerSource {
         guard let snapshot = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
-              let sources = IOPSCopyPowerSourcesList(snapshot)?.takeRetainedValue() as? [CFTypeRef] else {
-            return true // Assume AC if unknown
+              let providing = IOPSGetProvidingPowerSourceType(snapshot)?.takeUnretainedValue() else {
+            return .ac // Assume AC if unknown
         }
+        return (providing as String) == kIOPSACPowerValue ? .ac : .battery
+    }
 
-        for source in sources {
-            if let info = IOPSGetPowerSourceDescription(snapshot, source)?.takeUnretainedValue() as? [String: Any],
-               let powerSource = info[kIOPSPowerSourceStateKey as String] as? String {
-                return powerSource == kIOPSACPowerValue as String
-            }
-        }
-
-        return true
+    /// The source to report for a power notification, or `nil` when nothing
+    /// changed (IOKit also notifies on battery-level changes).
+    static func transition(from previous: PowerSource, to current: PowerSource) -> PowerSource? {
+        current == previous ? nil : current
     }
 
     // MARK: - Private
 
     private func handlePowerSourceChange() {
-        let isAC = isOnACPower()
+        guard let source = Self.transition(from: lastSource, to: currentSource()) else { return }
+        lastSource = source
 
-        if wasOnACPower && !isAC {
-            // Power cable disconnected
-            log(.power, "Power cable disconnected")
-            DispatchQueue.main.async {
-                self.delegate?.powerCableDisconnected()
-            }
-        } else if !wasOnACPower && isAC {
-            // Power cable connected
-            log(.power, "Power cable connected")
-            DispatchQueue.main.async {
-                self.delegate?.powerCableConnected()
-            }
+        log(.power, source == .ac ? "Power cable connected" : "Power cable disconnected")
+        DispatchQueue.main.async {
+            self.delegate?.powerSourceChanged(to: source)
         }
-
-        wasOnACPower = isAC
     }
 
     deinit {
