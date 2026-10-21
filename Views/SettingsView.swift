@@ -445,7 +445,7 @@ struct SettingsView: View {
             }
             Spacer()
             Button("View Log") {
-                ActivityLogWindowController.shared.show()
+                ActivityLogWindowController.shared.show(alarmManager: alarmManager)
             }
             .buttonStyle(GlassBorderedProminentButtonStyle(tint: Theme.Accent.primary))
         }

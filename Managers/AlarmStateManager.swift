@@ -216,6 +216,12 @@ class AlarmStateManager: ObservableObject {
         }
     }
 
+    /// Idle only, so the record of an intrusion survives.
+    func clearActivityLog() {
+        guard state == .idle else { return }
+        ActivityLogManager.shared.clear()
+    }
+
     /// Attempt to disarm with biometric authentication
     /// - Parameter completion: Called with success status
     func attemptBiometricDisarm(completion: @escaping (Bool) -> Void) {
