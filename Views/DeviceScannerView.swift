@@ -90,9 +90,7 @@ class DeviceScannerViewModel: NSObject, ObservableObject {
     @Published var isScanning = false
 
     private var centralManager: CBCentralManager?
-    /// BLE peripherals seen per advertised name (lowercased). Names are
-    /// attacker-controlled, so a name seen from more than one peripheral is
-    /// ambiguous and never used to bind a paired device to a peripheral.
+    /// Names are attacker-controlled: one seen from several peripherals never binds a device.
     private var blePeripheralsByName: [String: Set<UUID>] = [:]
 
     func startScanning() {
@@ -239,7 +237,6 @@ extension DeviceScannerViewModel: CBCentralManagerDelegate {
 
 /// Discovered device model
 struct DiscoveredDevice: Identifiable {
-    /// Row identity (stable for the scan); also the trusted id for Classic devices
     let id: UUID
     let name: String
     var rssi: Int
@@ -251,7 +248,6 @@ struct DiscoveredDevice: Identifiable {
 
     var isClassicBluetooth: Bool { blePeripheralID == nil }
 
-    /// Id the trusted device will have (BLE matching needs the peripheral id)
     var trustedID: UUID { blePeripheralID ?? id }
 
     /// `nil` when the device cannot be tracked at all

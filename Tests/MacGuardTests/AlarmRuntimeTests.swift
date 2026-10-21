@@ -1,8 +1,7 @@
 // AlarmRuntimeTests.swift
 // MacGuard - Anti-Theft Alarm for macOS
 //
-// Seam tests: the real AlarmRuntime (machine + effect interpreter + timers)
-// against a recording AlarmHardware and a manual clock.
+// The real AlarmRuntime against a recording AlarmHardware and a manual clock.
 
 import XCTest
 @testable import MacGuard
@@ -131,8 +130,7 @@ final class AlarmRuntimeTests: XCTestCase {
         XCTAssertFalse(hardware.calls.contains(.startInputMonitoring))
     }
 
-    /// Regression: a stale exit delay from a cancelled session must not arm
-    /// a later session early.
+    /// A stale exit delay from a cancelled session must not arm a later one early.
     func testRearmWithinDelayUsesOnlyTheNewDelay() {
         env = .fixture(exitDelay: .s10)
         runtime.send(.armRequested(auto: false))

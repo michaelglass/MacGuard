@@ -3,18 +3,15 @@
 
 import Foundation
 
-/// What kind of alarm event an alert reports.
 enum AlertKind: String, Codable {
     case armed, disarmed, countdown, alarm, test
 }
 
-/// Which events produce alerts. Countdown, alarm and disarm always do;
-/// arming is opt-in because it is routine and frequent.
+/// Arming alerts are opt-in because they are routine and frequent.
 struct AlertPolicy: Equatable {
     var includeArmed = false
 }
 
-/// A notifier-agnostic message, built purely from an `AlarmEvent`.
 struct Alert: Equatable, Codable {
     let kind: AlertKind
     let title: String
@@ -23,7 +20,6 @@ struct Alert: Equatable, Codable {
     let host: String
     var attachments: [URL] = []
 
-    /// The alert for `event`, or `nil` when the policy says not to send one.
     static func make(from event: AlarmEvent, at date: Date, host: String, policy: AlertPolicy) -> Alert? {
         switch event {
         case .armed(let auto):

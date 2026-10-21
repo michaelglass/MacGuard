@@ -5,22 +5,17 @@
 import Cocoa
 import ApplicationServices
 
-/// The kinds of user input that count as an intrusion. `InputMonitor`
-/// parses raw `CGEventType`s into this at the boundary, so the alarm core
-/// never sees an event type it has to classify (or call "unknown").
+/// User input that counts as an intrusion, parsed from raw `CGEventType`s at the boundary.
 enum IntrusionInput: CaseIterable {
     case keyboard, mediaKey, modifier, click, drag, pointerMove, scroll
 
-    /// NX_SYSDEFINED: media, volume, brightness and other special keys.
-    /// Not a named `CGEventType` case, so it is listed by raw value.
+    /// NX_SYSDEFINED (media, volume, brightness keys); not a named `CGEventType`.
     private static let systemDefinedRawValue: UInt32 = 14
 
-    /// Raw `CGEventType` values that parse to this input. The tap's event
-    /// mask is derived from these, so mask and parser cannot disagree.
+    /// The tap's event mask is derived from these, so mask and parser cannot disagree.
     var eventTypeRawValues: [UInt32] {
         switch self {
         case .keyboard: return [CGEventType.keyDown.rawValue]
-        // Without this, pressing mute or volume-down while armed went unnoticed
         case .mediaKey: return [Self.systemDefinedRawValue]
         case .modifier: return [CGEventType.flagsChanged.rawValue]   // ⌘, ⌥, fn, ... alone
         case .click: return [CGEventType.leftMouseDown, .rightMouseDown, .otherMouseDown].map(\.rawValue)
@@ -72,7 +67,6 @@ class InputMonitor {
     private var lastEventTime: Date = .distantPast
     private let debounceInterval: TimeInterval = 0.5
 
-
     // MARK: - Permission Check
 
     /// Check if Accessibility permission is granted
@@ -98,9 +92,7 @@ class InputMonitor {
 
         guard !isMonitoring else { return true }
 
-        // The tap's source is added to the current run loop, so the callback
-        // runs on the main thread. `lastEventTime` relies on that: it is
-        // read and written from the callback without synchronisation.
+        // `lastEventTime` is unsynchronised; the tap runs on the main run loop.
         dispatchPrecondition(condition: .onQueue(.main))
 
         // Create event tap callback
@@ -167,9 +159,7 @@ class InputMonitor {
 
         if let tap = eventTap {
             CGEvent.tapEnable(tap: tap, enable: false)
-            // Invalidate so the window server drops the tap now rather than
-            // whenever the port is deallocated; the callback holds an
-            // unretained pointer to self.
+            // Drop the tap now: the callback holds an unretained pointer to self.
             CFMachPortInvalidate(tap)
         }
 

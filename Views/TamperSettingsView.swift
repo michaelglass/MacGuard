@@ -4,7 +4,6 @@
 import ServiceManagement
 import SwiftUI
 
-/// Settings row for tamper protection (relaunch + alarm if killed while armed).
 struct TamperSettingsView: View {
     @ObservedObject private var tamperGuard = TamperGuard.shared
 

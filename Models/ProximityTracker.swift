@@ -1,22 +1,15 @@
 // ProximityTracker.swift
 // MacGuard - Anti-Theft Alarm for macOS
-//
-// Pure per-device proximity decisions. `BluetoothProximityManager` parses
-// Bluetooth callbacks into `Observation`s, feeds them in with the current
-// time and settings, and turns the results into logs and delegate calls.
 
 import Foundation
 
-/// One parsed reading of a trusted device.
 enum Observation: Equatable {
-    /// A real signal-strength reading
     case signal(RSSI)
     /// Connected, but the stack reports no RSSI. Treated as nearby.
     case connectedWithoutSignal
-    /// Not connected / not reachable. Never nearby, whatever the thresholds.
+    /// Never nearby, whatever the thresholds.
     case disconnected
 
-    /// Whether this observation is at least as strong as `threshold` (dBm).
     func meets(_ threshold: Int) -> Bool {
         switch self {
         case .signal(let rssi): return rssi.dBm >= threshold
@@ -37,20 +30,15 @@ struct ProximityThresholds: Equatable {
     let away: Int
 }
 
-/// Per-device proximity. `unobserved` (no reading since scanning started) is
-/// distinct from `away`, but both mean "not nearby": nothing unobserved ever
-/// vouches for the owner being present.
+/// `unobserved` (no reading since scanning started) never vouches for presence.
 enum Proximity: Equatable {
     case unobserved, nearby, away
 }
 
-/// What one observation did to a device's proximity.
 enum ProximityChange: Equatable {
     case becameNearby
     case becameAway
-    /// Would have gone away, but BT is in its post-power-on recovery cooldown
     case awaySuppressedByCooldown
-    /// Would have gone away, but a nearby-strength reading arrived `sinceNearby` seconds ago
     case awayDebounced(sinceNearby: TimeInterval)
     case unchanged
 }
@@ -59,7 +47,6 @@ enum ProximityChange: Equatable {
 enum ProximityTiming {
     static func awayDebounce(lowPower: Bool) -> TimeInterval { lowPower ? 10 : 3 }
     static func disconnectDebounce(lowPower: Bool) -> TimeInterval { lowPower ? 15 : 5 }
-    /// Connected Classic device with no valid RSSI for this long counts as `.connectedWithoutSignal`
     static let classicSignalTimeout: TimeInterval = 1
 }
 
@@ -67,9 +54,7 @@ enum ProximityTiming {
 struct ProximityTracker: Equatable {
     private(set) var proximity: Proximity = .unobserved
     private(set) var lastObservation: Observation?
-    /// Last time the device was judged nearby (BLE disconnect debounce)
     private(set) var lastNearby: Date?
-    /// Last time a reading met the away threshold (away debounce)
     private var lastNearbySignal: Date?
 
     var isNearby: Bool { proximity == .nearby }
@@ -113,25 +98,22 @@ struct ProximityTracker: Equatable {
         return change
     }
 
-    /// Whether a BLE disconnect should be ignored as a blip (was nearby very recently).
     func shouldDebounceDisconnect(at now: Date, lowPower: Bool) -> Bool {
         now.timeIntervalSince(lastNearby ?? .distantPast) < ProximityTiming.disconnectDebounce(lowPower: lowPower)
     }
 
-    /// CoreBluetooth reported a disconnect: mark away directly (no transition event).
     mutating func markDisconnected() {
         proximity = .away
     }
 
-    /// After BT powers back on, assume previously observed devices are nearby
-    /// so they do not flap "away" (and auto-arm) while connections recover.
+    /// So devices don't flap "away" (and auto-arm) while connections recover after BT power-on.
     mutating func assumeNearbyForRecovery() {
         if proximity != .unobserved {
             proximity = .nearby
         }
     }
 
-    /// Scanning restarted: forget the current reading, keep debounce history.
+    /// Forgets the current reading, keeps debounce history.
     mutating func resetForScan() {
         proximity = .unobserved
         lastObservation = nil
@@ -140,7 +122,7 @@ struct ProximityTracker: Equatable {
 
 /// IOBluetooth connection state machine for one Classic device.
 struct ClassicLinkTracker: Equatable {
-    /// Connection state at the last poll, `nil` before the first poll since scanning started
+    /// `nil` before the first poll since scanning started
     private(set) var connected: Bool?
     private var lastStateChange: Date?
     private var lastValidSignal: Date?
@@ -150,11 +132,8 @@ struct ClassicLinkTracker: Equatable {
     }
 
     enum PollResult: Equatable {
-        /// Nothing to report this poll
         case none
-        /// Disconnect within the debounce window of the last state change
         case disconnectDebounced
-        /// Feed this observation to the device's `ProximityTracker`
         case observe(Observation, LinkEvent?)
     }
 
@@ -193,12 +172,11 @@ struct ClassicLinkTracker: Equatable {
         return .none
     }
 
-    /// An inquiry delivered a valid RSSI.
     mutating func noteSignal(at now: Date) {
         lastValidSignal = now
     }
 
-    /// Scanning restarted: re-initialise on the next poll, keep the debounce clock.
+    /// Re-initialises on the next poll, keeps the debounce clock.
     mutating func resetForScan() {
         connected = nil
         lastValidSignal = nil

@@ -7,8 +7,7 @@ import Security
 import ServiceManagement
 import SwiftUI
 
-/// On-disk record that a session is armed. Exists from `.armed` until stand
-/// down, so finding one whose process is gone means MacGuard was killed.
+/// Exists from `.armed` until stand down: one whose process is gone means MacGuard was killed.
 struct ArmedMarker: Codable, Equatable {
     let trustedDeviceHasLeft: Bool
     let armedAt: Date
@@ -23,18 +22,13 @@ struct ArmedMarker: Codable, Equatable {
     var session: ArmSession { ArmSession(trustedDeviceHasLeft: trustedDeviceHasLeft) }
 }
 
-/// What a fresh launch should do, decided from what it found on disk.
 enum LaunchDecision: Equatable {
     case normal
     case resumeAfterTamper(ArmSession)
 
-    /// - Parameters:
-    ///   - markerData: contents of the marker file, `nil` if absent
-    ///   - isAlive: whether a pid is a live MacGuard process (not this one)
     static func decide(markerData: Data?, isAlive: (Int32) -> Bool) -> LaunchDecision {
         guard let markerData else { return .normal }
-        // Unreadable marker: something wrote or truncated it while armed.
-        // Fail closed - treat as armed, without proximity-disarm rights.
+        // Unreadable marker: fail closed, without proximity-disarm rights.
         guard let marker = try? TamperGuard.decoder.decode(ArmedMarker.self, from: markerData) else {
             return .resumeAfterTamper(ArmSession(trustedDeviceHasLeft: false))
         }
@@ -42,11 +36,10 @@ enum LaunchDecision: Equatable {
     }
 }
 
-/// State of the relaunch watchdog, parsed from the setting + launchd status.
 enum WatchdogStatus: Equatable {
     case off
     case active
-    /// The user must allow MacGuard in System Settings > Login Items.
+    /// Allow MacGuard in System Settings > Login Items.
     case needsApproval
     case unavailable(String)
 
@@ -63,13 +56,8 @@ enum WatchdogStatus: Equatable {
     }
 }
 
-/// Detects and recovers from MacGuard being killed while armed.
-///
-/// Two halves: the app writes `ArmedMarker` while armed (driven by
-/// `AlarmEffect.persistArmedMarker` / `.clearArmedMarker`), and a KeepAlive
-/// launchd agent running this same binary with `--watchdog` relaunches the
-/// app whenever a marker exists but its process is gone. The relaunched app
-/// sees the marker and sounds `TriggerCause.tamper`.
+/// The app writes `ArmedMarker` while armed; a KeepAlive launchd agent (this binary
+/// with `--watchdog`) relaunches it when the marker's process is gone.
 @MainActor
 final class TamperGuard: ObservableObject {
     static let shared = TamperGuard()
@@ -80,7 +68,6 @@ final class TamperGuard: ObservableObject {
     nonisolated static let decoder = JSONDecoder()
 
     @AppStorage("tamperProtection") private var enabledRaw = true
-    /// Code signature the watchdog was registered with (see `syncAgent`).
     @AppStorage("watchdogRegisteredCode") private var registeredCode = ""
     @Published private(set) var status: WatchdogStatus = .off
     private var registrationError: String?
@@ -89,7 +76,6 @@ final class TamperGuard: ObservableObject {
 
     private init() {}
 
-    /// Tamper protection (default on). Setting it registers/unregisters the watchdog.
     var isEnabled: Bool {
         get { enabledRaw }
         set {
@@ -122,7 +108,6 @@ final class TamperGuard: ObservableObject {
         try? FileManager.default.removeItem(at: Self.markerURL)
     }
 
-    /// Decide at launch whether a previous instance was killed while armed.
     func launchDecision() -> LaunchDecision {
         guard isEnabled else { clear(); return .normal }
         let data = try? Data(contentsOf: Self.markerURL)
@@ -136,10 +121,8 @@ final class TamperGuard: ObservableObject {
         registrationError = nil
         do {
             if isEnabled {
-                // launchd pins the agent to the code signature that registered
-                // it. After an update or rebuild it refuses to start the
-                // watchdog (EX_CONFIG) while status still reads `.enabled`, so
-                // a changed signature re-registers.
+                // launchd pins the agent to the registering signature; after a
+                // rebuild it refuses to start it (EX_CONFIG) while still `.enabled`.
                 let code = Self.ownCodeHash ?? ""
                 if agent.status == .enabled && registeredCode != code {
                     logActivity(.system, "App signature changed - re-registering tamper watchdog")
@@ -161,7 +144,6 @@ final class TamperGuard: ObservableObject {
 
     // MARK: Process identity
 
-    /// Whether `pid` is a running process of this same executable.
     nonisolated static func isMacGuardProcess(_ pid: Int32) -> Bool {
         guard pid > 0, kill(pid, 0) == 0 || errno == EPERM else { return false }
         var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN) * 4)
@@ -170,8 +152,7 @@ final class TamperGuard: ObservableObject {
         return path == ownExecutablePath
     }
 
-    /// This build's code directory hash (hex), or nil when unsigned. Fixed
-    /// for the life of the process, so computed once.
+    /// Code directory hash (hex), nil when unsigned.
     nonisolated static let ownCodeHash: String? = {
         var code: SecCode?
         var staticCode: SecStaticCode?
@@ -188,8 +169,7 @@ final class TamperGuard: ObservableObject {
     }
 }
 
-/// Entry point for `MacGuard --watchdog`, run by the launchd agent.
-/// Never shows UI; relaunches the app when an armed marker is orphaned.
+/// `MacGuard --watchdog`, run by the launchd agent. Never shows UI.
 enum Watchdog {
     static let argument = "--watchdog"
     private static let pollInterval: TimeInterval = 2

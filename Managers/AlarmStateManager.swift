@@ -6,17 +6,14 @@ import SwiftUI
 import Combine
 import CoreBluetooth
 
-/// Imperative shell around `AlarmMachine`: turns monitor callbacks and UI
-/// actions into `AlarmInput`s, and performs the `AlarmEffect`s that come back.
-/// All decisions live in the machine; this class only does I/O.
+/// Imperative shell around `AlarmMachine`: parses callbacks into inputs, performs effects.
 @MainActor
 class AlarmStateManager: ObservableObject {
     // MARK: - Published Properties
 
     @Published private(set) var state: AlarmState = .idle
     @Published var hasAccessibilityPermission = false
-    /// When monitoring starts during `.arming` (display only; the machine
-    /// still decides via `.armingDelayElapsed`).
+    /// Display only; the machine decides via `.armingDelayElapsed`.
     @Published private(set) var armingDeadline: Date?
 
     // MARK: - Public Managers (for UI access)
@@ -36,7 +33,6 @@ class AlarmStateManager: ObservableObject {
     private let networkMonitor = NetworkMonitor()
     private let overlayController = CountdownWindowController()
 
-    /// Steps the machine and owns timers; this class is its `AlarmHardware`.
     private lazy var runtime: AlarmRuntime = {
         let runtime = AlarmRuntime(
             hardware: self,
@@ -61,8 +57,7 @@ class AlarmStateManager: ObservableObject {
         checkPermissions()
         startPermissionPolling()
 
-        // Screen lock is an idle-time signal (auto-arm), so it is always observed;
-        // the machine decides whether it arms.
+        // Always observed (an idle-time signal); the machine decides whether it arms.
         DistributedNotificationCenter.default().addObserver(
             forName: Notification.Name("com.apple.screenIsLocked"), object: nil, queue: .main
         ) { [weak self] _ in
@@ -122,7 +117,6 @@ class AlarmStateManager: ObservableObject {
 
     // MARK: - Machine
 
-    /// Parsed settings and proximity evidence, read fresh for every step.
     private var environment: AlarmEnvironment {
         let settings = AppSettings.shared
         return AlarmEnvironment(
@@ -145,7 +139,6 @@ class AlarmStateManager: ObservableObject {
         runtime.send(input)
     }
 
-    /// Subscribe to security-relevant events (notifiers, recorders).
     func onEvent(_ sink: @escaping (AlarmEvent) -> Void) {
         runtime.onEvent(sink)
     }
@@ -157,19 +150,15 @@ class AlarmStateManager: ObservableObject {
         send(.armRequested(auto: false))
     }
 
-    /// Cancel an arm request before monitoring starts. No authentication is
-    /// needed: nothing is being guarded yet.
+    /// No authentication: nothing is guarded yet.
     func cancelArming() {
         send(.cancelArming)
     }
 
-    /// Disarm after the owner authenticated. Only `AuthManager` can produce
-    /// an `OwnerAuthentication`, so UI code cannot disarm without one.
     func disarm(_ proof: OwnerAuthentication) {
         send(.authenticated(proof))
     }
 
-    /// Ask for Touch ID / password, and disarm on success.
     func requestDisarm(completion: @escaping (Bool) -> Void = { _ in }) {
         authManager.authenticate { [weak self] proof in
             guard let self, let proof else { return completion(false) }
@@ -178,12 +167,10 @@ class AlarmStateManager: ObservableObject {
         }
     }
 
-    /// A previous instance was killed while armed: come back sounding.
     func resumeAfterTamper(_ session: ArmSession) {
         send(.resumeAfterTamper(session))
     }
 
-    /// Try a PIN, disarming on success.
     func attemptPINDisarm(_ pin: String) -> PINVerification {
         let result = authManager.verifyPIN(pin)
         if case .accepted(let proof) = result {
@@ -192,7 +179,7 @@ class AlarmStateManager: ObservableObject {
         return result
     }
 
-    /// Clear the event log - only while idle, so the record of an intrusion survives.
+    /// Idle only, so the record of an intrusion survives.
     func clearActivityLog() {
         guard state == .idle else { return }
         ActivityLogManager.shared.clear()
@@ -288,7 +275,6 @@ extension AlarmStateManager: AlarmHardware {
     func playAlarm() { audioManager.playAlarm() }
 
     func stopAlarm() {
-        // Stop audio and release pre-loaded audio
         audioManager.stopAlarm()
         audioManager.unprepare()
     }

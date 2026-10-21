@@ -3,14 +3,13 @@
 
 import Foundation
 
-/// The I/O the alarm can perform. `AlarmStateManager` is the real one; tests
-/// use a recording fake, so the effect → I/O wiring is testable.
+/// The alarm's I/O. `AlarmStateManager` is the real one; tests use a recording fake.
 @MainActor
 protocol AlarmHardware: AnyObject {
     func prepareAudio()
     func lockScreen()
     func closeConfigWindows()
-    /// Returns whether monitoring started (false = no Accessibility permission).
+    /// false = no Accessibility permission
     func startInputMonitoring() -> Bool
     func startSystemMonitors()
     func stopMonitors()
@@ -25,28 +24,24 @@ protocol AlarmHardware: AnyObject {
     func log(_ category: ActivityLogCategory, _ message: String)
 }
 
-/// A cancellable scheduled callback.
 @MainActor
 protocol AlarmTimer: AnyObject {
     func cancel()
 }
 
-/// Time source for the runtime's delays and timers (manual in tests).
 @MainActor
 protocol AlarmScheduler {
     func now() -> Date
     func schedule(after interval: TimeInterval, repeats: Bool, _ action: @escaping @MainActor () -> Void) -> AlarmTimer
 }
 
-/// Runs `AlarmMachine`: owns the state, steps the machine for each input,
-/// and interprets the returned effects - timers itself, I/O via `AlarmHardware`.
-/// Feedback effects (`startInputMonitoring`, timers) re-enter as inputs.
+/// Steps `AlarmMachine` and runs its effects. Feedback effects (timers,
+/// `startInputMonitoring`) re-enter as inputs.
 @MainActor
 final class AlarmRuntime {
     private(set) var state: AlarmState = .idle {
         didSet { if state != oldValue { onStateChange(state) } }
     }
-    /// When monitoring starts during `.arming` (display only).
     private(set) var armingDeadline: Date? {
         didSet { onArmingDeadlineChange(armingDeadline) }
     }
@@ -74,14 +69,12 @@ final class AlarmRuntime {
         self.gracePeriod = gracePeriod
     }
 
-    /// Feed one input through the machine and run its effects.
     func send(_ input: AlarmInput) {
         let (next, effects) = AlarmMachine.step(state, input, environment())
         state = next
         effects.forEach(perform)
     }
 
-    /// Subscribe to security-relevant events (notifiers, recorders).
     func onEvent(_ sink: @escaping (AlarmEvent) -> Void) {
         eventSinks.append(sink)
     }
@@ -92,9 +85,7 @@ final class AlarmRuntime {
         case .lockScreen: hardware.lockScreen()
         case .closeConfigWindows: hardware.closeConfigWindows()
         case .scheduleArmingDelay(let delay):
-            // Start monitors after the exit delay (also avoids capturing the lock
-            // keystroke). A rescheduled or stood-down delay is cancelled, so a
-            // stale one can never arm a later session early.
+            // Cancelled on reschedule or stand-down, so a stale delay can't arm a later session early.
             armingDelay?.cancel()
             armingDeadline = scheduler.now().addingTimeInterval(delay.seconds)
             armingDelay = scheduler.schedule(after: delay.seconds, repeats: false) { [weak self] in
@@ -146,8 +137,7 @@ final class AlarmRuntime {
     }
 }
 
-/// Production scheduler: main-run-loop timers in `.common` mode, so they keep
-/// firing while a menu is open (the default mode pauses during menu tracking).
+/// `.common` mode, so timers keep firing while a menu is open.
 struct RunLoopScheduler: AlarmScheduler {
     private final class RunLoopTimer: AlarmTimer {
         let timer: Timer

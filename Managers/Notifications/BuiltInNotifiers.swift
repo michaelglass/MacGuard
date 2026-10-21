@@ -4,13 +4,11 @@
 import Foundation
 import UserNotifications
 
-/// Local banner via Notification Center. Needs no configuration.
 struct NotificationCenterNotifier: Notifier {
     let id = NotifierID.notificationCenter
 
     func send(_ alert: Alert) async throws {
-        // UNUserNotificationCenter traps when the process is not an app bundle
-        // (e.g. `swift run`), so refuse instead of crashing.
+        // UNUserNotificationCenter traps outside an app bundle (e.g. `swift run`)
         guard Bundle.main.bundleIdentifier != nil, Bundle.main.bundleURL.pathExtension == "app" else {
             throw NotifierError(message: "Notification Center needs the packaged MacGuard.app")
         }
@@ -29,7 +27,6 @@ struct NotificationCenterNotifier: Notifier {
     }
 }
 
-/// E-mail through the user's Mail.app account (Apple Events).
 struct MailNotifier: Notifier {
     let id = NotifierID.mail
     let recipient: EmailAddress
@@ -51,7 +48,6 @@ struct MailNotifier: Notifier {
     }
 }
 
-/// iMessage through Messages.app (Apple Events). Files are sent after the text.
 struct MessagesNotifier: Notifier {
     let id = NotifierID.messages
     let recipient: MessagesRecipient
@@ -72,8 +68,7 @@ struct MessagesNotifier: Notifier {
     }
 }
 
-/// Runs a user Shortcut with the alert as JSON input, so a Shortcut can
-/// forward it anywhere (Pushover, Telegram, a HomeKit scene, ...).
+/// The alert goes in as JSON, so a Shortcut can forward it anywhere.
 struct ShortcutsNotifier: Notifier {
     let id = NotifierID.shortcuts
     let shortcut: ShortcutName
@@ -104,7 +99,6 @@ struct ShortcutsNotifier: Notifier {
     }()
 }
 
-/// HTTPS POST of the alert as JSON (ntfy, Pushover, Slack/Discord bridges, ...).
 /// Attachments are not uploaded; only their count is sent.
 struct WebhookNotifier: Notifier {
     let id = NotifierID.webhook

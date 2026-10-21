@@ -10,9 +10,7 @@ struct SettingsView: View {
     @ObservedObject var alarmManager: AlarmStateManager
     @ObservedObject private var settings = AppSettings.shared
 
-    /// Configuration is read-only unless idle: while armed, anyone a trusted
-    /// device lets past the trigger could otherwise lower the volume, change
-    /// the PIN or remove devices without authenticating.
+    /// Read-only unless idle: a trusted device suppresses triggers, so anyone near it could edit.
     private var isLocked: Bool { alarmManager.state != .idle }
 
     var body: some View {
@@ -613,7 +611,6 @@ class PINSetupWindowController: NSObject, NSWindowDelegate {
         }
     }
 
-    /// Close without saving (used when arming).
     func close() {
         window?.close()
     }
@@ -734,7 +731,6 @@ struct PINSetupContainerView: View {
             return
         }
 
-        // A guessable PIN needs a second Save with the same PIN
         if let weakness = pin.weakness, viewModel.acceptedWeakPIN != viewModel.pin {
             viewModel.errorMessage = weakness.message + "\nSave again to use it anyway."
             viewModel.showError = true

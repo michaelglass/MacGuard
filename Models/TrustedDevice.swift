@@ -4,12 +4,10 @@
 
 import Foundation
 
-/// A Classic Bluetooth device address, parsed from IOBluetooth's `addressString`
-/// (e.g. "aa-bb-cc-dd-ee-ff"). Equality is by the six bytes, so case or
-/// separator differences between sources cannot make the same device unequal.
+/// Equal by the six bytes, so case or separator differences can't split one device.
 struct BluetoothAddress: Hashable, CustomStringConvertible {
     let bytes: [UInt8]
-    /// The text as received, kept so persisted data reads the same in older builds
+    /// As received, so persisted data reads the same in older builds
     let description: String
 
     init?(_ text: String) {
@@ -29,10 +27,7 @@ struct BluetoothAddress: Hashable, CustomStringConvertible {
     func hash(into hasher: inout Hasher) { hasher.combine(bytes) }
 }
 
-/// A real signal-strength reading in dBm. Both Bluetooth stacks report
-/// "unavailable" in-band (IOBluetooth `rawRSSI()` returns 0 or 127,
-/// CoreBluetooth reports 127), so parsing them away here means code holding an
-/// `RSSI` never has to re-check for sentinels.
+/// Both Bluetooth stacks report "no reading" in-band as 0 or 127; those parse to nil.
 struct RSSI: Hashable, Comparable, CustomStringConvertible {
     let dBm: Int
 
@@ -45,12 +40,8 @@ struct RSSI: Hashable, Comparable, CustomStringConvertible {
     var description: String { "\(dBm) dBm" }
 }
 
-/// A trusted Bluetooth device for auto-disarm: persisted identity only.
-/// Runtime observations live in `BluetoothProximityManager`.
-/// Supports both BLE devices (iPhone, Watch) and Classic Bluetooth (AirPods, headphones)
+/// Persisted identity only; runtime observations live in `BluetoothProximityManager`.
 struct TrustedDevice: Identifiable, Codable, Hashable {
-    /// How the device is tracked. A Classic device always has an address and a
-    /// BLE device never does, so "classic without address" is unrepresentable.
     enum Transport: Hashable {
         /// Matched by `CBPeripheral.identifier` (== `TrustedDevice.id`)
         case ble
@@ -120,10 +111,8 @@ struct TrustedDevice: Identifiable, Codable, Hashable {
         if isClassic, let address {
             transport = .classic(address: address)
         } else {
-            // Includes legacy "classic without a (valid) address" records. Older
-            // builds skipped those when polling, and their generated id never
-            // matches a peripheral, so they were never detected; decoding them
-            // as BLE keeps that behaviour instead of failing the whole array.
+            // Legacy "classic without an address" records were never detected;
+            // as BLE they still aren't, and the array still decodes.
             transport = .ble
         }
     }

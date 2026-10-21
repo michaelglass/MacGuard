@@ -4,8 +4,7 @@
 @testable import MacGuard
 
 extension AlarmEnvironment {
-    /// The one place tests build an environment; defaults match the app's
-    /// defaults, so a new field only needs adding here.
+    /// The one place tests build an environment; defaults match the app's.
     static func fixture(
         countdown: Int = 3,
         autoLock: Bool = false,
