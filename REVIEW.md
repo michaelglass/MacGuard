@@ -127,7 +127,11 @@ Packaging: verified locally that `create-dmg.sh` builds a bundle with `Contents/
   - The temp directory holding the private key is removed on failure too.
   - `-legacy` is passed only to OpenSSL 3. macOS's LibreSSL rejects it, so the script previously failed at the export step on a stock Mac.
 
+- **Local builds were always offered an older release.** `create-dmg.sh` built the bundle version by deleting dots (2.0.8 → `208`), while `release.yml` and the appcast use MAJOR×1000 + MINOR×100 + PATCH (`2008`). Sparkle orders by that number, so every local build saw upstream's older release as an update. `create-dmg.sh` now uses the release formula and drops any `-suffix`. (The formula itself collides from minor version 10 on: 2.10.0 = 3.0.0.)
+
 ## Open (not fixed)
+
+- **Tamper relaunch saves the wrong "original" audio state.** The alarm switches output to the built-in speaker and raises the volume. A `kill -9` skips the restore, and the relaunched instance then saves the alarm's speaker and volume as the originals, so disarming "restores" those. Fix: persist the pre-alarm device and volume in the armed marker. Found while planning on-device tests; not verified.
 
 - **Fork users auto-update back to upstream.** `Info.plist` `SUFeedURL` points at `shenglong209/MacGuard`, and `SUPublicEDKey` is upstream's key. A build from this fork will offer upstream's release and silently replace these changes. To distribute the fork, change both values and sign the appcast with your own key.
 - **Lid-close protection.** `pmset -a disablesleep 1` is a system-wide, persistent setting. If MacGuard crashes or is force-quit, sleep stays disabled until the user notices. On quit, `resetLidCloseProtection` prompts for an administrator password, although its comment says "silent". A privileged helper (`SMAppService`) or a launchd watchdog that resets the setting would be more robust. This needs on-device testing, so it was left unchanged.
