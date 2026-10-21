@@ -34,7 +34,8 @@ let package = Package(
                 "appcast.xml",
                 "dist",
                 "docs",
-                "featured-image.png"
+                "featured-image.png",
+                "Tests"
             ],
             sources: [
                 "MacGuardApp.swift",
@@ -47,6 +48,11 @@ let package = Package(
             resources: [
                 .copy("Resources")
             ]
+        ),
+        .testTarget(
+            name: "MacGuardTests",
+            dependencies: ["MacGuard"],
+            path: "Tests/MacGuardTests"
         )
     ]
 )
