@@ -47,3 +47,26 @@ final class PINThrottleTests: XCTestCase {
         XCTAssertFalse(AuthManager.constantTimeEquals(Data("1234".utf8), Data("12345".utf8)))
     }
 }
+
+final class PINWeaknessTests: XCTestCase {
+    private func weakness(_ raw: String) -> PINWeakness? { PIN(raw)?.weakness }
+
+    func testLuggageCombination() {
+        XCTAssertEqual(weakness("12345"), .luggage)
+        XCTAssertEqual(weakness("1234"), .luggage)
+    }
+
+    func testRepeatedAndSequential() {
+        XCTAssertEqual(weakness("0000"), .repeated)
+        XCTAssertEqual(weakness("99999999"), .repeated)
+        XCTAssertEqual(weakness("2345"), .sequence)
+        XCTAssertEqual(weakness("9876"), .sequence)
+        XCTAssertEqual(weakness("2580"), .common)
+    }
+
+    func testOrdinaryPINsPass() {
+        for raw in ["4071", "8352", "13579", "90210", "246813"] {
+            XCTAssertNil(weakness(raw), raw)
+        }
+    }
+}

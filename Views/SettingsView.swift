@@ -87,7 +87,7 @@ struct SettingsView: View {
 
                 // Security Section
                 Section {
-                    securityPINRow
+                    SecurityPINRow(auth: alarmManager.authManager, alarmManager: alarmManager)
                     securityTouchIDRow
                 } header: {
                     Label("Security", systemImage: "lock.fill")
@@ -302,33 +302,6 @@ struct SettingsView: View {
 
     // MARK: - Security Rows
 
-    private var securityPINRow: some View {
-        HStack(spacing: Theme.Spacing.md) {
-            ZStack {
-                GlassIconCircle(size: 32, material: .selection)
-                Image(systemName: "number.square.fill")
-                    .font(.title2)
-                    .foregroundColor(Theme.StateColor.triggered)
-            }
-            Text("Backup PIN")
-            Spacer()
-            if alarmManager.authManager.hasPIN {
-                Label("Configured", systemImage: "checkmark.circle.fill")
-                    .font(.caption)
-                    .foregroundColor(Theme.StateColor.armed)
-                Button("Change") {
-                    PINSetupWindowController.shared.show(alarmManager: alarmManager)
-                }
-                .buttonStyle(GlassSecondaryButtonStyle())
-            } else {
-                Button("Set PIN") {
-                    PINSetupWindowController.shared.show(alarmManager: alarmManager)
-                }
-                .buttonStyle(GlassBorderedProminentButtonStyle(tint: Theme.Accent.primary))
-            }
-        }
-    }
-
     private var securityTouchIDRow: some View {
         HStack(spacing: Theme.Spacing.md) {
             ZStack {
@@ -388,10 +361,12 @@ struct SettingsView: View {
         Picker("Alarm Sound", selection: Binding(
             get: { settings.alarmSound },
             set: { newValue in
+                // Play the choice once so it can be judged without arming
                 if newValue == .custom {
-                    _ = settings.selectCustomSound()
+                    if settings.selectCustomSound() { settings.previewSound() }
                 } else {
                     settings.alarmSound = newValue
+                    settings.previewSound()
                 }
             }
         )) {
@@ -428,7 +403,7 @@ struct SettingsView: View {
                     .truncationMode(.middle)
                 Spacer()
                 Button("Change") {
-                    _ = settings.selectCustomSound()
+                    if settings.selectCustomSound() { settings.previewSound() }
                 }
                 .buttonStyle(GlassSecondaryButtonStyle())
             }
@@ -669,12 +644,48 @@ class PINSetupWindowController: NSObject, NSWindowDelegate {
     }
 }
 
+/// Observes `AuthManager` itself: `SettingsView` only observes the alarm
+/// manager, so a nested `hasPIN` change would not redraw the row.
+private struct SecurityPINRow: View {
+    @ObservedObject var auth: AuthManager
+    let alarmManager: AlarmStateManager
+
+    var body: some View {
+        HStack(spacing: Theme.Spacing.md) {
+            ZStack {
+                GlassIconCircle(size: 32, material: .selection)
+                Image(systemName: "number.square.fill")
+                    .font(.title2)
+                    .foregroundColor(Theme.StateColor.triggered)
+            }
+            Text("Backup PIN")
+            Spacer()
+            if auth.hasPIN {
+                Label("Set", systemImage: "checkmark.circle.fill")
+                    .font(.caption)
+                    .foregroundColor(Theme.StateColor.armed)
+                Button("Change PIN") {
+                    PINSetupWindowController.shared.show(alarmManager: alarmManager)
+                }
+                .buttonStyle(GlassSecondaryButtonStyle())
+            } else {
+                Button("Set PIN") {
+                    PINSetupWindowController.shared.show(alarmManager: alarmManager)
+                }
+                .buttonStyle(GlassBorderedProminentButtonStyle(tint: Theme.Accent.primary))
+            }
+        }
+    }
+}
+
 class PINSetupViewModel: ObservableObject {
     weak var alarmManager: AlarmStateManager?
     @Published var pin = ""
     @Published var confirmPIN = ""
     @Published var showError = false
     @Published var errorMessage = ""
+    /// A weak PIN already warned about; saving it again keeps it.
+    var acceptedWeakPIN: String?
 }
 
 struct PINSetupContainerView: View {
@@ -683,7 +694,7 @@ struct PINSetupContainerView: View {
 
     var body: some View {
         VStack(spacing: Theme.Spacing.lg) {
-            Text("Set Backup PIN")
+            Text(viewModel.alarmManager?.authManager.hasPIN == true ? "Change Backup PIN" : "Set Backup PIN")
                 .font(.headline)
 
             // Use native AppKit text field for reliable input
@@ -697,6 +708,8 @@ struct PINSetupContainerView: View {
                 Text(viewModel.errorMessage)
                     .foregroundColor(Theme.StateColor.alarming)
                     .font(.caption)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             HStack {
@@ -727,6 +740,14 @@ struct PINSetupContainerView: View {
             viewModel.errorMessage = "PINs don't match"
             viewModel.showError = true
             viewModel.confirmPIN = ""
+            return
+        }
+
+        // A guessable PIN needs a second Save with the same PIN
+        if let weakness = pin.weakness, viewModel.acceptedWeakPIN != viewModel.pin {
+            viewModel.errorMessage = weakness.message + "\nSave again to use it anyway."
+            viewModel.showError = true
+            viewModel.acceptedWeakPIN = viewModel.pin
             return
         }
 

@@ -33,6 +33,41 @@ struct PIN {
               raw.allSatisfy({ $0.isASCII && $0.isNumber }) else { return nil }
         digits = raw
     }
+
+    /// Why this PIN is among the first a thief would try, if it is.
+    var weakness: PINWeakness? {
+        let values = digits.compactMap(\.wholeNumberValue)
+        let steps = Set(zip(values, values.dropFirst()).map { $1 - $0 })
+        if digits == "1234" || digits == "12345" { return .luggage }
+        if steps == [0] { return .repeated }
+        if steps == [1] || steps == [-1] { return .sequence }
+        if PINWeakness.wellKnown.contains(digits) { return .common }
+        return nil
+    }
+}
+
+/// A guessable PIN. Saving one takes a second confirmation.
+enum PINWeakness: Equatable {
+    /// 1234 / 12345 (Spaceballs)
+    case luggage
+    /// One digit repeated: 0000, 999999
+    case repeated
+    /// A straight run: 2345, 9876
+    case sequence
+    /// Other well-known PINs
+    case common
+
+    static let wellKnown: Set<String> = ["1212", "2580", "1122", "1313", "6969", "4321", "2000", "1004", "123123", "121212", "112233"]
+
+    var message: String {
+        switch self {
+        case .luggage:
+            return "“That's the kind of thing an idiot would have on his luggage!” - Dark Helmet"
+        case .repeated: return "A repeated digit is one of the first PINs anyone tries."
+        case .sequence: return "A straight run of digits is one of the first PINs anyone tries."
+        case .common: return "This is one of the most common PINs."
+        }
+    }
 }
 
 /// Outcome of a PIN attempt.
