@@ -30,7 +30,7 @@ class AlarmStateManager: ObservableObject {
     private let inputMonitor = InputMonitor()
     private let sleepMonitor = SleepMonitor()
     private let powerMonitor = PowerMonitor()
-    private let overlayController = CountdownWindowController()
+    private lazy var overlayController = CountdownWindowController(alarmManager: self)
 
     /// Tracks if current armed state was triggered by auto-arm (device left)
     /// When true, auto-disarm on device return is allowed
@@ -264,7 +264,7 @@ class AlarmStateManager: ObservableObject {
         countdownSeconds = duration
 
         // Show fullscreen overlay
-        overlayController.show(alarmManager: self)
+        overlayController.show()
 
         // If countdown is 0, skip directly to alarm
         if duration == 0 {
@@ -297,7 +297,7 @@ class AlarmStateManager: ObservableObject {
         countdownTimer = nil
 
         // Show overlay and start alarm
-        overlayController.show(alarmManager: self)
+        overlayController.show()
         audioManager.playAlarm()
 
         state = .alarming
