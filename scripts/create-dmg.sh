@@ -112,6 +112,8 @@ cat > "$APP_BUNDLE/Contents/Info.plist" << PLIST
     <string>13.0</string>
     <key>LSUIElement</key>
     <true/>
+    <key>NSCameraUsageDescription</key>
+    <string>MacGuard can photograph whoever triggers the alarm. This is off unless you turn it on in Settings.</string>
     <key>NSBluetoothAlwaysUsageDescription</key>
     <string>MacGuard uses Bluetooth to detect your trusted devices for auto-disarm.</string>
     <key>NSAppleEventsUsageDescription</key>

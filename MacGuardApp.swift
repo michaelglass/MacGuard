@@ -17,7 +17,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             exit(0)
         }
 
-        // Observers attach before any resume, so a tamper alarm is reported
+        // Observers attach before any resume, so a tamper alarm is photographed
+        IntruderCamera.shared.attach(to: alarmManager)
         alarmManager.onEvent(NotificationDispatcher.shared.handle)
 
         let tamperGuard = TamperGuard.shared

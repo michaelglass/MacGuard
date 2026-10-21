@@ -16,7 +16,7 @@ enum DeliveryResult: Equatable {
 
 /// Delivers off the main actor, every notifier concurrently; one failure never affects another.
 final class NotificationDispatcher {
-    static let shared = NotificationDispatcher()
+    static let shared = NotificationDispatcher(attachments: { await IntruderCamera.shared.latestPhotos(for: $0) })
 
     private let notifiers: () -> [any Notifier]
     private let policy: () -> AlertPolicy
