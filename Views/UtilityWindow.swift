@@ -37,8 +37,16 @@ final class UtilityWindow: NSObject, NSWindowDelegate {
         if let key = NSApp.keyWindow, key !== window { parent = key }
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
-        window.center()
+        centerOnMouseScreen()
         window.makeKeyAndOrderFront(nil)
+    }
+
+    /// `center()` uses the window's last screen, which can be another display.
+    private func centerOnMouseScreen() {
+        let mouse = NSEvent.mouseLocation
+        guard let screen = NSScreen.screens.first(where: { NSMouseInRect(mouse, $0.frame, false) }) ?? NSScreen.main else { return }
+        let area = screen.visibleFrame, size = window.frame.size
+        window.setFrameOrigin(NSPoint(x: area.midX - size.width / 2, y: area.midY - size.height / 2))
     }
 
     func close() {
