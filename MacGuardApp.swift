@@ -18,7 +18,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             exit(0)
         }
 
-        // Observers attach before any resume, so a tamper alarm is reported
+        // Observers attach before any resume, so a tamper alarm is photographed
+        IntruderCamera.shared.attach(to: alarmManager)
         // Opt-in remote notifications (all channels off by default)
         alarmManager.onEvent(NotificationDispatcher.shared.handle)
 

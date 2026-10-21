@@ -19,8 +19,8 @@ enum DeliveryResult: Equatable {
 /// `AlarmStateManager.onEvent`; delivery runs off the main actor, every
 /// notifier concurrently, and one failing channel never affects another.
 final class NotificationDispatcher {
-    /// The app's dispatcher.
-    static let shared = NotificationDispatcher()
+    /// The app's dispatcher: intruder photos (if enabled) ride along as attachments.
+    static let shared = NotificationDispatcher(attachments: { await IntruderCamera.shared.latestPhotos(for: $0) })
 
     private let notifiers: () -> [any Notifier]
     private let policy: () -> AlertPolicy
