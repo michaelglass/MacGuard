@@ -302,54 +302,13 @@ struct PINOverlay: View {
                     .foregroundStyle(.white)
             }
 
-            // Ticks each second so the lockout ends on screen without input
-            TimelineView(.periodic(from: .now, by: 1)) { context in
-                let lockedUntil = alarmManager.authManager.pinLockedUntil.flatMap { $0 > context.date ? $0 : nil }
-                VStack(spacing: Theme.Spacing.xl) {
-                    // PIN input field: no input at all while locked out
-                    OverlaySecureTextField(text: $pin, placeholder: "PIN", isEnabled: lockedUntil == nil, onSubmit: validate)
-                        .frame(width: 180, height: 32)
-                        .offset(x: shakeOffset)
-
-                    if let lockedUntil {
-                        HStack(spacing: Theme.Spacing.xs) {
-                            Image(systemName: "lock.fill")
-                            Text("Too many attempts - try again in \(Int(lockedUntil.timeIntervalSince(context.date).rounded(.up)))s")
-                                .monospacedDigit()
-                        }
-                        .font(.system(.callout, design: .rounded))
-                        .foregroundStyle(Theme.StateColor.alarming)
-                    } else if let errorText {
-                        HStack(spacing: Theme.Spacing.xs) {
-                            Image(systemName: "xmark.circle.fill")
-                            Text(errorText)
-                        }
-                        .font(.system(.callout, design: .rounded))
-                        .foregroundStyle(Theme.StateColor.alarming)
-                    }
-
-                    // Action buttons
-                    HStack(spacing: Theme.Spacing.lg) {
-                        Button {
-                            withAnimation { isPresented = false }
-                        } label: {
-                            Text("Cancel")
-                                .font(.body.weight(.medium))
-                                .frame(width: 80)
-                        }
-                        .buttonStyle(GlassSecondaryButtonStyle())
-
-                        Button {
-                            validate()
-                        } label: {
-                            Text("Verify")
-                                .font(.body.weight(.semibold))
-                                .frame(width: 80)
-                        }
-                        .buttonStyle(GlassBorderedProminentButtonStyle(tint: Theme.Accent.primary))
-                        .disabled(lockedUntil != nil)
-                    }
+            if alarmManager.authManager.pinLockout(at: .now) != nil {
+                // Ticks only during a lockout, so it ends on screen without input
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    entry(lockedUntil: alarmManager.authManager.pinLockout(at: context.date), now: context.date)
                 }
+            } else {
+                entry(lockedUntil: nil, now: .now)
             }
         }
         .padding(Theme.Spacing.xxxl)
@@ -362,12 +321,50 @@ struct PINOverlay: View {
         }
     }
 
-    private var isLockedOut: Bool {
-        alarmManager.authManager.pinLockedUntil.map { $0 > Date() } ?? false
+    /// Field, message and buttons. No input at all while locked out.
+    private func entry(lockedUntil: Date?, now: Date) -> some View {
+        let message = lockedUntil.map {
+            ("lock.fill", "Too many attempts - try again in \(Int($0.timeIntervalSince(now).rounded(.up)))s")
+        } ?? errorText.map { ("xmark.circle.fill", $0) }
+
+        return VStack(spacing: Theme.Spacing.xl) {
+            OverlaySecureTextField(text: $pin, placeholder: "PIN", isEnabled: lockedUntil == nil, onSubmit: validate)
+                .frame(width: 180, height: 32)
+                .offset(x: shakeOffset)
+
+            if let (icon, text) = message {
+                HStack(spacing: Theme.Spacing.xs) {
+                    Image(systemName: icon)
+                    Text(text).monospacedDigit()
+                }
+                .font(.system(.callout, design: .rounded))
+                .foregroundStyle(Theme.StateColor.alarming)
+            }
+
+            HStack(spacing: Theme.Spacing.lg) {
+                Button {
+                    withAnimation { isPresented = false }
+                } label: {
+                    Text("Cancel")
+                        .font(.body.weight(.medium))
+                        .frame(width: 80)
+                }
+                .buttonStyle(GlassSecondaryButtonStyle())
+
+                Button {
+                    validate()
+                } label: {
+                    Text("Verify")
+                        .font(.body.weight(.semibold))
+                        .frame(width: 80)
+                }
+                .buttonStyle(GlassBorderedProminentButtonStyle(tint: Theme.Accent.primary))
+                .disabled(lockedUntil != nil)
+            }
+        }
     }
 
     private func validate() {
-        guard !isLockedOut else { return }
         switch alarmManager.attemptPINDisarm(pin) {
         case .accepted:
             withAnimation { isPresented = false }

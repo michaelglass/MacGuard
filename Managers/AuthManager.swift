@@ -57,7 +57,7 @@ enum PINWeakness: Equatable {
     /// Other well-known PINs
     case common
 
-    static let wellKnown: Set<String> = ["1212", "2580", "1122", "1313", "6969", "4321", "2000", "1004", "123123", "121212", "112233"]
+    static let wellKnown: Set<String> = ["1212", "2580", "1122", "1313", "6969", "2000", "1004", "123123", "121212", "112233"]
 
     var message: String {
         switch self {
@@ -74,8 +74,8 @@ enum PINWeakness: Equatable {
 enum PINVerification {
     case accepted(OwnerAuthentication)
     case rejected
-    /// Too many wrong attempts; no attempt is evaluated before this date.
-    case lockedOut(until: Date)
+    /// Too many wrong attempts; see `AuthManager.pinLockout(at:)` for the end.
+    case lockedOut
     case noPINConfigured
 }
 
@@ -124,16 +124,15 @@ class AuthManager: ObservableObject {
 
     /// Persisted, so killing and relaunching the app doesn't reset the count.
     /// Cleared only by `resetPINAttempts()`, i.e. after the owner disarms.
-    private var throttle: PINThrottle {
-        didSet {
-            pinLockedUntil = throttle.lockedUntil
-            UserDefaults.standard.set(try? JSONEncoder().encode(throttle), forKey: Self.throttleKey)
-        }
+    @Published private var throttle: PINThrottle {
+        didSet { UserDefaults.standard.set(try? JSONEncoder().encode(throttle), forKey: Self.throttleKey) }
     }
     private static let throttleKey = "pinThrottle"
 
-    /// End of the current or last PIN lockout (the view compares it to now).
-    @Published private(set) var pinLockedUntil: Date?
+    /// The end of the PIN lockout in force at `now`, if any.
+    func pinLockout(at now: Date) -> Date? {
+        throttle.lockout(at: now)
+    }
 
 
     // MARK: - Initialization
@@ -141,7 +140,6 @@ class AuthManager: ObservableObject {
     init() {
         throttle = UserDefaults.standard.data(forKey: Self.throttleKey)
             .flatMap { try? JSONDecoder().decode(PINThrottle.self, from: $0) } ?? PINThrottle()
-        pinLockedUntil = throttle.lockedUntil
         checkBiometrics()
         hasPIN = retrievePIN() != nil
     }
@@ -233,8 +231,8 @@ class AuthManager: ObservableObject {
     /// The input is not parsed as a `PIN`: PINs saved by older versions were
     /// not restricted to digits and must keep working.
     func verifyPIN(_ input: String, now: Date = Date()) -> PINVerification {
-        if let until = throttle.lockout(at: now) {
-            return .lockedOut(until: until)
+        if throttle.lockout(at: now) != nil {
+            return .lockedOut
         }
         guard let stored = retrievePIN() else { return .noPINConfigured }
 
@@ -245,7 +243,7 @@ class AuthManager: ObservableObject {
 
         let until = throttle.recordFailure(at: now)
         logActivity(.system, "Incorrect PIN (attempt \(throttle.failedAttempts))")
-        return until.map { .lockedOut(until: $0) } ?? .rejected
+        return until == nil ? .rejected : .lockedOut
     }
 
     /// The owner has disarmed: wrong guesses before that no longer count.

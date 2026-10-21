@@ -44,14 +44,7 @@ class AlarmStateManager: ObservableObject {
             environment: { [unowned self] in self.environment },
             gracePeriod: { AppSettings.shared.autoArmGracePeriod }
         )
-        runtime.onStateChange = { [unowned self] in
-            self.state = $0
-            // Reaching idle took owner proof (or the trusted device's return)
-            if $0 == .idle {
-                self.authManager.resetPINAttempts()
-                self.authManager.cancelPendingAuthentication()
-            }
-        }
+        runtime.onStateChange = { [unowned self] in self.state = $0 }
         runtime.onArmingDeadlineChange = { [unowned self] in self.armingDeadline = $0 }
         return runtime
     }()
@@ -76,8 +69,8 @@ class AlarmStateManager: ObservableObject {
             MainActor.assumeIsolated { self?.send(.screenLocked) }
         }
 
-        // Forward bluetoothManager changes to trigger view updates
-        bluetoothManager.objectWillChange
+        // Forward nested managers' changes so views observing this one redraw
+        Publishers.Merge(bluetoothManager.objectWillChange, authManager.objectWillChange)
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 self?.objectWillChange.send()
@@ -302,6 +295,10 @@ extension AlarmStateManager: AlarmHardware {
 
     func persistArmedMarker(_ session: ArmSession) { TamperGuard.shared.persist(session) }
     func clearArmedMarker() { TamperGuard.shared.clear() }
+    func endOwnerChallenge() {
+        authManager.resetPINAttempts()
+        authManager.cancelPendingAuthentication()
+    }
     func log(_ category: ActivityLogCategory, _ message: String) { ActivityLogManager.shared.log(category, message) }
 }
 

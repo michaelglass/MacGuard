@@ -170,8 +170,9 @@ final class TamperGuard: ObservableObject {
         return path == ownExecutablePath
     }
 
-    /// This build's code directory hash (hex), or nil when unsigned.
-    nonisolated static var ownCodeHash: String? {
+    /// This build's code directory hash (hex), or nil when unsigned. Fixed
+    /// for the life of the process, so computed once.
+    nonisolated static let ownCodeHash: String? = {
         var code: SecCode?
         var staticCode: SecStaticCode?
         var info: CFDictionary?
@@ -180,7 +181,7 @@ final class TamperGuard: ObservableObject {
               SecCodeCopySigningInformation(staticCode, [], &info) == errSecSuccess,
               let unique = (info as? [String: Any])?[kSecCodeInfoUnique as String] as? Data else { return nil }
         return unique.map { String(format: "%02x", $0) }.joined()
-    }
+    }()
 
     nonisolated static var ownExecutablePath: String? {
         Bundle.main.executableURL?.resolvingSymlinksInPath().path

@@ -87,7 +87,7 @@ struct SettingsView: View {
 
                 // Security Section
                 Section {
-                    SecurityPINRow(auth: alarmManager.authManager, alarmManager: alarmManager)
+                    securityPINRow
                     securityTouchIDRow
                 } header: {
                     Label("Security", systemImage: "lock.fill")
@@ -302,6 +302,33 @@ struct SettingsView: View {
 
     // MARK: - Security Rows
 
+    private var securityPINRow: some View {
+        HStack(spacing: Theme.Spacing.md) {
+            ZStack {
+                GlassIconCircle(size: 32, material: .selection)
+                Image(systemName: "number.square.fill")
+                    .font(.title2)
+                    .foregroundColor(Theme.StateColor.triggered)
+            }
+            Text("Backup PIN")
+            Spacer()
+            if alarmManager.authManager.hasPIN {
+                Label("Set", systemImage: "checkmark.circle.fill")
+                    .font(.caption)
+                    .foregroundColor(Theme.StateColor.armed)
+                Button("Change PIN") {
+                    PINSetupWindowController.shared.show(alarmManager: alarmManager)
+                }
+                .buttonStyle(GlassSecondaryButtonStyle())
+            } else {
+                Button("Set PIN") {
+                    PINSetupWindowController.shared.show(alarmManager: alarmManager)
+                }
+                .buttonStyle(GlassBorderedProminentButtonStyle(tint: Theme.Accent.primary))
+            }
+        }
+    }
+
     private var securityTouchIDRow: some View {
         HStack(spacing: Theme.Spacing.md) {
             ZStack {
@@ -361,12 +388,10 @@ struct SettingsView: View {
         Picker("Alarm Sound", selection: Binding(
             get: { settings.alarmSound },
             set: { newValue in
-                // Play the choice once so it can be judged without arming
                 if newValue == .custom {
-                    if settings.selectCustomSound() { settings.previewSound() }
+                    _ = settings.selectCustomSound()
                 } else {
-                    settings.alarmSound = newValue
-                    settings.previewSound()
+                    settings.chooseSound(newValue)
                 }
             }
         )) {
@@ -403,7 +428,7 @@ struct SettingsView: View {
                     .truncationMode(.middle)
                 Spacer()
                 Button("Change") {
-                    if settings.selectCustomSound() { settings.previewSound() }
+                    _ = settings.selectCustomSound()
                 }
                 .buttonStyle(GlassSecondaryButtonStyle())
             }
@@ -641,40 +666,6 @@ class PINSetupWindowController: NSObject, NSWindowDelegate {
         viewModel.confirmPIN = ""
         // Revert to accessory app when window closes via X button
         NSApp.setActivationPolicy(.accessory)
-    }
-}
-
-/// Observes `AuthManager` itself: `SettingsView` only observes the alarm
-/// manager, so a nested `hasPIN` change would not redraw the row.
-private struct SecurityPINRow: View {
-    @ObservedObject var auth: AuthManager
-    let alarmManager: AlarmStateManager
-
-    var body: some View {
-        HStack(spacing: Theme.Spacing.md) {
-            ZStack {
-                GlassIconCircle(size: 32, material: .selection)
-                Image(systemName: "number.square.fill")
-                    .font(.title2)
-                    .foregroundColor(Theme.StateColor.triggered)
-            }
-            Text("Backup PIN")
-            Spacer()
-            if auth.hasPIN {
-                Label("Set", systemImage: "checkmark.circle.fill")
-                    .font(.caption)
-                    .foregroundColor(Theme.StateColor.armed)
-                Button("Change PIN") {
-                    PINSetupWindowController.shared.show(alarmManager: alarmManager)
-                }
-                .buttonStyle(GlassSecondaryButtonStyle())
-            } else {
-                Button("Set PIN") {
-                    PINSetupWindowController.shared.show(alarmManager: alarmManager)
-                }
-                .buttonStyle(GlassBorderedProminentButtonStyle(tint: Theme.Accent.primary))
-            }
-        }
     }
 }
 

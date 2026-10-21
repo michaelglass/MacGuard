@@ -362,6 +362,12 @@ class AppSettings: ObservableObject {
 
     private init() {}
 
+    /// Select a built-in sound and play it once, so it can be judged without arming.
+    func chooseSound(_ sound: AlarmSound) {
+        alarmSound = sound
+        previewSound()
+    }
+
     /// Preview the selected alarm sound
     func previewSound() {
         guard let file = alarmSoundFile,
@@ -389,6 +395,7 @@ class AppSettings: ObservableObject {
             customSoundPath = url.path
             alarmSound = .custom
             objectWillChange.send()
+            previewSound()
             return true
         }
         return false

@@ -14,9 +14,9 @@ class AlarmAudioManager: ObservableObject {
     /// Volume before the alarm raised it; `nil` when there is nothing to restore
     /// (stopAlarm() also runs on every plain disarm).
     private var originalVolume: Float?
-    private var originalOutputDeviceID: AudioDeviceID = 0
     private var builtInSpeakerID: AudioDeviceID = 0
-    private var shouldRestoreOutputDevice = false
+    /// The output to return to on stop; nil when the alarm didn't move it.
+    private var deviceToRestore: AudioDeviceID?
     private var beepTimer: Timer?
     private var volumeEnforcementTimer: Timer?
     private var isPrepared = false
@@ -145,12 +145,8 @@ class AlarmAudioManager: ObservableObject {
         // Connecting headphones (or picking another output) moves the default
         // output, and the alarm would follow it. Move it back; the device chosen
         // mid-alarm is the one restored on disarm.
-        let current = getDefaultOutputDevice()
-        if builtInSpeakerID != 0, current != 0, current != builtInSpeakerID {
-            originalOutputDeviceID = current
-            shouldRestoreOutputDevice = true
-            setDefaultOutputDevice(builtInSpeakerID)
-            logActivity(.alarm, "Output moved to device \(current) - alarm kept on built-in speaker")
+        if let moved = moveToBuiltInSpeaker() {
+            logActivity(.alarm, "Output moved to device \(moved) - alarm kept on built-in speaker")
         }
 
         // A device change can stop the player
@@ -262,31 +258,34 @@ class AlarmAudioManager: ObservableObject {
 
     /// Save current output device and switch to built-in speaker
     private func switchToBuiltInSpeaker() {
-        // Save current output device
-        originalOutputDeviceID = getDefaultOutputDevice()
-
-        // Find built-in speaker
         builtInSpeakerID = findBuiltInSpeaker()
-
-        if builtInSpeakerID != 0 && builtInSpeakerID != originalOutputDeviceID {
-            setDefaultOutputDevice(builtInSpeakerID)
-            shouldRestoreOutputDevice = true
-            logActivity(.alarm, "Switched from device \(originalOutputDeviceID) to built-in speaker \(builtInSpeakerID)")
-        } else if builtInSpeakerID == originalOutputDeviceID {
-            logActivity(.alarm, "Already using built-in speaker")
-            shouldRestoreOutputDevice = false
-        } else {
+        guard builtInSpeakerID != 0 else {
             logActivity(.alarm, "Could not find built-in speaker, using current device")
-            shouldRestoreOutputDevice = false
+            return
         }
+        if let previous = moveToBuiltInSpeaker() {
+            logActivity(.alarm, "Switched from device \(previous) to built-in speaker \(builtInSpeakerID)")
+        } else {
+            logActivity(.alarm, "Already using built-in speaker")
+        }
+    }
+
+    /// Make the built-in speaker the output if something else is. Returns the
+    /// device it replaced, which becomes the one restored on stop.
+    private func moveToBuiltInSpeaker() -> AudioDeviceID? {
+        let current = getDefaultOutputDevice()
+        guard builtInSpeakerID != 0, current != 0, current != builtInSpeakerID else { return nil }
+        deviceToRestore = current
+        setDefaultOutputDevice(builtInSpeakerID)
+        return current
     }
 
     /// Restore original output device
     private func restoreOutputDevice() {
-        guard shouldRestoreOutputDevice, originalOutputDeviceID != 0 else { return }
-        setDefaultOutputDevice(originalOutputDeviceID)
-        logActivity(.alarm, "Restored output device to \(originalOutputDeviceID)")
-        shouldRestoreOutputDevice = false
+        guard let device = deviceToRestore else { return }
+        setDefaultOutputDevice(device)
+        logActivity(.alarm, "Restored output device to \(device)")
+        deviceToRestore = nil
     }
 
     /// Get current default output device

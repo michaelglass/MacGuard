@@ -13,7 +13,7 @@ private final class FakeHardware: AlarmHardware {
         case prepareAudio, lockScreen, closeConfigWindows, startInputMonitoring
         case startSystemMonitors, stopMonitors, resumeIdleScanning
         case showOverlay, hideOverlay, playAlarm, stopAlarm
-        case persistArmedMarker(ArmSession), clearArmedMarker
+        case persistArmedMarker(ArmSession), clearArmedMarker, endOwnerChallenge
     }
 
     var calls: [Call] = []
@@ -33,6 +33,7 @@ private final class FakeHardware: AlarmHardware {
     func stopAlarm() { calls.append(.stopAlarm) }
     func persistArmedMarker(_ session: ArmSession) { calls.append(.persistArmedMarker(session)) }
     func clearArmedMarker() { calls.append(.clearArmedMarker) }
+    func endOwnerChallenge() { calls.append(.endOwnerChallenge) }
     func log(_ category: ActivityLogCategory, _ message: String) { logs.append(message) }
 }
 
@@ -170,7 +171,7 @@ final class AlarmRuntimeTests: XCTestCase {
         runtime.send(.trustedDeviceNearby(name: "Phone"))
         XCTAssertEqual(runtime.state, .idle)
         XCTAssertEqual(scheduler.pending, 0)
-        for call: FakeHardware.Call in [.stopMonitors, .stopAlarm, .hideOverlay, .clearArmedMarker] {
+        for call: FakeHardware.Call in [.stopMonitors, .stopAlarm, .hideOverlay, .clearArmedMarker, .endOwnerChallenge] {
             XCTAssertTrue(hardware.calls.contains(call), "\(call)")
         }
         scheduler.advance(by: 30)

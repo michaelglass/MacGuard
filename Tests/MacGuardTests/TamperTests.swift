@@ -27,6 +27,7 @@ final class TamperMachineTests: XCTestCase {
             let (next, effects) = AlarmMachine.step(state, input, nearby)
             XCTAssertEqual(next, .idle, "\(state) + \(input)")
             XCTAssertTrue(effects.contains(.clearArmedMarker), "\(state) + \(input)")
+            XCTAssertTrue(effects.contains(.endOwnerChallenge), "\(state) + \(input): PIN history and Touch ID prompt end on disarm")
         }
     }
 

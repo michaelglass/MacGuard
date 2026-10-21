@@ -21,6 +21,7 @@ protocol AlarmHardware: AnyObject {
     func stopAlarm()
     func persistArmedMarker(_ session: ArmSession)
     func clearArmedMarker()
+    func endOwnerChallenge()
     func log(_ category: ActivityLogCategory, _ message: String)
 }
 
@@ -140,6 +141,7 @@ final class AlarmRuntime {
         case .emit(let event): eventSinks.forEach { $0(event) }
         case .persistArmedMarker(let session): hardware.persistArmedMarker(session)
         case .clearArmedMarker: hardware.clearArmedMarker()
+        case .endOwnerChallenge: hardware.endOwnerChallenge()
         }
     }
 }

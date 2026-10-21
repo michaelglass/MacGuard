@@ -99,6 +99,8 @@ enum AlarmEffect: Equatable {
     /// Record that this session is armed, so a killed process is detectable.
     case persistArmedMarker(ArmSession)
     case clearArmedMarker
+    /// Disarmed: drop wrong-PIN history and any open Touch ID prompt.
+    case endOwnerChallenge
 }
 
 /// The alarm's decision logic as a pure function. No timers, singletons or
@@ -277,6 +279,9 @@ enum AlarmMachine {
             .stopAlarm,
             .hideOverlay,
             .clearArmedMarker,
+            // PIN attempts only accrue while triggered or alarming, which end
+            // only with owner proof or a trusted device's return.
+            .endOwnerChallenge,
             .log(.disarmed, reason),
             .emit(.disarmed(reason: reason)),
         ]
