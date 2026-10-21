@@ -54,6 +54,7 @@ enum AlarmInput {
     case autoArmTimerFired
     case screenLocked
     case resumeAfterTamper(ArmSession)
+    case settingsChanged
 }
 
 /// Snapshot of parsed settings and proximity *evidence* the machine decides on.
@@ -93,6 +94,7 @@ enum AlarmEffect: Equatable {
     case startAutoArmTimer
     case cancelAutoArmTimer(reason: String?)
     case resumeIdleScanning
+    case stopIdleScanning
     case log(ActivityLogCategory, String)
     case emit(AlarmEvent)
     /// Record that this session is armed, so a killed process is detectable.
@@ -212,6 +214,9 @@ enum AlarmMachine {
             let (next, effects) = step(.idle, .armRequested(auto: false), env)
             return (next, [.log(.armed, "Screen locked - arming")] + effects)
 
+        case (.idle, .settingsChanged):
+            return (state, [wantsIdleScanning(env) ? .resumeIdleScanning : .stopIdleScanning])
+
         // Anything else is a no-op here (e.g. a stale tick after disarm).
         default:
             return (state, [])
@@ -278,8 +283,12 @@ enum AlarmMachine {
             .log(.disarmed, reason),
             .emit(.disarmed(reason: reason)),
         ]
-        // Idle scanning only when auto-arm needs it (keeps idle CPU low)
-        if env.autoArmEnabled && env.hasTrustedDevices { effects.append(.resumeIdleScanning) }
+        if wantsIdleScanning(env) { effects.append(.resumeIdleScanning) }
         return (.idle, effects)
+    }
+
+    /// Idle scanning only when auto-arm needs it (keeps idle CPU low).
+    private static func wantsIdleScanning(_ env: AlarmEnvironment) -> Bool {
+        env.autoArmEnabled && env.hasTrustedDevices
     }
 }

@@ -186,6 +186,18 @@ final class AlarmMachineTests: XCTestCase {
         XCTAssertFalse(step(.arming(manual), .cancelArming, env(autoArm: false)).effects.contains(.resumeIdleScanning))
     }
 
+    func testSettingsChangeAppliesTheIdleScanningRule() {
+        XCTAssertEqual(step(.idle, .settingsChanged, env(autoArm: true, devices: true)).effects, [.resumeIdleScanning])
+        XCTAssertEqual(step(.idle, .settingsChanged, env(autoArm: true, devices: false)).effects, [.stopIdleScanning])
+        XCTAssertEqual(step(.idle, .settingsChanged, env(autoArm: false)).effects, [.stopIdleScanning])
+    }
+
+    func testSettingsChangeLeavesActiveScanningAlone() {
+        for state: AlarmState in [.arming(manual), .armed(manual)] {
+            XCTAssertEqual(step(state, .settingsChanged, env(autoArm: false)).effects, [], "\(state)")
+        }
+    }
+
     func testStandDownStopsEverything() {
         let effects = step(.arming(manual), .cancelArming).effects
         for required: AlarmEffect in [.stopCountdownTimer, .stopMonitors, .stopAlarm, .hideOverlay] {

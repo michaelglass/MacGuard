@@ -4,7 +4,6 @@
 
 import SwiftUI
 import Combine
-import CoreBluetooth
 
 /// Imperative shell around `AlarmMachine`: parses callbacks into inputs, performs effects.
 @MainActor
@@ -49,13 +48,17 @@ class AlarmStateManager: ObservableObject {
     // MARK: - Initialization
 
     init() {
-        inputMonitor.delegate = self
-        sleepMonitor.delegate = self
-        powerMonitor.delegate = self
-        usbMonitor.delegate = self
-        motionMonitor.delegate = self
-        networkMonitor.delegate = self
-        bluetoothManager.delegate = self
+        // Every monitor delivers on the main run loop, already parsed
+        let forward: (AlarmInput) -> Void = { [weak self] input in
+            MainActor.assumeIsolated { self?.send(input) }
+        }
+        inputMonitor.onInput = forward
+        sleepMonitor.onInput = forward
+        powerMonitor.onInput = forward
+        usbMonitor.onInput = forward
+        motionMonitor.onInput = forward
+        networkMonitor.onInput = forward
+        bluetoothManager.onInput = forward
         checkPermissions()
         startPermissionPolling()
 
@@ -74,11 +77,11 @@ class AlarmStateManager: ObservableObject {
             }
             .store(in: &cancellables)
 
-        // Observe AppSettings changes to start/stop scanning when auto-arm setting changes
+        // Delivered after the change (objectWillChange fires before it)
         AppSettings.shared.objectWillChange
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
-                self?.handleSettingsChanged()
+                self?.send(.settingsChanged)
             }
             .store(in: &cancellables)
     }
@@ -219,21 +222,6 @@ class AlarmStateManager: ObservableObject {
             }
         }
     }
-
-    /// Handle AppSettings changes - start/stop Bluetooth scanning based on auto-arm setting
-    private func handleSettingsChanged() {
-        guard state == .idle else { return }
-
-        let shouldScan = AppSettings.shared.autoArmOnDeviceLeave && !bluetoothManager.trustedDevices.isEmpty
-
-        if shouldScan && !bluetoothManager.isScanning {
-            bluetoothManager.startScanning()
-            ActivityLogManager.shared.log(.bluetooth, "Started scanning (auto-arm enabled)")
-        } else if !shouldScan && bluetoothManager.isScanning {
-            bluetoothManager.stopScanning()
-            ActivityLogManager.shared.log(.bluetooth, "Stopped scanning (auto-arm disabled)")
-        }
-    }
 }
 
 // MARK: - AlarmHardware
@@ -279,6 +267,7 @@ extension AlarmStateManager: AlarmHardware {
     }
 
     func resumeIdleScanning() { bluetoothManager.startScanning() }
+    func stopIdleScanning() { bluetoothManager.stopScanning() }
     func showOverlay() { overlayController.show(alarmManager: self) }
     func hideOverlay() { overlayController.hide() }
     func playAlarm() { audioManager.playAlarm() }
@@ -295,106 +284,4 @@ extension AlarmStateManager: AlarmHardware {
         authManager.cancelPendingAuthentication()
     }
     func log(_ category: ActivityLogCategory, _ message: String) { ActivityLogManager.shared.log(category, message) }
-}
-
-// MARK: - InputMonitorDelegate
-
-extension AlarmStateManager: InputMonitorDelegate {
-    nonisolated func inputDetected(_ input: IntrusionInput) {
-        Task { @MainActor in self.send(.intrusion(.input(input))) }
-    }
-}
-
-// MARK: - SleepMonitorDelegate
-
-extension AlarmStateManager: SleepMonitorDelegate {
-    nonisolated func lidWillClose() {
-        Task { @MainActor in self.send(.severeIntrusion(.lidClosed)) }
-    }
-
-    nonisolated func systemDidWake() {
-        Task { @MainActor in self.send(.systemWoke) }
-    }
-}
-
-// MARK: - PowerMonitorDelegate
-
-extension AlarmStateManager: PowerMonitorDelegate {
-    nonisolated func powerSourceChanged(to source: PowerSource) {
-        Task { @MainActor in
-            switch source {
-            case .battery:
-                ActivityLogManager.shared.log(.power, "Power cable disconnected")
-                self.send(.intrusion(.powerDisconnected))
-            case .ac:
-                ActivityLogManager.shared.log(.power, "Power cable connected")
-            }
-        }
-    }
-}
-
-// MARK: - USBMonitorDelegate
-
-extension AlarmStateManager: USBMonitorDelegate {
-    nonisolated func usbDeviceAttached(name: String) {
-        Task { @MainActor in
-            ActivityLogManager.shared.log(.input, "USB device attached: \(name)")
-            self.send(.intrusion(.usbDeviceAttached(name: name)))
-        }
-    }
-}
-
-// MARK: - NetworkMonitorDelegate
-
-extension AlarmStateManager: NetworkMonitorDelegate {
-    nonisolated func networkChanged() {
-        Task { @MainActor in
-            ActivityLogManager.shared.log(.system, "Network links changed")
-            self.send(.intrusion(.networkChanged))
-        }
-    }
-}
-
-// MARK: - BluetoothProximityDelegate
-
-extension AlarmStateManager: BluetoothProximityDelegate {
-    nonisolated func trustedDeviceNearby(_ device: TrustedDevice) {
-        Task { @MainActor in self.send(.trustedDeviceNearby(name: device.name)) }
-    }
-
-    nonisolated func trustedDeviceAway(_ device: TrustedDevice) {
-        Task { @MainActor in self.send(.trustedDeviceAway(name: device.name)) }
-    }
-
-    nonisolated func allTrustedDevicesAway() {
-        Task { @MainActor in self.send(.allTrustedDevicesAway) }
-    }
-
-    nonisolated func bluetoothStateChanged(_ state: CBManagerState) {
-        Task { @MainActor in
-            if state == .poweredOff {
-                ActivityLogManager.shared.log(.bluetooth, "Bluetooth turned off")
-            } else if state == .poweredOn {
-                ActivityLogManager.shared.log(.bluetooth, "Bluetooth turned on")
-            }
-        }
-    }
-}
-
-// MARK: - MotionMonitorDelegate
-
-extension AlarmStateManager: MotionMonitorDelegate {
-    nonisolated func motionDetected(deviation: Double) {
-        Task { @MainActor in
-            ActivityLogManager.shared.log(.input, String(format: "Motion detected (%.3f g)", deviation))
-            self.send(.intrusion(.motion))
-        }
-    }
-
-    nonisolated func lidAngleChanged(by degrees: Int) {
-        Task { @MainActor in
-            ActivityLogManager.shared.log(.input, "Lid moved \(degrees)°")
-            self.send(.intrusion(.lidMoved(degrees: degrees)))
-        }
-    }
 }
