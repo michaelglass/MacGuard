@@ -32,7 +32,7 @@ class AlarmStateManager: ObservableObject {
     private let usbMonitor = USBMonitor()
     private let motionMonitor = MotionMonitor()
     private let networkMonitor = NetworkMonitor()
-    private let overlayController = CountdownWindowController()
+    private lazy var overlayController = CountdownWindowController(alarmManager: self)
 
     private lazy var runtime: AlarmRuntime = {
         let runtime = AlarmRuntime(
@@ -279,7 +279,7 @@ extension AlarmStateManager: AlarmHardware {
     }
 
     func resumeIdleScanning() { bluetoothManager.startScanning() }
-    func showOverlay() { overlayController.show(alarmManager: self) }
+    func showOverlay() { overlayController.show() }
     func hideOverlay() { overlayController.hide() }
     func playAlarm() { audioManager.playAlarm() }
 

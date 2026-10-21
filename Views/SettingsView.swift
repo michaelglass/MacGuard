@@ -572,146 +572,82 @@ struct SettingsView: View {
     }
 }
 
-// MARK: - PIN Setup Window Controller
+// MARK: - PIN Setup Window
 
 @MainActor
-class PINSetupWindowController: NSObject, NSWindowDelegate {
+final class PINSetupWindowController {
     static let shared = PINSetupWindowController()
 
-    private var window: NSWindow?
-    private var hostingController: NSHostingController<PINSetupContainerView>?
-    private var viewModel = PINSetupViewModel()
-
-    private override init() {
-        super.init()
-    }
+    private let viewModel = PINSetupViewModel()
+    private var window: UtilityWindow?
 
     func show(alarmManager: AlarmStateManager) {
         guard alarmManager.state == .idle else { return }
-        viewModel.alarmManager = alarmManager
-        viewModel.pin = ""
-        viewModel.confirmPIN = ""
-        viewModel.showError = false
-        viewModel.weakPINWarning = nil
-
-        if window == nil {
-            createWindow()
-        }
-
-        // Temporarily become a regular app to take focus
-        NSApp.setActivationPolicy(.regular)
-
-        // Force app activation and window focus
-        NSApp.activate(ignoringOtherApps: true)
-        window?.center()
-        window?.makeKeyAndOrderFront(nil)
-
-        // Make first text field first responder after a brief delay
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-            self?.focusFirstTextField()
-        }
+        viewModel.reset()
+        window = window ?? UtilityWindow(
+            title: "Set Backup PIN", size: NSSize(width: 300, height: 220), fitsContent: true,
+            onClose: { [viewModel] in viewModel.reset() },
+            content: PINSetupContainerView(viewModel: viewModel, alarmManager: alarmManager,
+                                           onDismiss: { PINSetupWindowController.shared.close() }))
+        window?.show()
     }
 
     func close() {
         window?.close()
     }
-
-    private func createWindow() {
-        let view = PINSetupContainerView(viewModel: viewModel, onDismiss: { [weak self] in
-            self?.window?.orderOut(nil)
-            // Revert to accessory app (menu bar only)
-            NSApp.setActivationPolicy(.accessory)
-        })
-        hostingController = NSHostingController(rootView: view)
-        hostingController?.sizingOptions = .preferredContentSize
-
-        let newWindow = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 300, height: 220),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-
-        newWindow.contentViewController = hostingController
-        newWindow.title = "Set Backup PIN"
-        newWindow.isReleasedWhenClosed = false
-        newWindow.delegate = self
-
-        window = newWindow
-    }
-
-    private func focusFirstTextField() {
-        // Find and focus the first text field in the window
-        guard let contentView = window?.contentView else { return }
-        if let textField = findFirstTextField(in: contentView) {
-            window?.makeFirstResponder(textField)
-        }
-    }
-
-    private func findFirstTextField(in view: NSView) -> NSTextField? {
-        for subview in view.subviews {
-            if let textField = subview as? NSTextField, textField.isEditable {
-                return textField
-            }
-            if let found = findFirstTextField(in: subview) {
-                return found
-            }
-        }
-        return nil
-    }
-
-    func windowWillClose(_ notification: Notification) {
-        viewModel.pin = ""
-        viewModel.confirmPIN = ""
-        // Revert to accessory app when window closes via X button
-        NSApp.setActivationPolicy(.accessory)
-    }
 }
 
-class PINSetupViewModel: ObservableObject {
-    weak var alarmManager: AlarmStateManager?
+/// What the PIN window says under the fields.
+enum PINFeedback: Equatable {
+    case none
+    case error(String)
+    /// Saving `accepted` again keeps it despite the weakness.
+    case weak(PINWeakness, accepted: String)
+}
+
+final class PINSetupViewModel: ObservableObject {
     @Published var pin = ""
     @Published var confirmPIN = ""
-    @Published var showError = false
-    @Published var errorMessage = ""
-    /// A weak PIN already warned about; saving it again keeps it.
-    var acceptedWeakPIN: String?
-    /// Set while the weak-PIN confirmation is showing.
-    @Published var weakPINWarning: PINWeakness?
+    @Published var feedback = PINFeedback.none
+
+    func reset() {
+        pin = ""
+        confirmPIN = ""
+        feedback = .none
+    }
 }
 
 struct PINSetupContainerView: View {
     @ObservedObject var viewModel: PINSetupViewModel
+    @ObservedObject var alarmManager: AlarmStateManager
     let onDismiss: () -> Void
 
     var body: some View {
         VStack(spacing: Theme.Spacing.lg) {
-            Text(viewModel.alarmManager?.authManager.hasPIN == true ? "Change Backup PIN" : "Set Backup PIN")
+            Text(alarmManager.authManager.hasPIN ? "Change Backup PIN" : "Set Backup PIN")
                 .font(.headline)
 
-            // Use native AppKit text field for reliable input
-            SecureTextFieldWrapper(text: $viewModel.pin, placeholder: "Enter PIN (4-8 digits)")
+            NativeSecureField(text: $viewModel.pin, placeholder: "Enter PIN (4-8 digits)", focusOnAppear: true)
                 .frame(width: 200, height: 24)
 
-            SecureTextFieldWrapper(text: $viewModel.confirmPIN, placeholder: "Confirm PIN")
+            NativeSecureField(text: $viewModel.confirmPIN, placeholder: "Confirm PIN")
                 .frame(width: 200, height: 24)
 
-            if viewModel.showError {
-                if let weakness = viewModel.weakPINWarning {
-                    if weakness == .luggage, let gif = AnimatedGIF.luggage {
-                        gif.frame(width: 240, height: 127)
-                    } else {
-                        Text(weakness.message)
-                            .font(.caption)
-                            .multilineTextAlignment(.center)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
+            switch viewModel.feedback {
+            case .none:
+                EmptyView()
+            case .error(let message):
+                feedbackLine(message)
+            case .weak(let weakness, _):
+                if weakness == .luggage, let gif = AnimatedGIF.luggage {
+                    gif.frame(width: 240, height: 127)
+                } else {
+                    Text(weakness.message)
+                        .font(.caption)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                Text(viewModel.errorMessage)
-                    .foregroundColor(Theme.StateColor.alarming)
-                    .font(.caption)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
+                feedbackLine("Save again to use it anyway.")
             }
 
             HStack {
@@ -731,41 +667,38 @@ struct PINSetupContainerView: View {
         .frame(width: 280)
     }
 
+    private func feedbackLine(_ message: String) -> some View {
+        Text(message)
+            .foregroundColor(Theme.StateColor.alarming)
+            .font(.caption)
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
     private func savePIN() {
-        viewModel.weakPINWarning = nil
+        let accepted: String? = if case .weak(_, let accepted) = viewModel.feedback { accepted } else { nil }
         guard let pin = PIN(viewModel.pin) else {
-            viewModel.errorMessage = "PIN must be 4-8 digits"
-            viewModel.showError = true
+            viewModel.feedback = .error("PIN must be 4-8 digits")
             return
         }
-
         guard viewModel.pin == viewModel.confirmPIN else {
-            viewModel.errorMessage = "PINs don't match"
-            viewModel.showError = true
+            viewModel.feedback = .error("PINs don't match")
             viewModel.confirmPIN = ""
             return
         }
-
-        if let weakness = pin.weakness, viewModel.acceptedWeakPIN != viewModel.pin {
-            viewModel.weakPINWarning = weakness
-            viewModel.errorMessage = "Save again to use it anyway."
-            viewModel.showError = true
-            viewModel.acceptedWeakPIN = viewModel.pin
+        if let weakness = pin.weakness, accepted != viewModel.pin {
+            viewModel.feedback = .weak(weakness, accepted: viewModel.pin)
             return
         }
-
         // Re-checked at save time: the window may have been open when arming.
-        guard let alarmManager = viewModel.alarmManager, alarmManager.state == .idle else {
-            viewModel.errorMessage = "Disarm to change the PIN"
-            viewModel.showError = true
+        guard alarmManager.state == .idle else {
+            viewModel.feedback = .error("Disarm to change the PIN")
             return
         }
-
         if alarmManager.authManager.savePIN(pin) {
             onDismiss()
         } else {
-            viewModel.errorMessage = "Failed to save PIN"
-            viewModel.showError = true
+            viewModel.feedback = .error("Failed to save PIN")
         }
     }
 }
@@ -789,45 +722,6 @@ struct AnimatedGIF: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: NSImageView, context: Context) {}
-}
-
-// MARK: - Native AppKit SecureTextField Wrapper
-
-struct SecureTextFieldWrapper: NSViewRepresentable {
-    @Binding var text: String
-    var placeholder: String
-
-    func makeNSView(context: Context) -> NSSecureTextField {
-        let textField = NSSecureTextField()
-        textField.placeholderString = placeholder
-        textField.delegate = context.coordinator
-        textField.bezelStyle = .roundedBezel
-        return textField
-    }
-
-    func updateNSView(_ nsView: NSSecureTextField, context: Context) {
-        if nsView.stringValue != text {
-            nsView.stringValue = text
-        }
-    }
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(self)
-    }
-
-    class Coordinator: NSObject, NSTextFieldDelegate {
-        var parent: SecureTextFieldWrapper
-
-        init(_ parent: SecureTextFieldWrapper) {
-            self.parent = parent
-        }
-
-        func controlTextDidChange(_ obj: Notification) {
-            if let textField = obj.object as? NSTextField {
-                parent.text = textField.stringValue
-            }
-        }
-    }
 }
 
 // MARK: - Launch at Login Toggle

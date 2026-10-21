@@ -258,64 +258,23 @@ struct ActivityLogView: View {
     }
 }
 
-// MARK: - Activity Log Window Controller
+// MARK: - Activity Log Window
 
-class ActivityLogWindowController: NSObject, NSWindowDelegate {
+@MainActor
+final class ActivityLogWindowController {
     static let shared = ActivityLogWindowController()
 
-    private var window: NSWindow?
-    private weak var parentWindow: NSWindow?
-
-    private override init() {
-        super.init()
-    }
+    private var window: UtilityWindow?
 
     func show(alarmManager: AlarmStateManager) {
-        // Track parent window for refocus
-        self.parentWindow = NSApp.keyWindow
-
         if window == nil {
-            createWindow(alarmManager: alarmManager)
+            let window = UtilityWindow(title: "Event Log", size: NSSize(width: 500, height: 400),
+                                       style: [.titled, .closable, .resizable],
+                                       content: ActivityLogView(alarmManager: alarmManager))
+            window.window.minSize = NSSize(width: 400, height: 300)
+            self.window = window
         }
-
-        NSApp.setActivationPolicy(.regular)
-        NSApp.activate(ignoringOtherApps: true)
-        window?.center()
-        window?.makeKeyAndOrderFront(nil)
-    }
-
-    private func createWindow(alarmManager: AlarmStateManager) {
-        let hostingController = NSHostingController(rootView: ActivityLogView(alarmManager: alarmManager))
-
-        let newWindow = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 500, height: 400),
-            styleMask: [.titled, .closable, .resizable],
-            backing: .buffered,
-            defer: false
-        )
-
-        newWindow.contentViewController = hostingController
-        newWindow.title = "Event Log"
-        newWindow.isReleasedWhenClosed = false
-        newWindow.delegate = self
-        newWindow.minSize = NSSize(width: 400, height: 300)
-
-        window = newWindow
-    }
-
-    private func refocusParent() {
-        if let parent = parentWindow, parent.isVisible {
-            parent.makeKeyAndOrderFront(nil)
-        }
-    }
-
-    func windowWillClose(_ notification: Notification) {
-        refocusParent()
-        // Only revert to accessory if no other windows visible
-        let visibleWindows = NSApp.windows.filter { $0.isVisible && $0 != window }
-        if visibleWindows.isEmpty {
-            NSApp.setActivationPolicy(.accessory)
-        }
+        window?.show()
     }
 }
 

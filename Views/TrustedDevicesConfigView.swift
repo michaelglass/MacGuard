@@ -4,76 +4,22 @@
 
 import SwiftUI
 
-/// Window controller for trusted devices configuration
-class TrustedDevicesConfigWindowController: NSObject, NSWindowDelegate {
+@MainActor
+final class TrustedDevicesConfigWindowController {
     static let shared = TrustedDevicesConfigWindowController()
 
-    private var window: NSWindow?
-    private var hostingController: NSHostingController<TrustedDevicesConfigContainerView>?
-    private var bluetoothManager: BluetoothProximityManager?
-    private weak var parentWindow: NSWindow?
-
-    private override init() {
-        super.init()
-    }
+    private var window: UtilityWindow?
 
     func show(bluetoothManager: BluetoothProximityManager) {
-        self.bluetoothManager = bluetoothManager
-        // Track parent window for refocus
-        self.parentWindow = NSApp.keyWindow
-
-        if window == nil {
-            createWindow()
-        }
-
-        NSApp.setActivationPolicy(.regular)
-        NSApp.activate(ignoringOtherApps: true)
-        window?.center()
-        window?.makeKeyAndOrderFront(nil)
-    }
-
-    private func createWindow() {
-        guard let bluetoothManager = bluetoothManager else { return }
-
-        let view = TrustedDevicesConfigContainerView(
-            bluetoothManager: bluetoothManager,
-            onDismiss: { [weak self] in
-                self?.close()
-            }
-        )
-        hostingController = NSHostingController(rootView: view)
-
-        let newWindow = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 450, height: 500),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-
-        newWindow.isOpaque = false
-        newWindow.backgroundColor = .clear
-        newWindow.contentViewController = hostingController
-        newWindow.title = "Trusted Devices"
-        newWindow.isReleasedWhenClosed = false
-        newWindow.delegate = self
-
-        window = newWindow
+        window = window ?? UtilityWindow(
+            title: "Trusted Devices", size: NSSize(width: 450, height: 500), transparent: true,
+            content: TrustedDevicesConfigContainerView(bluetoothManager: bluetoothManager,
+                                                       onDismiss: { TrustedDevicesConfigWindowController.shared.close() }))
+        window?.show()
     }
 
     func close() {
-        guard window?.isVisible == true else { return }
-        window?.orderOut(nil)
-        refocusParent()
-    }
-
-    private func refocusParent() {
-        if let parent = parentWindow, parent.isVisible {
-            parent.makeKeyAndOrderFront(nil)
-        }
-    }
-
-    func windowWillClose(_ notification: Notification) {
-        refocusParent()
+        window?.close()
     }
 }
 
