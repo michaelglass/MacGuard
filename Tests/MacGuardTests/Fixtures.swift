@@ -15,13 +15,17 @@ extension AlarmEnvironment {
         any: Bool = false,
         all: Bool = false,
         stable: Bool = true,
+        usb: Bool = true,
+        network: Bool = false,
+        lockArms: Bool = false,
         exitDelay: ExitDelay = .s1
     ) -> AlarmEnvironment {
         AlarmEnvironment(
             countdown: Countdown(seconds: countdown), autoLockOnArm: autoLock,
             autoArmEnabled: autoArm, autoArmMode: mode, hasTrustedDevices: devices,
             anyTrustedDeviceNearby: any, allTrustedDevicesNearby: all, bluetoothStable: stable,
-            exitDelay: exitDelay
+            usbTriggerEnabled: usb, networkTriggerEnabled: network,
+            autoArmOnScreenLock: lockArms, exitDelay: exitDelay
         )
     }
 }

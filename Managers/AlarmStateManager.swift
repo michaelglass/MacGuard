@@ -32,6 +32,8 @@ class AlarmStateManager: ObservableObject {
     private let inputMonitor = InputMonitor()
     private let sleepMonitor = SleepMonitor()
     private let powerMonitor = PowerMonitor()
+    private let usbMonitor = USBMonitor()
+    private let networkMonitor = NetworkMonitor()
     private let overlayController = CountdownWindowController()
 
     /// Steps the machine and owns timers; this class is its `AlarmHardware`.
@@ -53,9 +55,19 @@ class AlarmStateManager: ObservableObject {
         inputMonitor.delegate = self
         sleepMonitor.delegate = self
         powerMonitor.delegate = self
+        usbMonitor.delegate = self
+        networkMonitor.delegate = self
         bluetoothManager.delegate = self
         checkPermissions()
         startPermissionPolling()
+
+        // Screen lock is an idle-time signal (auto-arm), so it is always observed;
+        // the machine decides whether it arms.
+        DistributedNotificationCenter.default().addObserver(
+            forName: Notification.Name("com.apple.screenIsLocked"), object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.send(.screenLocked) }
+        }
 
         // Forward nested managers' changes so views observing this one redraw
         Publishers.Merge(bluetoothManager.objectWillChange, authManager.objectWillChange)
@@ -122,6 +134,9 @@ class AlarmStateManager: ObservableObject {
             anyTrustedDeviceNearby: bluetoothManager.isTrustedDeviceNearby(),
             allTrustedDevicesNearby: bluetoothManager.areAllDevicesNearby,
             bluetoothStable: bluetoothManager.isBluetoothStable,
+            usbTriggerEnabled: settings.usbTriggerEnabled,
+            networkTriggerEnabled: settings.networkTriggerEnabled,
+            autoArmOnScreenLock: settings.autoArmOnScreenLock,
             exitDelay: settings.exitDelay
         )
     }
@@ -246,12 +261,16 @@ extension AlarmStateManager: AlarmHardware {
     func startSystemMonitors() {
         sleepMonitor.startMonitoring()
         powerMonitor.startMonitoring()
+        usbMonitor.startMonitoring()
+        networkMonitor.startMonitoring()
         bluetoothManager.startScanning()
         bluetoothManager.setArmedState(true)
     }
 
     func stopMonitors() {
         inputMonitor.stopMonitoring()
+        usbMonitor.stopMonitoring()
+        networkMonitor.stopMonitoring()
         sleepMonitor.stopMonitoring()
         powerMonitor.stopMonitoring()
         bluetoothManager.setArmedState(false)
@@ -308,6 +327,28 @@ extension AlarmStateManager: PowerMonitorDelegate {
             case .ac:
                 ActivityLogManager.shared.log(.power, "Power cable connected")
             }
+        }
+    }
+}
+
+// MARK: - USBMonitorDelegate
+
+extension AlarmStateManager: USBMonitorDelegate {
+    nonisolated func usbDeviceAttached(name: String) {
+        Task { @MainActor in
+            ActivityLogManager.shared.log(.input, "USB device attached: \(name)")
+            self.send(.intrusion(.usbDeviceAttached(name: name)))
+        }
+    }
+}
+
+// MARK: - NetworkMonitorDelegate
+
+extension AlarmStateManager: NetworkMonitorDelegate {
+    nonisolated func networkChanged() {
+        Task { @MainActor in
+            ActivityLogManager.shared.log(.system, "Network links changed")
+            self.send(.intrusion(.networkChanged))
         }
     }
 }

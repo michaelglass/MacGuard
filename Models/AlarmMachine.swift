@@ -9,12 +9,16 @@ enum TriggerCause: Equatable {
     case input(IntrusionInput)
     case powerDisconnected
     case lidClosed
+    case usbDeviceAttached(name: String)
+    case networkChanged
 
     var label: String {
         switch self {
         case .input(let input): return input.label
         case .powerDisconnected: return "power cable disconnected"
         case .lidClosed: return "lid closed"
+        case .usbDeviceAttached(let name): return "USB device attached (\(name))"
+        case .networkChanged: return "network changed"
         }
     }
 }
@@ -46,6 +50,8 @@ enum AlarmInput {
     case allTrustedDevicesAway
     case systemWoke
     case autoArmTimerFired
+    /// The login session locked (auto-arms when configured).
+    case screenLocked
 }
 
 /// Snapshot of parsed settings and proximity *evidence* the machine decides on.
@@ -59,6 +65,9 @@ struct AlarmEnvironment {
     var anyTrustedDeviceNearby: Bool
     var allTrustedDevicesNearby: Bool
     var bluetoothStable: Bool
+    var usbTriggerEnabled: Bool
+    var networkTriggerEnabled: Bool
+    var autoArmOnScreenLock: Bool
     var exitDelay: ExitDelay
 }
 
@@ -124,6 +133,9 @@ enum AlarmMachine {
 
         // MARK: Triggering
         case (.armed(let session), .intrusion(let cause)):
+            guard isEnabled(cause, env) else {
+                return (state, [.log(.system, "Ignored \(cause.label) - trigger disabled")])
+            }
             if let suppressed = suppression(env) { return (state, [suppressed]) }
             guard let countdown = env.countdown else {
                 return soundAlarm(session, cause, "Immediate alarm triggered (no countdown)", overlay: true)
@@ -183,6 +195,13 @@ enum AlarmMachine {
             let (next, effects) = step(.idle, .armRequested(auto: true), env)
             return (next, [.log(.armed, "Auto-arming - trusted device still away")] + effects)
 
+        case (.idle, .screenLocked):
+            guard env.autoArmOnScreenLock else { return (state, []) }
+            // Manual-arm semantics: the owner locked with their devices present,
+            // so a device must leave before its return may disarm.
+            let (next, effects) = step(.idle, .armRequested(auto: false), env)
+            return (next, [.log(.armed, "Screen locked - arming")] + effects)
+
         // Everything else is a no-op in the current state (e.g. a stale
         // timer tick after disarm, an intrusion while idle).
         default:
@@ -191,6 +210,16 @@ enum AlarmMachine {
     }
 
     // MARK: - Rules
+
+    /// Whether this kind of intrusion is switched on. Core triggers (input,
+    /// power, lid) always are; optional sensors carry their own setting.
+    private static func isEnabled(_ cause: TriggerCause, _ env: AlarmEnvironment) -> Bool {
+        switch cause {
+        case .input, .powerDisconnected, .lidClosed: return true
+        case .usbDeviceAttached: return env.usbTriggerEnabled
+        case .networkChanged: return env.networkTriggerEnabled
+        }
+    }
 
     /// Whether proximity should swallow an intrusion. In "any device away"
     /// mode the user asked for an alarm whenever any device is away.
