@@ -53,9 +53,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         // Reset lid close protection on app exit to restore normal sleep behavior
-        if AppSettings.shared.lidCloseProtection {
-            AppSettings.shared.resetLidCloseProtection()
-        }
+        AppSettings.shared.resetLidCloseProtection()
         ActivityLogManager.shared.flush()
     }
 }

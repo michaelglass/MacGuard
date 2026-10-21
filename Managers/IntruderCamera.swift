@@ -73,7 +73,7 @@ enum IntruderPhotoFiles {
 final class IntruderCamera: ObservableObject {
     static let shared = IntruderCamera()
 
-    @AppStorage("intruderPhotos") private var settingRaw: String = IntruderPhotoSetting.default.rawValue
+    @AppStorage("intruderPhotos") var setting: IntruderPhotoSetting = .default
     @Published private(set) var access = CameraAccess(AVCaptureDevice.authorizationStatus(for: .video))
 
     let directory: URL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -83,11 +83,6 @@ final class IntruderCamera: ObservableObject {
     private var capture: Task<URL?, Never>?
 
     private init() {}
-
-    var setting: IntruderPhotoSetting {
-        get { IntruderPhotoSetting(rawValue: settingRaw) ?? .default }
-        set { settingRaw = newValue.rawValue }
-    }
 
     /// Asks for camera permission only now, never at launch.
     func setEnabled(_ enabled: Bool) {

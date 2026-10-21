@@ -2,6 +2,7 @@
 // MacGuard - Anti-Theft Alarm for macOS
 
 import XCTest
+import Combine
 @testable import MacGuard
 
 final class SettingsParsingTests: XCTestCase {
@@ -35,5 +36,20 @@ final class ProximityDistanceTests: XCTestCase {
                        ProximityThresholds(present: -50, away: -60))
         XCTAssertEqual(ProximityDistance.custom.thresholds(customDetectionRange: -500),
                        ProximityThresholds(present: -95, away: -105))
+    }
+}
+
+final class SettingsPublishingTests: XCTestCase {
+    /// AlarmStateManager re-plans idle scanning on AppSettings.objectWillChange,
+    /// which relies on @AppStorage publishing from inside an ObservableObject.
+    func testEnumSettingChangePublishes() {
+        let settings = AppSettings.shared
+        let original = settings.exitDelay
+        defer { settings.exitDelay = original }
+        var fired = 0
+        let subscription = settings.objectWillChange.sink { fired += 1 }
+        settings.exitDelay = original == .s30 ? .s10 : .s30
+        subscription.cancel()
+        XCTAssertGreaterThan(fired, 0)
     }
 }

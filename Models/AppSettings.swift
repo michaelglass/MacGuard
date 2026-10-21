@@ -177,141 +177,57 @@ class AppSettings: ObservableObject {
     @AppStorage("alarmSound") private var alarmSoundRaw: String = AlarmSound.dontTouchMyMac.rawValue
     @AppStorage("alarmVolume") private var alarmVolumeRaw: Double = 1.0
     @AppStorage("customSoundPath") private var customSoundPath: String = ""
-    @AppStorage("countdownDuration") private var countdownDurationRaw: Int = CountdownDuration.default.rawValue
+    // Enums parse in AppStorage itself: an unoffered stored value reads as the default.
+    @AppStorage("countdownDuration") var countdownDuration: CountdownDuration = .default
     @AppStorage("lidCloseProtection") private var _lidCloseProtection: Bool = false
-    @AppStorage("proximityDistance") private var proximityDistanceRaw: String = ProximityDistance.medium.rawValue
+    @AppStorage("proximityDistance") var proximityDistance: ProximityDistance = .medium
     @AppStorage("customDetectionRange") var customDetectionRange: Int = -65  // Single value, hysteresis auto-calculated
     @AppStorage("autoArmOnDeviceLeave") var autoArmOnDeviceLeave: Bool = false
-    @AppStorage("exitDelay") private var exitDelayRaw: Int = ExitDelay.default.rawValue
+    @AppStorage("exitDelay") var exitDelay: ExitDelay = .default
     @AppStorage("usbTriggerEnabled") var usbTriggerEnabled: Bool = true
     @AppStorage("motionTriggerEnabled") var motionTriggerEnabled: Bool = true
-    @AppStorage("motionSensitivity") private var motionSensitivityRaw = MotionSensitivity.medium.rawValue
+    @AppStorage("motionSensitivity") var motionSensitivity: MotionSensitivity = .medium
     @AppStorage("lidAngleTriggerEnabled") var lidAngleTriggerEnabled: Bool = true
-
-    var motionSensitivity: MotionSensitivity {
-        get { MotionSensitivity(rawValue: motionSensitivityRaw) ?? .medium }
-        set { motionSensitivityRaw = newValue.rawValue }
-    }
     @AppStorage("networkTriggerEnabled") var networkTriggerEnabled: Bool = false
     @AppStorage("autoArmOnScreenLock") var autoArmOnScreenLock: Bool = false
-    @AppStorage("autoArmGracePeriod") private var autoArmGracePeriodRaw: Int = GracePeriod.default.rawValue
-    @AppStorage("autoArmMode") private var autoArmModeRaw: String = AutoArmMode.allDevicesAway.rawValue
-
-    var countdownDuration: CountdownDuration {
-        get { CountdownDuration(rawValue: countdownDurationRaw) ?? .default }
-        set { countdownDurationRaw = newValue.rawValue }
-    }
-
-    var exitDelay: ExitDelay {
-        get { ExitDelay(rawValue: exitDelayRaw) ?? .default }
-        set { exitDelayRaw = newValue.rawValue }
-    }
-
-    var autoArmGracePeriod: GracePeriod {
-        get { GracePeriod(rawValue: autoArmGracePeriodRaw) ?? .default }
-        set { autoArmGracePeriodRaw = newValue.rawValue }
-    }
+    @AppStorage("autoArmGracePeriod") var autoArmGracePeriod: GracePeriod = .default
+    @AppStorage("autoArmMode") var autoArmMode: AutoArmMode = .allDevicesAway
 
     var alarmVolume: Double {
         get { AlarmVolume(clamping: alarmVolumeRaw).value }
         set { alarmVolumeRaw = AlarmVolume(clamping: newValue).value }
     }
 
-    /// Auto-arm trigger mode (all devices away vs any device away)
-    var autoArmMode: AutoArmMode {
-        get { AutoArmMode(rawValue: autoArmModeRaw) ?? .allDevicesAway }
-        set {
-            autoArmModeRaw = newValue.rawValue
-            objectWillChange.send()
-        }
-    }
-
-    /// Proximity distance for trusted device detection
-    var proximityDistance: ProximityDistance {
-        get { ProximityDistance(rawValue: proximityDistanceRaw) ?? .medium }
-        set {
-            proximityDistanceRaw = newValue.rawValue
-            objectWillChange.send()
-        }
-    }
-
     var proximityThresholds: ProximityThresholds {
         proximityDistance.thresholds(customDetectionRange: customDetectionRange)
     }
 
-    /// Lid close protection with pmset control
+    /// Enabling only sticks if the admin prompt succeeds; disabling always clears it.
     var lidCloseProtection: Bool {
         get { _lidCloseProtection }
         set {
-            if newValue && !_lidCloseProtection {
-                // Enabling - ask for admin password
-                if enableDisableSleep() {
-                    _lidCloseProtection = true
-                    objectWillChange.send()
-                }
-                // If failed, don't change the setting
-            } else if !newValue && _lidCloseProtection {
-                // Disabling - ask for admin password
-                disableDisableSleep()
-                _lidCloseProtection = false
-                objectWillChange.send()
-            }
+            guard newValue != _lidCloseProtection else { return }
+            if setDisableSleep(newValue) || !newValue { _lidCloseProtection = newValue }
         }
     }
 
-    /// Enable pmset disablesleep (with admin prompt)
-    private func enableDisableSleep() -> Bool {
-        let script = """
-        do shell script "pmset -a disablesleep 1" with administrator privileges
-        """
-
-        var error: NSDictionary?
-        if let scriptObject = NSAppleScript(source: script) {
-            scriptObject.executeAndReturnError(&error)
-            if error == nil {
-                logActivity(.system, "disablesleep enabled")
-                return true
-            } else {
-                logActivity(.system, "Failed to enable disablesleep: \(error ?? [:])")
-            }
-        }
-        return false
-    }
-
-    /// Disable pmset disablesleep (with admin prompt)
-    private func disableDisableSleep() {
-        let script = """
-        do shell script "pmset -a disablesleep 0" with administrator privileges
-        """
-
-        var error: NSDictionary?
-        if let scriptObject = NSAppleScript(source: script) {
-            scriptObject.executeAndReturnError(&error)
-            if error == nil {
-                logActivity(.system, "disablesleep disabled")
-            } else {
-                logActivity(.system, "Failed to disable disablesleep: \(error ?? [:])")
-            }
-        }
-    }
-
-    /// Reset lid close protection on app exit (no admin prompt, silent)
+    /// On quit. pmset needs root, so this prompts for an admin password too.
     func resetLidCloseProtection() {
         guard _lidCloseProtection else { return }
-
-        // Use silent reset without admin prompt (best effort)
-        let script = """
-        do shell script "pmset -a disablesleep 0" with administrator privileges
-        """
-
-        var error: NSDictionary?
-        if let scriptObject = NSAppleScript(source: script) {
-            scriptObject.executeAndReturnError(&error)
-            if error == nil {
-                logActivity(.system, "disablesleep reset on app exit")
-            }
-        }
+        _ = setDisableSleep(false)
         _lidCloseProtection = false
+    }
+
+    private func setDisableSleep(_ on: Bool) -> Bool {
+        var error: NSDictionary?
+        guard let script = NSAppleScript(source: "do shell script \"pmset -a disablesleep \(on ? 1 : 0)\" with administrator privileges") else { return false }
+        script.executeAndReturnError(&error)
+        if let error {
+            logActivity(.system, "Failed to set disablesleep \(on ? 1 : 0): \(error)")
+            return false
+        }
+        logActivity(.system, "disablesleep \(on ? "enabled" : "disabled")")
+        return true
     }
 
     /// `.custom` without a playable file parses to the default.
@@ -320,15 +236,15 @@ class AppSettings: ObservableObject {
             let sound = AlarmSound(rawValue: alarmSoundRaw) ?? .dontTouchMyMac
             return sound == .custom && customSound == nil ? .dontTouchMyMac : sound
         }
-        set {
-            alarmSoundRaw = newValue.rawValue
-            objectWillChange.send()
-        }
+        set { alarmSoundRaw = newValue.rawValue }
     }
 
-    private var customSound: PlayableSound? {
-        customSoundPath.isEmpty ? nil : PlayableSound(url: URL(fileURLWithPath: customSoundPath))
+    /// The stored path, parsed once ("" means none chosen).
+    private var customSoundURL: URL? {
+        customSoundPath.isEmpty ? nil : URL(fileURLWithPath: customSoundPath)
     }
+
+    private var customSound: PlayableSound? { customSoundURL.flatMap(PlayableSound.init(url:)) }
 
     var customSoundUnavailable: Bool {
         alarmSoundRaw == AlarmSound.custom.rawValue && customSound == nil
@@ -340,10 +256,7 @@ class AppSettings: ObservableObject {
     }
 
     /// Custom sound file name for display
-    var customSoundName: String {
-        guard !customSoundPath.isEmpty else { return "None" }
-        return URL(fileURLWithPath: customSoundPath).lastPathComponent
-    }
+    var customSoundName: String { customSoundURL?.lastPathComponent ?? "None" }
 
     private init() {}
 
@@ -379,7 +292,6 @@ class AppSettings: ObservableObject {
             }
             customSoundPath = url.path
             alarmSound = .custom
-            objectWillChange.send()
             previewSound()
             return true
         }

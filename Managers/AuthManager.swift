@@ -173,15 +173,10 @@ class AuthManager: ObservableObject {
         // Delete existing PIN first
         deletePIN()
 
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: keychainService,
-            kSecAttrAccount as String: keychainAccount,
+        let status = SecItemAdd(pinQuery([
             kSecValueData as String: Data(pin.digits.utf8),
             kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
-        ]
-
-        let status = SecItemAdd(query as CFDictionary, nil)
+        ]), nil)
         hasPIN = status == errSecSuccess
 
         if hasPIN {
@@ -193,30 +188,22 @@ class AuthManager: ObservableObject {
         return hasPIN
     }
 
-    /// Retrieve the stored PIN bytes from Keychain
+    /// The PIN item's identity plus `extra`.
+    private func pinQuery(_ extra: [String: Any] = [:]) -> CFDictionary {
+        [kSecClass as String: kSecClassGenericPassword,
+         kSecAttrService as String: keychainService,
+         kSecAttrAccount as String: keychainAccount]
+            .merging(extra) { $1 } as CFDictionary
+    }
+
     /// Attributes only: reading the secret would prompt for keychain access at launch.
     private func pinExists() -> Bool {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: keychainService,
-            kSecAttrAccount as String: keychainAccount,
-            kSecReturnAttributes as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne
-        ]
-        return SecItemCopyMatching(query as CFDictionary, nil) == errSecSuccess
+        SecItemCopyMatching(pinQuery([kSecReturnAttributes as String: true, kSecMatchLimit as String: kSecMatchLimitOne]), nil) == errSecSuccess
     }
 
     private func retrievePIN() -> Data? {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: keychainService,
-            kSecAttrAccount as String: keychainAccount,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne
-        ]
-
         var result: AnyObject?
-        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess else { return nil }
+        guard SecItemCopyMatching(pinQuery([kSecReturnData as String: true, kSecMatchLimit as String: kSecMatchLimitOne]), &result) == errSecSuccess else { return nil }
         return result as? Data
     }
 
@@ -251,13 +238,7 @@ class AuthManager: ObservableObject {
     /// - Returns: true if deleted successfully
     @discardableResult
     func deletePIN() -> Bool {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: keychainService,
-            kSecAttrAccount as String: keychainAccount
-        ]
-
-        let status = SecItemDelete(query as CFDictionary)
+        let status = SecItemDelete(pinQuery())
         if status == errSecSuccess || status == errSecItemNotFound {
             hasPIN = false
             logActivity(.system, "PIN deleted from Keychain")
