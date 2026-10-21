@@ -10,7 +10,7 @@ import XCTest
 private final class FakeHardware: AlarmHardware {
     enum Call: Equatable {
         case prepareAudio, lockScreen, closeConfigWindows, startInputMonitoring
-        case startSystemMonitors, stopMonitors, resumeIdleScanning
+        case startSystemMonitors, stopMonitors, resumeIdleScanning, stopIdleScanning
         case showOverlay, hideOverlay, playAlarm, stopAlarm
         case persistArmedMarker(ArmSession), clearArmedMarker, endOwnerChallenge
     }
@@ -26,6 +26,7 @@ private final class FakeHardware: AlarmHardware {
     func startSystemMonitors() { calls.append(.startSystemMonitors) }
     func stopMonitors() { calls.append(.stopMonitors) }
     func resumeIdleScanning() { calls.append(.resumeIdleScanning) }
+    func stopIdleScanning() { calls.append(.stopIdleScanning) }
     func showOverlay() { calls.append(.showOverlay) }
     func hideOverlay() { calls.append(.hideOverlay) }
     func playAlarm() { calls.append(.playAlarm) }

@@ -14,6 +14,7 @@ protocol AlarmHardware: AnyObject {
     func startSystemMonitors()
     func stopMonitors()
     func resumeIdleScanning()
+    func stopIdleScanning()
     func showOverlay()
     func hideOverlay()
     func playAlarm()
@@ -128,6 +129,7 @@ final class AlarmRuntime {
                 autoArmTimer = nil
             }
         case .resumeIdleScanning: hardware.resumeIdleScanning()
+        case .stopIdleScanning: hardware.stopIdleScanning()
         case .log(let category, let message): hardware.log(category, message)
         case .emit(let event): eventSinks.forEach { $0(event) }
         case .persistArmedMarker(let session): hardware.persistArmedMarker(session)

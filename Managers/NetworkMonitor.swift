@@ -4,10 +4,6 @@
 import Foundation
 import Network
 
-protocol NetworkMonitorDelegate: AnyObject {
-    func networkChanged()
-}
-
 struct NetworkLink: Hashable {
     enum Kind: Hashable { case wifi, wired }
     let name: String
@@ -16,7 +12,7 @@ struct NetworkLink: Hashable {
 
 /// Reports when the set of Wi-Fi / wired links in use changes.
 class NetworkMonitor {
-    weak var delegate: NetworkMonitorDelegate?
+    var onInput: (AlarmInput) -> Void = { _ in }
 
     private var monitor: NWPathMonitor?
     private var baseline: Set<NetworkLink>?
@@ -46,7 +42,8 @@ class NetworkMonitor {
             guard let self else { return }
             let current = Self.links(of: path)
             if Self.isChange(from: self.baseline, to: current) {
-                self.delegate?.networkChanged()
+                logActivity(.system, "Network links changed")
+                self.onInput(.intrusion(.networkChanged))
             }
             self.baseline = current
         }

@@ -5,16 +5,11 @@ import Foundation
 import IOKit
 import IOKit.usb
 
-protocol USBMonitorDelegate: AnyObject {
-    func usbDeviceAttached(name: String)
-}
-
 /// Devices attached before monitoring starts are drained silently.
 class USBMonitor {
-    weak var delegate: USBMonitorDelegate?
+    var onInput: (AlarmInput) -> Void = { _ in }
 
-    private var notificationPort: IONotificationPortRef?
-    private var iterator: io_iterator_t = 0
+    private var session: (port: IONotificationPortRef, iterator: io_iterator_t)?
 
     /// Never empty.
     static func productName(product: String?, registryName: String?) -> String {
@@ -27,18 +22,18 @@ class USBMonitor {
     }
 
     func startMonitoring() {
-        guard notificationPort == nil else { return }
+        guard session == nil else { return }
         guard let port = IONotificationPortCreate(kIOMainPortDefault) else {
             logActivity(.system, "USB monitoring unavailable")
             return
         }
-        notificationPort = port
         CFRunLoopAddSource(CFRunLoopGetMain(), IONotificationPortGetRunLoopSource(port).takeUnretainedValue(), .commonModes)
 
         let callback: IOServiceMatchingCallback = { refcon, iterator in
             guard let refcon else { return }
             Unmanaged<USBMonitor>.fromOpaque(refcon).takeUnretainedValue().handleAttached(iterator)
         }
+        var iterator = io_iterator_t()
         let status = IOServiceAddMatchingNotification(
             port,
             kIOFirstMatchNotification,
@@ -48,37 +43,31 @@ class USBMonitor {
             &iterator
         )
         guard status == KERN_SUCCESS else {
+            IONotificationPortDestroy(port)
             logActivity(.system, "USB monitoring failed: \(status)")
-            stopMonitoring()
             return
         }
         // Arms the notification and skips devices that are already attached
         Self.drain(iterator) { _ in }
+        session = (port, iterator)
         logActivity(.system, "Started monitoring USB devices")
     }
 
     func stopMonitoring() {
-        if iterator != 0 {
-            IOObjectRelease(iterator)
-            iterator = 0
-        }
-        if let port = notificationPort {
-            IONotificationPortDestroy(port)
-            notificationPort = nil
-            logActivity(.system, "Stopped monitoring USB devices")
-        }
+        guard let session else { return }
+        IOObjectRelease(session.iterator)
+        IONotificationPortDestroy(session.port)
+        self.session = nil
+        logActivity(.system, "Stopped monitoring USB devices")
     }
 
     private func handleAttached(_ iterator: io_iterator_t) {
         Self.drain(iterator) { service in
-            let product = IORegistryEntryCreateCFProperty(service, kUSBProductString as CFString, kCFAllocatorDefault, 0)?
-                .takeRetainedValue() as? String
             var nameBuffer = [CChar](repeating: 0, count: MemoryLayout<io_name_t>.size)
             let registryName = IORegistryEntryGetName(service, &nameBuffer) == KERN_SUCCESS ? String(cString: nameBuffer) : nil
-            let name = Self.productName(product: product, registryName: registryName)
-            DispatchQueue.main.async { [weak self] in
-                self?.delegate?.usbDeviceAttached(name: name)
-            }
+            let name = Self.productName(product: IORegistry.property(kUSBProductString, of: service), registryName: registryName)
+            logActivity(.input, "USB device attached: \(name)")
+            onInput(.intrusion(.usbDeviceAttached(name: name)))
         }
     }
 

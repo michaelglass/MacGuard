@@ -6,248 +6,120 @@ import Cocoa
 import IOKit
 import IOKit.pwr_mgt
 
-/// Protocol for receiving sleep/wake events
-protocol SleepMonitorDelegate: AnyObject {
-    /// Called when lid is about to close (system going to sleep)
-    func lidWillClose()
-    /// Called when system wakes from sleep
-    func systemDidWake()
-}
-
-/// Monitors lid close events via IOKit clamshell state and sleep notifications
+/// Monitors lid close events via IOKit clamshell state and sleep notifications,
+/// and keeps the Mac awake for as long as it is monitoring.
 class SleepMonitor {
-    weak var delegate: SleepMonitorDelegate?
+    var onInput: (AlarmInput) -> Void = { _ in }
 
-    private var sleepAssertionID: IOPMAssertionID = 0
-    private var displayAssertionID: IOPMAssertionID = 0
-    private var isDelayingSleep = false
-    private var isMonitoring = false
-    private var caffeinateProcess: Process?
+    private struct Session {
+        let caffeinate: Process?
+        let assertions: [IOPMAssertionID]
+        let lidTimer: Timer
+        var lidClosed: Bool
+    }
 
-    // Lid state monitoring
-    private var lidStateTimer: Timer?
-    private var lastLidClosed = false
-
+    /// Sleep prevention lives exactly as long as monitoring, so a wake can't
+    /// release it while armed.
+    private var session: Session?
 
     // MARK: - Monitoring
 
-    /// Start monitoring sleep/wake events and prevent sleep while armed
     func startMonitoring() {
-        guard !isMonitoring else { return }
+        guard session == nil else { return }
 
-        // Start caffeinate as backup sleep prevention
-        preventSleepWhileArmed()
+        // Polled via IOKit: works even with sleep disabled. Common modes: a
+        // default-mode timer pauses while a menu is open.
+        let lidTimer = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
+            self?.checkLidState()
+        }
+        RunLoop.main.add(lidTimer, forMode: .common)
 
-        // Start polling lid state via IOKit (works even with sleep disabled)
-        startLidStateMonitoring()
+        let lidClosed = Self.isLidClosed
+        session = Session(caffeinate: Self.startCaffeinate(), assertions: Self.preventSleep(),
+                          lidTimer: lidTimer, lidClosed: lidClosed)
+        logActivity(.system, "Sleep prevention active while armed")
+        logActivity(.system, "Lid state monitoring started (closed: \(lidClosed))")
 
         let center = NSWorkspace.shared.notificationCenter
-
-        center.addObserver(
-            self,
-            selector: #selector(willSleep),
-            name: NSWorkspace.willSleepNotification,
-            object: nil
-        )
-
-        center.addObserver(
-            self,
-            selector: #selector(didWake),
-            name: NSWorkspace.didWakeNotification,
-            object: nil
-        )
-
-        isMonitoring = true
+        center.addObserver(self, selector: #selector(willSleep), name: NSWorkspace.willSleepNotification, object: nil)
+        center.addObserver(self, selector: #selector(didWake), name: NSWorkspace.didWakeNotification, object: nil)
         logActivity(.system, "Started monitoring sleep events")
     }
 
-    /// Stop monitoring sleep/wake events
     func stopMonitoring() {
-        guard isMonitoring else { return }
-
-        stopLidStateMonitoring()
+        guard let session else { return }
+        session.lidTimer.invalidate()
         NSWorkspace.shared.notificationCenter.removeObserver(self)
-        allowSleep()
-
-        isMonitoring = false
+        if let caffeinate = session.caffeinate, caffeinate.isRunning {
+            caffeinate.terminate()
+            logActivity(.system, "Caffeinate stopped")
+        }
+        session.assertions.forEach { IOPMAssertionRelease($0) }
+        self.session = nil
+        logActivity(.system, "Sleep allowed")
         logActivity(.system, "Stopped monitoring sleep events")
     }
 
-    // MARK: - Lid State Monitoring (IOKit)
+    // MARK: - Lid State
 
-    /// Start polling clamshell (lid) state via IOKit
-    private func startLidStateMonitoring() {
-        // Get initial state
-        lastLidClosed = isLidClosed()
-        logActivity(.system, "Lid state monitoring started (closed: \(lastLidClosed))")
-
-        // Poll every 1.0 second for lid state changes (reduced from 0.5s to lower CPU)
-        // 1.0s is still responsive for physical lid close action
-        // Common modes: a default-mode timer pauses while a menu is open
-        let timer = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
-            self?.checkLidState()
-        }
-        RunLoop.main.add(timer, forMode: .common)
-        lidStateTimer = timer
-    }
-
-    /// Stop polling lid state
-    private func stopLidStateMonitoring() {
-        lidStateTimer?.invalidate()
-        lidStateTimer = nil
-    }
-
-    /// Check current lid state and notify delegate on change
     private func checkLidState() {
-        let currentClosed = isLidClosed()
-
-        if currentClosed && !lastLidClosed {
-            // Lid just closed
+        guard let wasClosed = session?.lidClosed else { return }
+        let closed = Self.isLidClosed
+        guard closed != wasClosed else { return }
+        session?.lidClosed = closed
+        if closed {
             logActivity(.system, "Lid closed detected (IOKit)")
-            delegate?.lidWillClose()
-        } else if !currentClosed && lastLidClosed {
-            // Lid just opened
+            onInput(.severeIntrusion(.lidClosed))
+        } else {
             logActivity(.system, "Lid opened detected (IOKit)")
-            delegate?.systemDidWake()
+            onInput(.systemWoke)
         }
-
-        lastLidClosed = currentClosed
     }
 
-    /// Check if lid is closed using IOKit AppleClamshellState
-    private func isLidClosed() -> Bool {
-        let service = IOServiceGetMatchingService(
-            kIOMainPortDefault,
-            IOServiceMatching("IOPMrootDomain")
-        )
-
-        guard service != IO_OBJECT_NULL else {
-            return false
-        }
-
-        defer { IOObjectRelease(service) }
-
-        if let clamshellState = IORegistryEntryCreateCFProperty(
-            service,
-            "AppleClamshellState" as CFString,
-            kCFAllocatorDefault,
-            0
-        )?.takeRetainedValue() as? Bool {
-            return clamshellState
-        }
-
-        return false
+    private static var isLidClosed: Bool {
+        IORegistry.property("AppleClamshellState", ofServiceMatching: "IOPMrootDomain") ?? false
     }
 
     // MARK: - Event Handlers
 
     @objc private func willSleep(_ notification: Notification) {
         logActivity(.system, "Lid closing / sleep initiated")
-        // Note: caffeinate already running from startMonitoring()
-        // Notify delegate immediately
-        delegate?.lidWillClose()
+        onInput(.severeIntrusion(.lidClosed))
     }
 
     @objc private func didWake(_ notification: Notification) {
         logActivity(.system, "System woke from sleep")
-
-        allowSleep()
-        delegate?.systemDidWake()
+        onInput(.systemWoke)
     }
 
     // MARK: - Sleep Prevention
 
-    /// Prevent sleep while alarm is armed (runs continuously)
-    private func preventSleepWhileArmed() {
-        guard !isDelayingSleep else { return }
-
-        let reason = "MacGuard anti-theft alarm armed"
-
-        // 1. Start caffeinate process (runs indefinitely until stopped)
-        startCaffeinate()
-
-        // 2. Create IOPMAssertion as backup
-        var sleepID: IOPMAssertionID = 0
-        let sleepSuccess = IOPMAssertionCreateWithName(
-            kIOPMAssertionTypePreventSystemSleep as CFString,
-            IOPMAssertionLevel(kIOPMAssertionLevelOn),
-            reason as CFString,
-            &sleepID
-        )
-
-        if sleepSuccess == kIOReturnSuccess {
-            sleepAssertionID = sleepID
-            logActivity(.system, "System sleep prevented (IOPMAssertion)")
-        }
-
-        // 3. Prevent display sleep
-        var displayID: IOPMAssertionID = 0
-        let displaySuccess = IOPMAssertionCreateWithName(
-            kIOPMAssertionTypeNoDisplaySleep as CFString,
-            IOPMAssertionLevel(kIOPMAssertionLevelOn),
-            reason as CFString,
-            &displayID
-        )
-
-        if displaySuccess == kIOReturnSuccess {
-            displayAssertionID = displayID
-            logActivity(.system, "Display sleep prevented")
-        }
-
-        isDelayingSleep = true
-        logActivity(.system, "Sleep prevention active while armed")
-    }
-
-    /// Start caffeinate process to prevent sleep (runs until terminated)
-    private func startCaffeinate() {
-        stopCaffeinate()
-
+    /// Backup to the power assertions.
+    private static func startCaffeinate() -> Process? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/caffeinate")
-        // -d: prevent display sleep, -i: prevent idle sleep, -s: prevent system sleep
-        // No -t flag = runs indefinitely until terminated
+        // -d display, -i idle, -s system sleep; no -t, so it runs until terminated
         process.arguments = ["-dis"]
-
         do {
             try process.run()
-            caffeinateProcess = process
             logActivity(.system, "Caffeinate started (preventing sleep while armed)")
+            return process
         } catch {
             logActivity(.system, "Failed to start caffeinate: \(error)")
+            return nil
         }
     }
 
-    /// Stop caffeinate process
-    private func stopCaffeinate() {
-        if let process = caffeinateProcess, process.isRunning {
-            process.terminate()
-            logActivity(.system, "Caffeinate stopped")
+    private static func preventSleep() -> [IOPMAssertionID] {
+        [kIOPMAssertionTypePreventSystemSleep, kIOPMAssertionTypeNoDisplaySleep].compactMap { type in
+            var id = IOPMAssertionID(0)
+            let result = IOPMAssertionCreateWithName(type as CFString, IOPMAssertionLevel(kIOPMAssertionLevelOn),
+                                                     "MacGuard anti-theft alarm armed" as CFString, &id)
+            return result == kIOReturnSuccess ? id : nil
         }
-        caffeinateProcess = nil
-    }
-
-    /// Allow system to sleep normally (called when disarming)
-    func allowSleep() {
-        guard isDelayingSleep else { return }
-
-        stopCaffeinate()
-
-        if sleepAssertionID != 0 {
-            IOPMAssertionRelease(sleepAssertionID)
-            sleepAssertionID = 0
-        }
-
-        if displayAssertionID != 0 {
-            IOPMAssertionRelease(displayAssertionID)
-            displayAssertionID = 0
-        }
-
-        isDelayingSleep = false
-        logActivity(.system, "Sleep allowed")
     }
 
     deinit {
-        stopCaffeinate()
         stopMonitoring()
     }
 }
