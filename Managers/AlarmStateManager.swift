@@ -245,7 +245,7 @@ class AlarmStateManager: ObservableObject {
             ActivityLogManager.shared.log(.bluetooth, "Some devices nearby but 'any away' mode - proceeding with trigger")
         }
 
-        let duration = AppSettings.shared.countdownDuration
+        let duration = AppSettings.shared.countdownDuration.rawValue
         countdownSeconds = duration
 
         // Show fullscreen overlay
@@ -314,7 +314,7 @@ class AlarmStateManager: ObservableObject {
 
     private func startAutoArmTimer() {
         autoArmTimer?.invalidate()
-        let delay = AppSettings.shared.autoArmGracePeriod
+        let delay = AppSettings.shared.autoArmGracePeriod.rawValue
         ActivityLogManager.shared.log(.system, "Auto-arm timer started (\(delay)s grace period)")
 
         autoArmTimer = Timer.scheduledTimer(withTimeInterval: TimeInterval(delay), repeats: false) { [weak self] _ in
