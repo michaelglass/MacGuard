@@ -3,8 +3,7 @@
 
 import Foundation
 
-/// Why the alarm was set off. Parsed at the monitor boundary, so every cause
-/// the core can see is a real one.
+/// Why the alarm was set off, parsed at the monitor boundary.
 enum TriggerCause: Equatable {
     case input(IntrusionInput)
     case powerDisconnected
@@ -13,7 +12,6 @@ enum TriggerCause: Equatable {
     case networkChanged
     case motion
     case lidMoved(degrees: Int)
-    /// MacGuard was killed or crashed while not idle and came back
     case tamper
 
     var label: String {
@@ -30,8 +28,7 @@ enum TriggerCause: Equatable {
     }
 }
 
-/// Security-relevant facts for observers (notifiers, recorders). They see
-/// these, never raw state, so a new observer cannot misread a transition.
+/// Security-relevant facts for observers, so none has to interpret raw state.
 enum AlarmEvent: Equatable {
     case armed(auto: Bool)
     case disarmed(reason: String)
@@ -39,15 +36,13 @@ enum AlarmEvent: Equatable {
     case alarmSounding(TriggerCause)
 }
 
-/// Everything that can happen to the alarm, already parsed by the shell.
 enum AlarmInput {
     case armRequested(auto: Bool)
-    /// The post-arm delay elapsed (the shell then tries to start input monitoring).
     case armingDelayElapsed
     case inputMonitoringStarted(Bool)
     case cancelArming
     case authenticated(OwnerAuthentication)
-    /// Starts the countdown (or sounds immediately when it is configured off).
+    /// Starts the countdown, or sounds at once when there is none.
     case intrusion(TriggerCause)
     /// Sounds immediately, even mid-countdown.
     case severeIntrusion(TriggerCause)
@@ -57,9 +52,7 @@ enum AlarmInput {
     case allTrustedDevicesAway
     case systemWoke
     case autoArmTimerFired
-    /// The login session locked (auto-arms when configured).
     case screenLocked
-    /// Launch found the armed marker of a process that died while armed.
     case resumeAfterTamper(ArmSession)
 }
 
@@ -109,9 +102,7 @@ enum AlarmEffect: Equatable {
     case endOwnerChallenge
 }
 
-/// The alarm's decision logic as a pure function. No timers, singletons or
-/// I/O: give it a state, an input and an environment; it returns the next
-/// state and the effects to run. Every transition is unit-testable.
+/// The alarm's decisions as a pure function: no timers, singletons or I/O.
 enum AlarmMachine {
     typealias Transition = (state: AlarmState, effects: [AlarmEffect])
 
@@ -206,8 +197,7 @@ enum AlarmMachine {
             }
             return (state, [.log(.system, "System woke from sleep")])
 
-        // Killed while armed: come back sounding. The marker is re-written so
-        // a second kill is caught too.
+        // The marker is rewritten so a second kill is caught too.
         case (.idle, .resumeAfterTamper(let session)):
             let (next, effects) = soundAlarm(session, .tamper, "Restarted after being terminated while armed - ALARM ACTIVE", overlay: true)
             return (next, [.persistArmedMarker(session), .startSystemMonitors] + effects)
@@ -218,13 +208,11 @@ enum AlarmMachine {
 
         case (.idle, .screenLocked):
             guard env.autoArmOnScreenLock else { return (state, []) }
-            // Manual-arm semantics: the owner locked with their devices present,
-            // so a device must leave before its return may disarm.
+            // Manual-arm rules: a device must leave before its return may disarm.
             let (next, effects) = step(.idle, .armRequested(auto: false), env)
             return (next, [.log(.armed, "Screen locked - arming")] + effects)
 
-        // Everything else is a no-op in the current state (e.g. a stale
-        // timer tick after disarm, an intrusion while idle).
+        // Anything else is a no-op here (e.g. a stale tick after disarm).
         default:
             return (state, [])
         }
@@ -232,8 +220,7 @@ enum AlarmMachine {
 
     // MARK: - Rules
 
-    /// Whether this kind of intrusion is switched on. Core triggers (input,
-    /// power, lid) always are; optional sensors carry their own setting.
+    /// Core triggers are always on; optional ones have a setting.
     private static func isEnabled(_ cause: TriggerCause, _ env: AlarmEnvironment) -> Bool {
         switch cause {
         case .input, .powerDisconnected, .lidClosed, .tamper: return true
@@ -244,15 +231,13 @@ enum AlarmMachine {
         }
     }
 
-    /// Whether proximity should swallow an intrusion. In "any device away"
-    /// mode the user asked for an alarm whenever any device is away.
+    /// A nearby trusted device swallows intrusions, except in "any device away" mode.
     private static func suppression(_ env: AlarmEnvironment) -> AlarmEffect? {
         guard env.anyTrustedDeviceNearby, env.autoArmMode == .allDevicesAway else { return nil }
         return .log(.bluetooth, "Trusted device nearby - ignoring trigger")
     }
 
-    /// The single rule for every proximity disarm (device returned, wake):
-    /// only after a trusted device has actually left during this session.
+    /// Every proximity disarm (return, wake): only once a device has left this session.
     static func proximityMayDisarm(_ state: AlarmState, _ env: AlarmEnvironment) -> Bool {
         guard let session = state.session, state.phase != .arming,
               session.trustedDeviceHasLeft else { return false }
@@ -293,8 +278,7 @@ enum AlarmMachine {
             .log(.disarmed, reason),
             .emit(.disarmed(reason: reason)),
         ]
-        // Only scan in idle if auto-arm is enabled AND trusted devices exist
-        // (keeps idle CPU under 1% when the feature is off, the default)
+        // Idle scanning only when auto-arm needs it (keeps idle CPU low)
         if env.autoArmEnabled && env.hasTrustedDevices { effects.append(.resumeIdleScanning) }
         return (.idle, effects)
     }

@@ -5,7 +5,6 @@ import AVFoundation
 import AppKit
 import SwiftUI
 
-/// Whether to photograph whoever sets the alarm off. Opt-in.
 enum IntruderPhotoSetting: String, CaseIterable {
     case off
     case onIntrusion
@@ -13,7 +12,6 @@ enum IntruderPhotoSetting: String, CaseIterable {
     static let `default` = IntruderPhotoSetting.off
 }
 
-/// Camera permission, parsed from `AVAuthorizationStatus`.
 enum CameraAccess: Equatable {
     case notDetermined, granted, denied
 
@@ -27,12 +25,10 @@ enum CameraAccess: Equatable {
     }
 }
 
-/// At most one photo per arm session: the first intrusion event takes it
-/// (the countdown start, or the alarm itself when there is no countdown).
+/// One photo per arm session, at the first intrusion event.
 struct IntruderPhotoPolicy: Equatable {
     private(set) var capturedThisSession = false
 
-    /// Feed every event; returns true when this event should take the photo.
     mutating func observe(_ event: AlarmEvent) -> Bool {
         switch event {
         case .armed, .disarmed:
@@ -46,7 +42,6 @@ struct IntruderPhotoPolicy: Equatable {
     }
 }
 
-/// Naming and retention for stored photos.
 enum IntruderPhotoFiles {
     static let keep = 50
     static let fileExtension = "jpg"
@@ -64,7 +59,7 @@ enum IntruderPhotoFiles {
         "\(formatter.string(from: date)).\(fileExtension)"
     }
 
-    /// Photos beyond the newest `keep`, oldest first. Non-photos are ignored.
+    /// Oldest first; non-photos are ignored.
     static func toPrune(_ files: [URL], keep: Int = keep) -> [URL] {
         let photos = files
             .filter { $0.pathExtension.lowercased() == fileExtension }
@@ -73,9 +68,7 @@ enum IntruderPhotoFiles {
     }
 }
 
-/// Photographs an intruder from the built-in camera when the alarm triggers.
-/// Capture runs off the main actor; a failure is logged and never affects
-/// the alarm.
+/// Capture runs off the main actor; a failure never affects the alarm.
 @MainActor
 final class IntruderCamera: ObservableObject {
     static let shared = IntruderCamera()
@@ -96,7 +89,7 @@ final class IntruderCamera: ObservableObject {
         set { settingRaw = newValue.rawValue }
     }
 
-    /// Enabling asks for camera permission (only now, never at launch).
+    /// Asks for camera permission only now, never at launch.
     func setEnabled(_ enabled: Bool) {
         guard enabled else { setting = .off; return }
         refreshAccess()
@@ -124,8 +117,7 @@ final class IntruderCamera: ObservableObject {
         alarmManager.onEvent { [weak self] event in self?.handle(event) }
     }
 
-    /// The photo for an intrusion event, waiting for an in-flight capture.
-    /// Shaped for notification attachments: `(AlarmEvent) async -> [URL]`.
+    /// Waits for an in-flight capture.
     func latestPhotos(for event: AlarmEvent) async -> [URL] {
         switch event {
         case .countdownStarted, .alarmSounding:
@@ -178,8 +170,7 @@ final class IntruderCamera: ObservableObject {
     }
 }
 
-/// Takes one JPEG still from the built-in camera; use one instance per photo.
-/// `@unchecked Sendable`: every mutable property is only touched on `queue`.
+/// One instance per photo. `@unchecked Sendable`: mutable state is only touched on `queue`.
 private final class StillCapture: NSObject, AVCapturePhotoCaptureDelegate, @unchecked Sendable {
     /// Lets auto-exposure settle; the first frames of a cold camera are dark.
     private static let warmUp: TimeInterval = 1.0

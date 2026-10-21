@@ -5,14 +5,12 @@
 import Foundation
 import IOKit.ps
 
-/// Where the Mac is drawing power from.
 enum PowerSource: Equatable {
     case ac, battery
 }
 
 /// Protocol for receiving power state change events
 protocol PowerMonitorDelegate: AnyObject {
-    /// Called only on a change, never with the source it was already on
     func powerSourceChanged(to source: PowerSource)
 }
 
@@ -23,7 +21,6 @@ class PowerMonitor {
     private var runLoopSource: CFRunLoopSource?
     private var lastSource: PowerSource = .ac
     private var isMonitoring = false
-
 
     // MARK: - Monitoring
 
@@ -67,9 +64,7 @@ class PowerMonitor {
 
     /// Check if currently on AC power
     /// - Returns: true if on AC power, false if on battery
-    /// Asks which source is *providing* power. Reading the state of the first
-    /// listed source instead could pick an attached UPS, which reports
-    /// "AC Power" even after the laptop's own cable is pulled.
+    /// The *providing* source: a UPS reports "AC Power" even after the laptop's cable is pulled.
     func currentSource() -> PowerSource {
         guard let snapshot = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
               let providing = IOPSGetProvidingPowerSourceType(snapshot)?.takeUnretainedValue() else {
@@ -78,8 +73,7 @@ class PowerMonitor {
         return (providing as String) == kIOPSACPowerValue ? .ac : .battery
     }
 
-    /// The source to report for a power notification, or `nil` when nothing
-    /// changed (IOKit also notifies on battery-level changes).
+    /// `nil` when nothing changed (IOKit also notifies on battery-level changes).
     static func transition(from previous: PowerSource, to current: PowerSource) -> PowerSource? {
         current == previous ? nil : current
     }

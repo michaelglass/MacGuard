@@ -4,28 +4,24 @@
 import Foundation
 import Network
 
-/// Protocol for receiving network change events
 protocol NetworkMonitorDelegate: AnyObject {
     func networkChanged()
 }
 
-/// A physical network link the Mac is using.
 struct NetworkLink: Hashable {
     enum Kind: Hashable { case wifi, wired }
     let name: String
     let kind: Kind
 }
 
-/// Watches the Wi-Fi / wired links in use and reports when that set changes
-/// (a cable pulled, Wi-Fi dropped or switched interface).
+/// Reports when the set of Wi-Fi / wired links in use changes.
 class NetworkMonitor {
     weak var delegate: NetworkMonitorDelegate?
 
     private var monitor: NWPathMonitor?
     private var baseline: Set<NetworkLink>?
 
-    /// Parse a path into the links that matter; other interface types
-    /// (loopback, VPN tunnels, cellular) are not physical tampering signals.
+    /// Loopback, VPN tunnels and cellular are not physical tampering signals.
     static func links(of path: NWPath) -> Set<NetworkLink> {
         guard path.status == .satisfied else { return [] }
         return Set(path.availableInterfaces.compactMap { interface in
@@ -37,7 +33,6 @@ class NetworkMonitor {
         })
     }
 
-    /// The first snapshot is the baseline; any later difference is a change.
     static func isChange(from baseline: Set<NetworkLink>?, to current: Set<NetworkLink>) -> Bool {
         guard let baseline else { return false }
         return baseline != current
@@ -45,7 +40,7 @@ class NetworkMonitor {
 
     func startMonitoring() {
         guard monitor == nil else { return }
-        // NWPathMonitor cannot be restarted after cancel, so make a new one each time
+        // NWPathMonitor cannot be restarted after cancel
         let monitor = NWPathMonitor()
         monitor.pathUpdateHandler = { [weak self] path in
             guard let self else { return }

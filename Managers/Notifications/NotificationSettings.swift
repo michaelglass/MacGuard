@@ -3,8 +3,7 @@
 
 import SwiftUI
 
-/// What the user has typed, exactly as stored. Not trusted: it is parsed
-/// into notifiers by `NotifierDrafts.notifier(for:)`.
+/// Raw user input; only `notifier(for:)` turns it into a notifier.
 struct NotifierDrafts: Equatable {
     var enabled: Set<NotifierID> = []
     var mailTo = ""
@@ -12,8 +11,7 @@ struct NotifierDrafts: Equatable {
     var shortcutName = ""
     var webhookURL = ""
 
-    /// The notifier `id` would be with the current drafts, or `nil` while its
-    /// configuration is incomplete. The only way a notifier is constructed.
+    /// `nil` while the configuration is incomplete.
     func notifier(for id: NotifierID) -> (any Notifier)? {
         switch id {
         case .notificationCenter: return NotificationCenterNotifier()
@@ -24,14 +22,13 @@ struct NotifierDrafts: Equatable {
         }
     }
 
-    /// Enabled notifiers whose configuration parses. An enabled flag whose
-    /// draft no longer parses contributes nothing (and shows as off in the UI).
+    /// An enabled flag whose draft doesn't parse contributes nothing.
     func enabledNotifiers() -> [any Notifier] {
         NotifierID.allCases.filter(enabled.contains).compactMap(notifier(for:))
     }
 }
 
-/// UserDefaults-backed notification settings. Everything is off by default.
+/// Everything is off by default.
 final class NotificationSettings: ObservableObject {
     static let shared = NotificationSettings()
 
@@ -53,8 +50,7 @@ final class NotificationSettings: ObservableObject {
 
     func enabledNotifiers() -> [any Notifier] { drafts.enabledNotifiers() }
 
-    /// Whether `id` is on. Turning a notifier on succeeds only while its
-    /// configuration parses; a notifier with a broken draft reads as off.
+    /// Turning on succeeds only while the configuration parses.
     func isEnabled(_ id: NotifierID) -> Bool {
         drafts.enabled.contains(id) && drafts.notifier(for: id) != nil
     }

@@ -3,12 +3,7 @@
 
 import Foundation
 
-// Typed notifier inputs. Each is parsed once from what the user typed; a
-// notifier can only be constructed from these, so "enabled but no valid
-// recipient" never reaches the dispatcher.
-
-/// A plausible e-mail address (one `@`, non-empty local part, dotted domain,
-/// no whitespace or characters that would need quoting).
+/// One `@`, dotted domain, nothing that would need quoting.
 struct EmailAddress: Hashable, Codable {
     let value: String
 
@@ -31,7 +26,6 @@ struct EmailAddress: Hashable, Codable {
     }
 }
 
-/// Who Messages should send to: a phone number or an Apple ID e-mail.
 enum MessagesRecipient: Hashable {
     case phone(String)
     case appleID(EmailAddress)
@@ -59,7 +53,6 @@ enum MessagesRecipient: Hashable {
     }
 }
 
-/// The name of a user Shortcut (single line, non-empty).
 struct ShortcutName: Hashable {
     let value: String
 
@@ -73,8 +66,7 @@ struct ShortcutName: Hashable {
     }
 }
 
-/// An HTTPS endpoint. Plain `http` is not representable: alerts describe the
-/// Mac and when it was tampered with, and must not travel in clear text.
+/// Plain `http` is not representable: alerts must not travel in clear text.
 struct WebhookURL: Hashable {
     let url: URL
 

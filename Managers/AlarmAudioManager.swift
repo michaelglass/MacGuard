@@ -11,21 +11,17 @@ class AlarmAudioManager: ObservableObject {
     @Published var isPlaying = false
 
     private var audioPlayer: AVAudioPlayer?
-    /// Volume before the alarm raised it; `nil` when there is nothing to restore
-    /// (stopAlarm() also runs on every plain disarm).
+    /// `nil` when there is nothing to restore (stopAlarm() also runs on every plain disarm)
     private var originalVolume: Float?
     private var builtInSpeakerID: AudioDeviceID = 0
-    /// The output to return to on stop; nil when the alarm didn't move it.
+    /// nil when the alarm didn't move the output
     private var deviceToRestore: AudioDeviceID?
     private var beepTimer: Timer?
-    /// CoreAudio change listeners registered while the alarm plays.
     private var enforcementListeners: [(object: AudioObjectID, address: AudioObjectPropertyAddress)] = []
     private lazy var enforcementBlock: AudioObjectPropertyListenerBlock = { [weak self] _, _ in self?.enforceVolume() }
-    /// The device whose volume and mute the listeners watch.
     private var enforcedDevice: AudioDeviceID = 0
     private var isPrepared = false
     private var targetVolume: Float = 1.0
-
 
     // MARK: - Preparation
 
@@ -114,7 +110,6 @@ class AlarmAudioManager: ObservableObject {
         isPlaying = false
         isPrepared = false
 
-        // Restore original volume (only if the alarm changed it)
         if let originalVolume {
             setSystemVolume(originalVolume)
             self.originalVolume = nil
@@ -128,8 +123,7 @@ class AlarmAudioManager: ObservableObject {
 
     // MARK: - Volume Enforcement
 
-    /// React the moment the output device, volume or mute changes (keyboard
-    /// keys, connecting headphones), instead of polling for it.
+    /// Reacts to output device, volume and mute changes (keys, connecting headphones).
     private func startVolumeEnforcement() {
         stopVolumeEnforcement()
         enforcedDevice = getDefaultOutputDevice()
@@ -157,13 +151,10 @@ class AlarmAudioManager: ObservableObject {
         enforcementListeners = []
     }
 
-    /// Keep the alarm audible: on the built-in speaker, playing, unmuted, loud.
     private func enforceVolume() {
         guard isPlaying else { return }
 
-        // Connecting headphones (or picking another output) moves the default
-        // output, and the alarm would follow it. Move it back; the device chosen
-        // mid-alarm is the one restored on disarm.
+        // Connecting headphones moves the default output, and the alarm with it.
         if let moved = moveToBuiltInSpeaker() {
             logActivity(.alarm, "Output moved to device \(moved) - alarm kept on built-in speaker")
         }
@@ -207,10 +198,7 @@ class AlarmAudioManager: ObservableObject {
 
     // MARK: - System Volume Control
 
-    // Volume and mute go through CoreAudio on the current default output
-    // device (the built-in speaker once the alarm has switched to it).
-    // Enforcement runs on every volume change, so this must not compile and
-    // run AppleScript on the main thread.
+    // CoreAudio, not AppleScript: enforcement runs on every volume change, on the main thread.
 
     private func setSystemVolume(_ volume: Float) {
         let device = getDefaultOutputDevice()
@@ -231,7 +219,6 @@ class AlarmAudioManager: ObservableObject {
         }
     }
 
-    /// Average output volume (0...1), or `nil` if the device exposes none.
     private func outputVolume() -> Float? {
         let device = getDefaultOutputDevice()
         let values: [Float32] = volumeElements(device, kAudioDevicePropertyVolumeScalar).compactMap { element in
@@ -244,7 +231,6 @@ class AlarmAudioManager: ObservableObject {
         return values.reduce(0, +) / Float(values.count)
     }
 
-    /// Whether any controllable output element is muted.
     private func outputMuted() -> Bool? {
         let device = getDefaultOutputDevice()
         let values: [UInt32] = volumeElements(device, kAudioDevicePropertyMute).compactMap { element in
@@ -262,8 +248,7 @@ class AlarmAudioManager: ObservableObject {
         AudioObjectPropertyAddress(mSelector: selector, mScope: kAudioDevicePropertyScopeOutput, mElement: element)
     }
 
-    /// The main element if it carries `selector`, otherwise the stereo
-    /// channels (1, 2) that do. Many devices only expose per-channel volume.
+    /// Many devices only expose per-channel (1, 2) volume, not the main element.
     private func volumeElements(_ device: AudioDeviceID,
                                 _ selector: AudioObjectPropertySelector) -> [AudioObjectPropertyElement] {
         guard device != 0 else { return [] }
@@ -291,8 +276,7 @@ class AlarmAudioManager: ObservableObject {
         }
     }
 
-    /// Make the built-in speaker the output if something else is. Returns the
-    /// device it replaced, which becomes the one restored on stop.
+    /// Returns the device it replaced, which becomes the one restored on stop.
     private func moveToBuiltInSpeaker() -> AudioDeviceID? {
         let current = getDefaultOutputDevice()
         guard builtInSpeakerID != 0, current != 0, current != builtInSpeakerID else { return nil }

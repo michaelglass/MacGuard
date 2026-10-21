@@ -153,13 +153,11 @@ struct CountdownOverlayView: View {
         }
     }
 
-
     // MARK: - Auth Buttons
 
     private var authButtons: some View {
         VStack(spacing: Theme.Spacing.lg) {
-            // Touch ID / password button (always available, so a Mac without
-            // Touch ID and without a PIN can still be disarmed)
+            // Always offered, so a Mac without Touch ID or a PIN can still disarm
             Button(action: authenticateWithSystem) {
                 HStack(spacing: Theme.Spacing.md) {
                     Image(systemName: alarmManager.authManager.hasBiometrics ? "touchid" : "key.fill")
@@ -321,7 +319,7 @@ struct PINOverlay: View {
         }
     }
 
-    /// Field, message and buttons. No input at all while locked out.
+    /// No input at all while locked out.
     private func entry(lockedUntil: Date?, now: Date) -> some View {
         let message = lockedUntil.map {
             ("lock.fill", "Too many attempts - try again in \($0.secondsLeft(from: now))s")
@@ -425,7 +423,7 @@ struct OverlaySecureTextField: NSViewRepresentable {
         }
         if nsView.isEnabled != isEnabled {
             nsView.isEnabled = isEnabled
-            // Focus once when a lockout ends (not on every update - that selects the text)
+            // Focus once when a lockout ends; on every update it would select the text
             if isEnabled { DispatchQueue.main.async { nsView.window?.makeFirstResponder(nsView) } }
         }
     }

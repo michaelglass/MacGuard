@@ -3,8 +3,6 @@
 
 import SwiftUI
 
-/// Settings section for remote notifications. All channels are opt-in; a
-/// channel can only be switched on once its recipient parses.
 struct NotificationSettingsSection: View {
     @ObservedObject private var settings = NotificationSettings.shared
     @State private var testResults: [NotifierID: String] = [:]

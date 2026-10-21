@@ -18,7 +18,6 @@ protocol BluetoothProximityDelegate: AnyObject {
     func bluetoothStateChanged(_ state: CBManagerState)
 }
 
-/// Runtime state for one trusted device (never persisted).
 struct DeviceTracking: Equatable {
     var proximity = ProximityTracker()
     var classicLink = ClassicLinkTracker()
@@ -30,9 +29,7 @@ struct DeviceTracking: Equatable {
 }
 
 /// Manages Bluetooth proximity detection for multiple trusted devices
-/// Supports both BLE (CoreBluetooth) and Classic Bluetooth (IOBluetooth) devices.
-/// This class is the I/O shell: it parses callbacks into `Observation`s and
-/// leaves the decisions to `ProximityTracker` / `ClassicLinkTracker`.
+/// I/O shell: parses callbacks into `Observation`s; `ProximityTracker` decides.
 class BluetoothProximityManager: NSObject, ObservableObject {
     weak var delegate: BluetoothProximityDelegate?
 
@@ -42,7 +39,6 @@ class BluetoothProximityManager: NSObject, ObservableObject {
     @Published private(set) var trustedDevices: [TrustedDevice] = []
     @Published var isScanning = false
     @Published private(set) var isDeviceNearby = false
-    /// Per-device runtime state, keyed by `TrustedDevice.id`
     @Published private(set) var tracking: [UUID: DeviceTracking] = [:]
 
     // MARK: - Private Properties
@@ -83,11 +79,9 @@ class BluetoothProximityManager: NSObject, ObservableObject {
     // Device limit
     private let maxTrustedDevices = 10
 
-
     // MARK: - Computed Properties
 
-    /// ALL observed devices away (for auto-arm logic). Devices not observed
-    /// since scanning started are ignored here, as before.
+    /// Devices not observed since scanning started are ignored.
     var areAllDevicesAway: Bool {
         guard !trustedDevices.isEmpty else { return false }
         return tracking.values
@@ -303,7 +297,6 @@ class BluetoothProximityManager: NSObject, ObservableObject {
                 peripheral.readRSSI()
                 continue
             }
-            // Device disconnected - apply debounce to prevent rapid oscillation
             if tracking[deviceID, default: DeviceTracking()].proximity.shouldDebounceDisconnect(at: now, lowPower: isLowPower) {
                 if let device = trustedDevices.first(where: { $0.id == deviceID }) {
                     logActivity(.bluetooth, "BLE device (\(device.name)) disconnect debounced - ignoring brief disconnect\(lowPowerSuffix)")
@@ -393,14 +386,11 @@ class BluetoothProximityManager: NSObject, ObservableObject {
         isDeviceNearby = tracking.values.contains { $0.proximity.isNearby }
     }
 
-    /// Whether any trusted device is nearby, as evidence the owner is present.
-    /// During the BT recovery cooldown proximity states are *assumed* nearby
-    /// (to avoid false auto-arm), not observed, so they vouch for nobody.
+    /// Proximity assumed during the BT recovery cooldown vouches for nobody.
     func isTrustedDeviceNearby() -> Bool {
         recoveryCooldown.vouchesForPresence(isDeviceNearby, at: Date())
     }
 
-    /// Whether every trusted device is nearby (same evidence rule as above).
     var areAllDevicesNearby: Bool {
         !trustedDevices.isEmpty
             && recoveryCooldown.vouchesForPresence(trustedDevices.allSatisfy(isNearby), at: Date())
@@ -411,7 +401,6 @@ class BluetoothProximityManager: NSObject, ObservableObject {
         tracking[device.id]?.proximity.isNearby ?? false
     }
 
-    /// The latest reading for a device, `nil` if none since scanning started
     func lastObservation(for device: TrustedDevice) -> Observation? {
         tracking[device.id]?.proximity.lastObservation
     }
@@ -504,7 +493,6 @@ extension BluetoothProximityManager: CBCentralManagerDelegate {
         if central.state == .poweredOn {
             recoveryCooldown.start(at: Date())
             logActivity(.bluetooth, "BT recovery cooldown started (\(Int(RecoveryCooldown.duration))s)")
-            // Assume observed devices nearby during recovery (prevent false "away")
             for id in tracking.keys {
                 tracking[id]?.proximity.assumeNearbyForRecovery()
             }
@@ -609,7 +597,6 @@ extension BluetoothProximityManager: CBPeripheralDelegate {
 extension BluetoothProximityManager: IOBluetoothDeviceInquiryDelegate {
     /// Device discovered during inquiry - provides fresh RSSI
     func deviceInquiryDeviceFound(_ sender: IOBluetoothDeviceInquiry!, device: IOBluetoothDevice!) {
-        // Parse at the boundary: unparseable address or unavailable RSSI = nothing to report
         guard let address = device.addressString.flatMap(BluetoothAddress.init),
               let rssi = RSSI(Int(device.rawRSSI())) else { return }
 

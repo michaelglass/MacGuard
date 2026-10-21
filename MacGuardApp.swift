@@ -11,8 +11,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     let alarmManager = AlarmStateManager()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Single instance: Launch at Login, a manual launch and the tamper
-        // watchdog can all start MacGuard; only the first one keeps running.
+        // Login, a manual launch and the watchdog can all start MacGuard; the first wins.
         if let other = Self.otherRunningInstance() {
             other.activate()
             exit(0)
@@ -20,7 +19,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Observers attach before any resume, so a tamper alarm is photographed
         IntruderCamera.shared.attach(to: alarmManager)
-        // Opt-in remote notifications (all channels off by default)
         alarmManager.onEvent(NotificationDispatcher.shared.handle)
 
         let tamperGuard = TamperGuard.shared
@@ -30,9 +28,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         tamperGuard.syncAgent()
     }
 
-    /// A menu-bar-only app has no window to bring forward. Opening it again
-    /// (Finder, Spotlight, `open`) shows Settings, so it stays reachable when
-    /// the menu bar icon is hidden, e.g. behind the notch.
+    /// Reopening shows Settings, so the app is reachable when the menu bar icon is hidden.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         SettingsWindowController.shared.show(alarmManager: alarmManager)
         return false
@@ -41,14 +37,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private static func otherRunningInstance() -> NSRunningApplication? {
         guard let bundleID = Bundle.main.bundleIdentifier else { return nil }
         let me = ProcessInfo.processInfo.processIdentifier
-        // The headless watchdog shares the bundle id but never becomes a
-        // regular/accessory app, so it is excluded by activation policy.
+        // The headless watchdog shares the bundle id; its activation policy excludes it.
         return NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
             .first { $0.processIdentifier != me && $0.activationPolicy != .prohibited }
     }
 
-    /// While the overlay is up the app is a regular, frontmost app with an
-    /// app menu, so ⌘Q would otherwise silence the alarm without authentication.
+    /// With the overlay up the app has a menu, so ⌘Q would otherwise silence the alarm.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard alarmManager.state == .idle else {
             ActivityLogManager.shared.log(.system, "Quit blocked - disarm first")

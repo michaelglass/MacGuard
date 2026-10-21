@@ -3,7 +3,7 @@
 
 import Foundation
 
-/// Stable identifiers for the built-in notifiers (also UserDefaults key stems).
+/// Also UserDefaults key stems, so stable.
 enum NotifierID: String, CaseIterable, Identifiable, Comparable {
     case notificationCenter, mail, messages, shortcuts, webhook
 
@@ -24,8 +24,7 @@ enum NotifierID: String, CaseIterable, Identifiable, Comparable {
     }
 }
 
-/// A delivery channel. An instance exists only with a complete, parsed
-/// configuration, so every notifier the dispatcher holds can be sent to.
+/// Exists only with a complete, parsed configuration.
 protocol Notifier {
     var id: NotifierID { get }
     func send(_ alert: Alert) async throws

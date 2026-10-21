@@ -5,9 +5,7 @@
 import LocalAuthentication
 import Security
 
-/// Proof that the owner just authenticated.
-/// The initializer is fileprivate, so only `AuthManager` can mint one and
-/// `AlarmStateManager.disarm(_:)` cannot be reached from an unauthenticated path.
+/// Proof the owner just authenticated. Only `AuthManager` can mint one (fileprivate init).
 struct OwnerAuthentication {
     enum Method: String {
         case system = "Touch ID / password"
@@ -21,8 +19,7 @@ struct OwnerAuthentication {
     }
 }
 
-/// A PIN that satisfies the format rules (4-8 ASCII digits).
-/// Holding a `PIN` means it has already been checked.
+/// 4-8 ASCII digits.
 struct PIN {
     static let allowedLengths = 4...8
 
@@ -34,7 +31,6 @@ struct PIN {
         digits = raw
     }
 
-    /// Why this PIN is among the first a thief would try, if it is.
     var weakness: PINWeakness? {
         let values = digits.compactMap(\.wholeNumberValue)
         let steps = Set(zip(values, values.dropFirst()).map { $1 - $0 })
@@ -50,11 +46,8 @@ struct PIN {
 enum PINWeakness: Equatable {
     /// 1234 / 12345 (Spaceballs)
     case luggage
-    /// One digit repeated: 0000, 999999
     case repeated
-    /// A straight run: 2345, 9876
     case sequence
-    /// Other well-known PINs
     case common
 
     static let wellKnown: Set<String> = ["1212", "2580", "1122", "1313", "6969", "2000", "1004", "123123", "121212", "112233"]
@@ -70,18 +63,14 @@ enum PINWeakness: Equatable {
     }
 }
 
-/// Outcome of a PIN attempt.
 enum PINVerification {
     case accepted(OwnerAuthentication)
     case rejected
-    /// Too many wrong attempts; see `AuthManager.pinLockout(at:)` for the end.
     case lockedOut
     case noPINConfigured
 }
 
-/// Attempt limiting for PIN entry, as a pure value so the schedule is testable.
-/// `freeAttempts` wrong guesses are allowed; each further one locks out for
-/// 30s, doubling (capped at 30s * 2^10 ≈ 8.5h).
+/// After `freeAttempts` wrong guesses, each one locks out for 30 s, doubling (capped at ~8.5 h).
 struct PINThrottle: Equatable, Codable {
     static let freeAttempts = 3
     static let baseLockout: TimeInterval = 30
@@ -89,7 +78,6 @@ struct PINThrottle: Equatable, Codable {
     private(set) var failedAttempts = 0
     private(set) var lockedUntil: Date?
 
-    /// The lockout end if `now` is still inside one.
     func lockout(at now: Date) -> Date? {
         guard let lockedUntil, now < lockedUntil else { return nil }
         return lockedUntil
@@ -99,7 +87,7 @@ struct PINThrottle: Equatable, Codable {
         self = PINThrottle()
     }
 
-    /// Records a wrong attempt; returns the new lockout end, if one starts.
+    /// Returns the new lockout end, if one starts.
     mutating func recordFailure(at now: Date) -> Date? {
         failedAttempts += 1
         let excess = failedAttempts - Self.freeAttempts
@@ -122,18 +110,15 @@ class AuthManager: ObservableObject {
     private let keychainService = "com.shenglong.macguard"
     private let keychainAccount = "userPIN"
 
-    /// Persisted, so killing and relaunching the app doesn't reset the count.
-    /// Cleared only by `resetPINAttempts()`, i.e. after the owner disarms.
+    /// Persisted, so a relaunch doesn't reset the count; only a disarm does.
     @Published private var throttle: PINThrottle {
         didSet { UserDefaults.standard.set(try? JSONEncoder().encode(throttle), forKey: Self.throttleKey) }
     }
     private static let throttleKey = "pinThrottle"
 
-    /// The end of the PIN lockout in force at `now`, if any.
     func pinLockout(at now: Date) -> Date? {
         throttle.lockout(at: now)
     }
-
 
     // MARK: - Initialization
 
@@ -157,9 +142,7 @@ class AuthManager: ObservableObject {
         }
     }
 
-    /// Authenticate with Touch ID, falling back to the login password.
-    /// Using `.deviceOwnerAuthentication` means a Mac without Touch ID (or
-    /// with the lid closed on an external display) can still disarm.
+    /// `.deviceOwnerAuthentication` falls back to the password, so a Mac without Touch ID can disarm.
     func authenticate(completion: @escaping (OwnerAuthentication?) -> Void) {
         pendingAuthentication?.invalidate()
         let context = LAContext()
@@ -173,10 +156,8 @@ class AuthManager: ObservableObject {
         }
     }
 
-    /// The open Touch ID / password prompt, if any.
     private var pendingAuthentication: LAContext?
 
-    /// Dismiss an open Touch ID / password prompt (e.g. disarmed by PIN).
     func cancelPendingAuthentication() {
         pendingAuthentication?.invalidate()
         pendingAuthentication = nil
@@ -226,10 +207,7 @@ class AuthManager: ObservableObject {
         return result as? Data
     }
 
-    /// Check an entered PIN, rate-limited by `PINThrottle` so a 4-digit PIN
-    /// cannot be brute-forced while the alarm counts down.
-    /// The input is not parsed as a `PIN`: PINs saved by older versions were
-    /// not restricted to digits and must keep working.
+    /// Not parsed as a `PIN`: older versions saved non-digit PINs, which must keep working.
     func verifyPIN(_ input: String, now: Date = Date()) -> PINVerification {
         if throttle.lockout(at: now) != nil {
             return .lockedOut
@@ -246,7 +224,6 @@ class AuthManager: ObservableObject {
         return until == nil ? .rejected : .lockedOut
     }
 
-    /// The owner has disarmed: wrong guesses before that no longer count.
     func resetPINAttempts() {
         guard throttle != PINThrottle() else { return }
         throttle = PINThrottle()

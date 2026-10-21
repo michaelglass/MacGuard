@@ -3,7 +3,6 @@
 
 import SwiftUI
 
-/// Settings section for the opt-in intruder photo.
 struct IntruderPhotoSettingsView: View {
     @ObservedObject var camera: IntruderCamera
 

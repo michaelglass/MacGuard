@@ -5,21 +5,18 @@ import Foundation
 import IOKit
 import IOKit.usb
 
-/// Protocol for receiving USB attach events
 protocol USBMonitorDelegate: AnyObject {
     func usbDeviceAttached(name: String)
 }
 
-/// Reports USB devices attached while monitoring. Devices already attached
-/// when monitoring starts are drained silently, so only new insertions fire.
+/// Devices attached before monitoring starts are drained silently.
 class USBMonitor {
     weak var delegate: USBMonitorDelegate?
 
     private var notificationPort: IONotificationPortRef?
     private var iterator: io_iterator_t = 0
 
-    /// Display name for a device: the product string, else the registry
-    /// name, else a placeholder. The core only ever sees a non-empty name.
+    /// Never empty.
     static func productName(product: String?, registryName: String?) -> String {
         for candidate in [product, registryName] {
             if let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty {

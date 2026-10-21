@@ -3,7 +3,6 @@
 
 import Foundation
 
-/// Outcome of one delivery attempt.
 enum DeliveryResult: Equatable {
     case delivered(NotifierID)
     case failed(NotifierID, String)
@@ -15,11 +14,8 @@ enum DeliveryResult: Equatable {
     }
 }
 
-/// Fans alarm events out to the enabled notifiers. Subscribed via
-/// `AlarmStateManager.onEvent`; delivery runs off the main actor, every
-/// notifier concurrently, and one failing channel never affects another.
+/// Delivers off the main actor, every notifier concurrently; one failure never affects another.
 final class NotificationDispatcher {
-    /// The app's dispatcher: intruder photos (if enabled) ride along as attachments.
     static let shared = NotificationDispatcher(attachments: { await IntruderCamera.shared.latestPhotos(for: $0) })
 
     private let notifiers: () -> [any Notifier]
@@ -45,8 +41,7 @@ final class NotificationDispatcher {
         self.host = host
     }
 
-    /// Sink for `AlarmStateManager.onEvent`. Reads the current configuration
-    /// synchronously, then delivers in a detached task and returns at once.
+    /// Reads the configuration synchronously, then delivers in a detached task.
     func handle(_ event: AlarmEvent) {
         let targets = notifiers()
         guard !targets.isEmpty,
@@ -56,7 +51,6 @@ final class NotificationDispatcher {
         }
     }
 
-    /// Deliver `event` to every enabled notifier; returns per-notifier results.
     func dispatch(_ event: AlarmEvent) async -> [DeliveryResult] {
         let targets = notifiers()
         guard !targets.isEmpty,
@@ -64,7 +58,6 @@ final class NotificationDispatcher {
         return await deliver(alert, for: event, to: targets)
     }
 
-    /// Send a test alert through one notifier (used by the settings UI).
     func sendTest(via notifier: any Notifier) async -> DeliveryResult {
         await deliver(Alert.test(at: now(), host: host), for: nil, to: [notifier]).first
             ?? .failed(notifier.id, "not sent")

@@ -54,7 +54,6 @@ final class AlarmMachineTests: XCTestCase {
         XCTAssertTrue(effects.contains(.stopMonitors))
     }
 
-    /// Regression: the delayed arm block used to arm after a cancel/disarm.
     func testDelayAfterCancelDoesNotArm() {
         let (cancelled, _) = step(.arming(manual), .cancelArming)
         XCTAssertEqual(cancelled, .idle)
@@ -144,8 +143,7 @@ final class AlarmMachineTests: XCTestCase {
         XCTAssertEqual(step(.armed(left), .trustedDeviceNearby(name: "Watch"), env(mode: .anyDeviceAway, any: true, all: true)).state, .idle)
     }
 
-    /// Regression (S4): wake used to disarm whenever any device was nearby,
-    /// bypassing both the manual-arm rule and "any device away" mode.
+    /// Including the manual-arm rule and "any device away" mode.
     func testWakeFollowsTheSameRule() {
         XCTAssertEqual(step(.armed(manual), .systemWoke, env(any: true)).state, .armed(manual))
         XCTAssertEqual(step(.armed(left), .systemWoke, env(mode: .anyDeviceAway, any: true, all: false)).state, .armed(left))

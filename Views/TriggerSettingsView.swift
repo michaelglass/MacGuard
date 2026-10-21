@@ -3,8 +3,6 @@
 
 import SwiftUI
 
-/// Optional triggers and arming options (rendered inside the Behavior section,
-/// which is read-only while armed).
 struct TriggerSettingsView: View {
     @ObservedObject private var settings = AppSettings.shared
 

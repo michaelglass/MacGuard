@@ -16,8 +16,7 @@ class ActivityLogManager: ObservableObject {
     private let maxEntries = 500
     private let logFileURL: URL
 
-    /// Pending coalesced write. Logging happens on every Bluetooth poll while
-    /// armed, so each entry must not re-encode and rewrite the whole file.
+    /// Coalesced: logging happens on every Bluetooth poll while armed.
     private var saveWorkItem: DispatchWorkItem?
     private let saveDelay: TimeInterval = 2.0
 
@@ -65,7 +64,6 @@ class ActivityLogManager: ObservableObject {
 
     // MARK: - Persistence
 
-    /// Write at most once per `saveDelay`, after the first unsaved entry.
     private func scheduleSave() {
         guard saveWorkItem == nil else { return }
         let item = DispatchWorkItem { [weak self] in
@@ -75,7 +73,7 @@ class ActivityLogManager: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + saveDelay, execute: item)
     }
 
-    /// Write pending entries now (call on app termination).
+    /// Call on app termination.
     func flush() {
         saveWorkItem?.cancel()
         saveWorkItem = nil
