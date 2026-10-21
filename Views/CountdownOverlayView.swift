@@ -302,40 +302,54 @@ struct PINOverlay: View {
                     .foregroundStyle(.white)
             }
 
-            // PIN input field
-            OverlaySecureTextField(text: $pin, placeholder: "PIN", onSubmit: validate)
-                .frame(width: 180, height: 32)
-                .offset(x: shakeOffset)
+            // Ticks each second so the lockout ends on screen without input
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                let lockedUntil = alarmManager.authManager.pinLockedUntil.flatMap { $0 > context.date ? $0 : nil }
+                VStack(spacing: Theme.Spacing.xl) {
+                    // PIN input field: no input at all while locked out
+                    OverlaySecureTextField(text: $pin, placeholder: "PIN", isEnabled: lockedUntil == nil, onSubmit: validate)
+                        .frame(width: 180, height: 32)
+                        .offset(x: shakeOffset)
 
-            // Error message
-            if let errorText {
-                HStack(spacing: Theme.Spacing.xs) {
-                    Image(systemName: "xmark.circle.fill")
-                    Text(errorText)
-                }
-                .font(.system(.callout, design: .rounded))
-                .foregroundStyle(Theme.StateColor.alarming)
-            }
+                    if let lockedUntil {
+                        HStack(spacing: Theme.Spacing.xs) {
+                            Image(systemName: "lock.fill")
+                            Text("Too many attempts - try again in \(Int(lockedUntil.timeIntervalSince(context.date).rounded(.up)))s")
+                                .monospacedDigit()
+                        }
+                        .font(.system(.callout, design: .rounded))
+                        .foregroundStyle(Theme.StateColor.alarming)
+                    } else if let errorText {
+                        HStack(spacing: Theme.Spacing.xs) {
+                            Image(systemName: "xmark.circle.fill")
+                            Text(errorText)
+                        }
+                        .font(.system(.callout, design: .rounded))
+                        .foregroundStyle(Theme.StateColor.alarming)
+                    }
 
-            // Action buttons
-            HStack(spacing: Theme.Spacing.lg) {
-                Button {
-                    withAnimation { isPresented = false }
-                } label: {
-                    Text("Cancel")
-                        .font(.body.weight(.medium))
-                        .frame(width: 80)
-                }
-                .buttonStyle(GlassSecondaryButtonStyle())
+                    // Action buttons
+                    HStack(spacing: Theme.Spacing.lg) {
+                        Button {
+                            withAnimation { isPresented = false }
+                        } label: {
+                            Text("Cancel")
+                                .font(.body.weight(.medium))
+                                .frame(width: 80)
+                        }
+                        .buttonStyle(GlassSecondaryButtonStyle())
 
-                Button {
-                    validate()
-                } label: {
-                    Text("Verify")
-                        .font(.body.weight(.semibold))
-                        .frame(width: 80)
+                        Button {
+                            validate()
+                        } label: {
+                            Text("Verify")
+                                .font(.body.weight(.semibold))
+                                .frame(width: 80)
+                        }
+                        .buttonStyle(GlassBorderedProminentButtonStyle(tint: Theme.Accent.primary))
+                        .disabled(lockedUntil != nil)
+                    }
                 }
-                .buttonStyle(GlassBorderedProminentButtonStyle(tint: Theme.Accent.primary))
             }
         }
         .padding(Theme.Spacing.xxxl)
@@ -348,15 +362,20 @@ struct PINOverlay: View {
         }
     }
 
+    private var isLockedOut: Bool {
+        alarmManager.authManager.pinLockedUntil.map { $0 > Date() } ?? false
+    }
+
     private func validate() {
+        guard !isLockedOut else { return }
         switch alarmManager.attemptPINDisarm(pin) {
         case .accepted:
             withAnimation { isPresented = false }
             return
         case .rejected:
             errorText = "Incorrect PIN"
-        case .lockedOut(let until):
-            errorText = "Too many attempts - try again \(until.formatted(.relative(presentation: .named)))"
+        case .lockedOut:
+            errorText = nil  // the live lockout countdown replaces it
         case .noPINConfigured:
             errorText = "No PIN configured"
         }
@@ -383,6 +402,7 @@ struct PINOverlay: View {
 struct OverlaySecureTextField: NSViewRepresentable {
     @Binding var text: String
     var placeholder: String
+    var isEnabled = true
     var onSubmit: () -> Void
 
     func makeNSView(context: Context) -> NSSecureTextField {
@@ -406,7 +426,11 @@ struct OverlaySecureTextField: NSViewRepresentable {
         if nsView.stringValue != text {
             nsView.stringValue = text
         }
-        // Do NOT call makeFirstResponder here - it causes text selection on every update
+        if nsView.isEnabled != isEnabled {
+            nsView.isEnabled = isEnabled
+            // Focus once when a lockout ends (not on every update - that selects the text)
+            if isEnabled { DispatchQueue.main.async { nsView.window?.makeFirstResponder(nsView) } }
+        }
     }
 
     func makeCoordinator() -> Coordinator {

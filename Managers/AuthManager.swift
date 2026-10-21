@@ -82,7 +82,7 @@ enum PINVerification {
 /// Attempt limiting for PIN entry, as a pure value so the schedule is testable.
 /// `freeAttempts` wrong guesses are allowed; each further one locks out for
 /// 30s, doubling (capped at 30s * 2^10 ≈ 8.5h).
-struct PINThrottle: Equatable {
+struct PINThrottle: Equatable, Codable {
     static let freeAttempts = 3
     static let baseLockout: TimeInterval = 30
 
@@ -122,12 +122,26 @@ class AuthManager: ObservableObject {
     private let keychainService = "com.shenglong.macguard"
     private let keychainAccount = "userPIN"
 
-    private var throttle = PINThrottle()
+    /// Persisted, so killing and relaunching the app doesn't reset the count.
+    /// Cleared only by `resetPINAttempts()`, i.e. after the owner disarms.
+    private var throttle: PINThrottle {
+        didSet {
+            pinLockedUntil = throttle.lockedUntil
+            UserDefaults.standard.set(try? JSONEncoder().encode(throttle), forKey: Self.throttleKey)
+        }
+    }
+    private static let throttleKey = "pinThrottle"
+
+    /// End of the current or last PIN lockout (the view compares it to now).
+    @Published private(set) var pinLockedUntil: Date?
 
 
     // MARK: - Initialization
 
     init() {
+        throttle = UserDefaults.standard.data(forKey: Self.throttleKey)
+            .flatMap { try? JSONDecoder().decode(PINThrottle.self, from: $0) } ?? PINThrottle()
+        pinLockedUntil = throttle.lockedUntil
         checkBiometrics()
         hasPIN = retrievePIN() != nil
     }
@@ -221,6 +235,12 @@ class AuthManager: ObservableObject {
         let until = throttle.recordFailure(at: now)
         logActivity(.system, "Incorrect PIN (attempt \(throttle.failedAttempts))")
         return until.map { .lockedOut(until: $0) } ?? .rejected
+    }
+
+    /// The owner has disarmed: wrong guesses before that no longer count.
+    func resetPINAttempts() {
+        guard throttle != PINThrottle() else { return }
+        throttle = PINThrottle()
     }
 
     static func constantTimeEquals(_ a: Data, _ b: Data) -> Bool {

@@ -44,7 +44,11 @@ class AlarmStateManager: ObservableObject {
             environment: { [unowned self] in self.environment },
             gracePeriod: { AppSettings.shared.autoArmGracePeriod }
         )
-        runtime.onStateChange = { [unowned self] in self.state = $0 }
+        runtime.onStateChange = { [unowned self] in
+            self.state = $0
+            // Reaching idle took owner proof (or the trusted device's return)
+            if $0 == .idle { self.authManager.resetPINAttempts() }
+        }
         runtime.onArmingDeadlineChange = { [unowned self] in self.armingDeadline = $0 }
         return runtime
     }()

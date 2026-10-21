@@ -70,3 +70,14 @@ final class PINWeaknessTests: XCTestCase {
         }
     }
 }
+
+final class PINThrottlePersistenceTests: XCTestCase {
+    func testLockoutSurvivesARoundTrip() throws {
+        var throttle = PINThrottle()
+        let now = Date(timeIntervalSince1970: 1_000)
+        for _ in 0..<4 { _ = throttle.recordFailure(at: now) }
+        let restored = try JSONDecoder().decode(PINThrottle.self, from: JSONEncoder().encode(throttle))
+        XCTAssertEqual(restored, throttle)
+        XCTAssertNotNil(restored.lockout(at: now.addingTimeInterval(10)), "a relaunch must not end the lockout")
+    }
+}
