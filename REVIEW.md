@@ -91,16 +91,16 @@ and performs the returned `AlarmEffect`s. Every input is parsed at the edge, so 
 
 ### Tests
 
-There are 115 tests in three layers:
+There are 120 tests in three layers:
 
 | Layer | What it proves | Line coverage |
 |---|---|---|
-| Pure core: `AlarmMachine`, `AlarmState`, `ProximityTracker`, parsers, `PINThrottle`, `Alert`, notifier values | every transition and rule, including regressions for S4, the arming race and the suppression modes | 85–100% |
+| Pure core: `AlarmMachine`, `AlarmState`, `ProximityTracker`, parsers (including `PlayableSound`), `PINThrottle`, `Alert`, notifier values | every transition and rule, including regressions for S4, the arming race and the suppression modes | 85–100% |
 | Seam: the real `AlarmRuntime` (machine + effect interpreter + timers) against a recording `AlarmHardware` and a manual clock | effects reach the right I/O; feedback loops close; stale timers can't fire after stand-down; exit-delay re-arm | 86% |
 | Shell: IOKit, CoreBluetooth, CoreAudio, AVFoundation, keychain, AppleScript, SwiftUI views | thin adapters; verified on hardware only | low or none |
 
 Mutation checks:
-- Each of these makes tests fail: removing the manual-arm guard, the suppression mode check or the BT-stability guard; wiring `startSystemMonitors` to `stopMonitors`; dropping the exit-delay cancel; never cancelling the countdown timer; letting webhooks accept `http`; ignoring the USB trigger setting; restoring the −100 dBm "disconnected" sentinel.
+- Each of these makes tests fail: removing the manual-arm guard, the suppression mode check or the BT-stability guard; wiring `startSystemMonitors` to `stopMonitors`; dropping the exit-delay cancel; never cancelling the countdown timer; letting webhooks accept `http`; ignoring the USB trigger setting; restoring the −100 dBm "disconnected" sentinel; accepting any file as a `PlayableSound`.
 - The marker-clear mutation fails 4 tests.
 
 ## Round 3: features (all approved; defaults chosen as noted)
@@ -117,6 +117,16 @@ Mutation checks:
 
 Packaging: verified locally that `create-dmg.sh` builds a bundle with `Contents/Library/LaunchAgents/…watchdog.plist`, a `BundleProgram` that resolves, camera and Apple Events usage strings, and `codesign --verify --deep --strict` passing. `release.yml` makes the same additions.
 
+## Round 4: loose ends
+
+- **Custom alarm sound is parsed.** `PlayableSound` (opens in `AVAudioPlayer`, non-zero length) is checked when a file is picked and when the setting is read. An unplayable pick is rejected. A custom file that was later moved, deleted or corrupted falls back to the bundled sound instead of a system beep: arming logs it and Settings shows a warning. A file that opens but is silent is still accepted.
+- **`scripts/setup-certificate.sh`:**
+  - The `.p12` password is random per run and never printed. It is saved to `~/.macguard-signing/macguard-signing.p12.password`.
+  - The export directory is owner-only (700, files 600); previously the files were world-readable.
+  - The password reaches `openssl` through the environment. `security import -P` still takes it as an argument.
+  - The temp directory holding the private key is removed on failure too.
+  - `-legacy` is passed only to OpenSSL 3. macOS's LibreSSL rejects it, so the script previously failed at the export step on a stock Mac.
+
 ## Open (not fixed)
 
 - **Fork users auto-update back to upstream.** `Info.plist` `SUFeedURL` points at `shenglong209/MacGuard`, and `SUPublicEDKey` is upstream's key. A build from this fork will offer upstream's release and silently replace these changes. To distribute the fork, change both values and sign the appcast with your own key.
@@ -125,16 +135,15 @@ Packaging: verified locally that `create-dmg.sh` builds a bundle with `Contents/
 - **Hardened runtime is not enabled** (`codesign` never passes `--options runtime` or the entitlements file). If it is turned on, add the camera and Apple Events entitlements to `MacGuard.entitlements` and pass it.
 - **Likely blind spot after "lock on arm".** Secure input (the lock-screen password field) stops keystrokes reaching other processes' event taps ([TN2150](https://developer.apple.com/library/mac/technotes/tn2150/_index.html)). Whether pointer events still arrive needs testing on hardware. If they don't, only the lid, power, USB and Bluetooth triggers protect a locked Mac.
 - **Bluetooth identity is spoofable.** Classic-BT trusted devices are matched by MAC address (`bluetoothAddress`), and that address can be spoofed with commodity hardware. A connected Classic device whose RSSI is unavailable is treated as −50 dBm (strong, nearby). BLE matching by `CBPeripheral.identifier` is harder to spoof because iPhones use resolvable private addresses. Proximity should be documented as a convenience, not as authentication.
-- **Custom sound path** is a free-form path in `UserDefaults`. Pointing it at a missing or silent file degrades the alarm to a system beep. This is low severity: it requires prior access to the user's account.
-- **`scripts/setup-certificate.sh`** hard-codes the `.p12` password `macguard` and prints it. The certificate is self-signed for local use, but the script suggests uploading it as a CI secret.
 - **CI release workflow** interpolates `${{ … }}` label and input values straight into shell. These values are maintainer-controlled today. Passing them through `env:` would be safer.
 
 ## Verification
 
-- `swift build`: clean, with no new warnings (0 compiler warnings before and after).
-- `swift test`: 7 tests for `Countdown`, `PIN`, and `AlarmState` (new `MacGuardTests` target). As a positive control, removing the `isASCII` guard makes the PIN tests fail.
+- `swift build`: clean, with no new compiler warnings.
+- `swift test`: 120 tests (see Tests above for the layers and mutation checks).
 - Compile-time check: `m.disarm(OwnerAuthentication(.pin))` from another file is rejected (`initializer is inaccessible due to 'fileprivate' protection level`).
-- **Not** exercised on hardware: the ⌘Q block, the overlay auth flow, and Bluetooth behaviour need a signed build with Accessibility permission and real devices.
+- Packaging: `create-dmg.sh` builds a bundle that passes `codesign --verify --deep --strict`.
+- `setup-certificate.sh`: `bash -n` and `shellcheck` pass. The export step was exercised against macOS's LibreSSL. The full script was not run, because it writes to the login keychain.
 
 ## Hardware verification checklist (not done here)
 
