@@ -35,9 +35,11 @@ let package = Package(
                 "dist",
                 "docs",
                 "featured-image.png",
-                "Tests"
+                "Tests",
+                "LaunchAgents"
             ],
             sources: [
+                "main.swift",
                 "MacGuardApp.swift",
                 "Managers",
                 "Views",

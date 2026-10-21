@@ -174,6 +174,10 @@ class AlarmStateManager: ObservableObject {
         }
     }
 
+    func resumeAfterTamper(_ session: ArmSession) {
+        send(.resumeAfterTamper(session))
+    }
+
     func attemptPINDisarm(_ pin: String) -> PINVerification {
         let result = authManager.verifyPIN(pin)
         if case .accepted(let proof) = result {
@@ -273,6 +277,8 @@ extension AlarmStateManager: AlarmHardware {
         audioManager.unprepare()
     }
 
+    func persistArmedMarker(_ session: ArmSession) { TamperGuard.shared.persist(session) }
+    func clearArmedMarker() { TamperGuard.shared.clear() }
     func endOwnerChallenge() {
         authManager.resetPINAttempts()
         authManager.cancelPendingAuthentication()

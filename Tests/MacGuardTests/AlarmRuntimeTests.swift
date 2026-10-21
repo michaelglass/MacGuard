@@ -12,7 +12,7 @@ private final class FakeHardware: AlarmHardware {
         case prepareAudio, lockScreen, closeConfigWindows, startInputMonitoring
         case startSystemMonitors, stopMonitors, resumeIdleScanning, stopIdleScanning
         case showOverlay, hideOverlay, playAlarm, stopAlarm
-        case endOwnerChallenge
+        case persistArmedMarker(ArmSession), clearArmedMarker, endOwnerChallenge
     }
 
     var calls: [Call] = []
@@ -31,6 +31,8 @@ private final class FakeHardware: AlarmHardware {
     func hideOverlay() { calls.append(.hideOverlay) }
     func playAlarm() { calls.append(.playAlarm) }
     func stopAlarm() { calls.append(.stopAlarm) }
+    func persistArmedMarker(_ session: ArmSession) { calls.append(.persistArmedMarker(session)) }
+    func clearArmedMarker() { calls.append(.clearArmedMarker) }
     func endOwnerChallenge() { calls.append(.endOwnerChallenge) }
     func log(_ category: ActivityLogCategory, _ message: String) { logs.append(message) }
 }
@@ -107,8 +109,8 @@ final class AlarmRuntimeTests: XCTestCase {
         scheduler.advance(by: 1)
         XCTAssertEqual(runtime.state, .armed(ArmSession(trustedDeviceHasLeft: false)))
         XCTAssertNil(runtime.armingDeadline)
-        XCTAssertEqual(Array(hardware.calls.suffix(2)),
-                       [.startInputMonitoring, .startSystemMonitors])
+        XCTAssertEqual(Array(hardware.calls.suffix(3)),
+                       [.startInputMonitoring, .persistArmedMarker(ArmSession(trustedDeviceHasLeft: false)), .startSystemMonitors])
         XCTAssertEqual(events, [.armed(auto: false)])
     }
 
@@ -168,7 +170,7 @@ final class AlarmRuntimeTests: XCTestCase {
         runtime.send(.trustedDeviceNearby(name: "Phone"))
         XCTAssertEqual(runtime.state, .idle)
         XCTAssertEqual(scheduler.pending, 0)
-        for call: FakeHardware.Call in [.stopMonitors, .stopAlarm, .hideOverlay, .endOwnerChallenge] {
+        for call: FakeHardware.Call in [.stopMonitors, .stopAlarm, .hideOverlay, .clearArmedMarker, .endOwnerChallenge] {
             XCTAssertTrue(hardware.calls.contains(call), "\(call)")
         }
         scheduler.advance(by: 30)
@@ -188,5 +190,13 @@ final class AlarmRuntimeTests: XCTestCase {
         XCTAssertEqual(runtime.state, .arming(ArmSession(trustedDeviceHasLeft: true)))
         scheduler.advance(by: 1)
         XCTAssertEqual(events, [.armed(auto: true)])
+    }
+
+    func testTamperResumeSoundsAndRewritesTheMarker() {
+        let session = ArmSession(trustedDeviceHasLeft: false)
+        runtime.send(.resumeAfterTamper(session))
+        XCTAssertEqual(runtime.state, .alarming(session, .tamper))
+        XCTAssertTrue(hardware.calls.contains(.persistArmedMarker(session)))
+        XCTAssertTrue(hardware.calls.contains(.playAlarm))
     }
 }

@@ -10,10 +10,32 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     /// Owned here (not by the SwiftUI scene) so termination can consult it.
     let alarmManager = AlarmStateManager()
 
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        // Login, a manual launch and the watchdog can all start MacGuard; the first wins.
+        if let other = Self.otherRunningInstance() {
+            other.activate()
+            exit(0)
+        }
+
+        let tamperGuard = TamperGuard.shared
+        if case .resumeAfterTamper(let session) = tamperGuard.launchDecision() {
+            alarmManager.resumeAfterTamper(session)
+        }
+        tamperGuard.syncAgent()
+    }
+
     /// Reopening shows Settings, so the app is reachable when the menu bar icon is hidden.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         SettingsWindowController.shared.show(alarmManager: alarmManager)
         return false
+    }
+
+    private static func otherRunningInstance() -> NSRunningApplication? {
+        guard let bundleID = Bundle.main.bundleIdentifier else { return nil }
+        let me = ProcessInfo.processInfo.processIdentifier
+        // The headless watchdog shares the bundle id; its activation policy excludes it.
+        return NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
+            .first { $0.processIdentifier != me && $0.activationPolicy != .prohibited }
     }
 
     /// With the overlay up the app has a menu, so ⌘Q would otherwise silence the alarm.
@@ -32,8 +54,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
-/// Main entry point for MacGuard menu bar application
-@main
+/// MacGuard menu bar application (started from main.swift)
 struct MacGuardApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 

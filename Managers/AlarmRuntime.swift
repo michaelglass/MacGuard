@@ -19,6 +19,8 @@ protocol AlarmHardware: AnyObject {
     func hideOverlay()
     func playAlarm()
     func stopAlarm()
+    func persistArmedMarker(_ session: ArmSession)
+    func clearArmedMarker()
     func endOwnerChallenge()
     func log(_ category: ActivityLogCategory, _ message: String)
 }
@@ -130,6 +132,8 @@ final class AlarmRuntime {
         case .stopIdleScanning: hardware.stopIdleScanning()
         case .log(let category, let message): hardware.log(category, message)
         case .emit(let event): eventSinks.forEach { $0(event) }
+        case .persistArmedMarker(let session): hardware.persistArmedMarker(session)
+        case .clearArmedMarker: hardware.clearArmedMarker()
         case .endOwnerChallenge: hardware.endOwnerChallenge()
         }
     }
