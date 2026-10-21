@@ -10,12 +10,8 @@ enum PowerSource: Equatable {
 }
 
 /// Monitors power cable connect/disconnect events
-protocol PowerMonitorDelegate: AnyObject {
-    func powerCableDisconnected()
-}
-
 class PowerMonitor {
-    weak var delegate: PowerMonitorDelegate?
+    var onInput: (AlarmInput) -> Void = { _ in }
 
     private var session: (source: CFRunLoopSource, last: PowerSource)?
 
@@ -68,7 +64,7 @@ class PowerMonitor {
         session?.last = source
 
         logActivity(.power, source == .ac ? "Power cable connected" : "Power cable disconnected")
-        if source == .battery { delegate?.powerCableDisconnected() }
+        if source == .battery { onInput(.intrusion(.powerDisconnected)) }
     }
 
     deinit {

@@ -76,8 +76,3 @@ enum AlarmState: Equatable {
 enum AlarmPhase: Equatable {
     case idle, arming, armed, triggered, alarming
 }
-
-/// The pre-`AlarmMachine` state, kept until the manager runs the machine.
-enum LegacyAlarmState: String, Equatable {
-    case idle, armed, triggered, alarming
-}

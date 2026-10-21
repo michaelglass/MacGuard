@@ -6,15 +6,10 @@ import Cocoa
 import IOKit
 import IOKit.pwr_mgt
 
-protocol SleepMonitorDelegate: AnyObject {
-    func lidWillClose()
-    func systemDidWake()
-}
-
 /// Monitors lid close events via IOKit clamshell state and sleep notifications,
 /// and keeps the Mac awake for as long as it is monitoring.
 class SleepMonitor {
-    weak var delegate: SleepMonitorDelegate?
+    var onInput: (AlarmInput) -> Void = { _ in }
 
     private struct Session {
         let caffeinate: Process?
@@ -74,10 +69,10 @@ class SleepMonitor {
         session?.lidClosed = closed
         if closed {
             logActivity(.system, "Lid closed detected (IOKit)")
-            delegate?.lidWillClose()
+            onInput(.severeIntrusion(.lidClosed))
         } else {
             logActivity(.system, "Lid opened detected (IOKit)")
-            delegate?.systemDidWake()
+            onInput(.systemWoke)
         }
     }
 
@@ -89,12 +84,12 @@ class SleepMonitor {
 
     @objc private func willSleep(_ notification: Notification) {
         logActivity(.system, "Lid closing / sleep initiated")
-        delegate?.lidWillClose()
+        onInput(.severeIntrusion(.lidClosed))
     }
 
     @objc private func didWake(_ notification: Notification) {
         logActivity(.system, "System woke from sleep")
-        delegate?.systemDidWake()
+        onInput(.systemWoke)
     }
 
     // MARK: - Sleep Prevention

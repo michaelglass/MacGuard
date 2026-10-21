@@ -212,7 +212,7 @@ struct SettingsView: View {
                     if alarmManager.state == .idle {
                         alarmManager.arm()
                     } else {
-                        alarmManager.disarm()
+                        alarmManager.requestDisarm()
                     }
                 } label: {
                     Image(systemName: alarmManager.state == .idle ? "shield" : "shield.fill")
@@ -589,6 +589,11 @@ class PINSetupWindowController: NSObject, NSWindowDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
             self?.focusFirstTextField()
         }
+    }
+
+    /// Close without saving (used when arming).
+    func close() {
+        window?.close()
     }
 
     private func createWindow() {

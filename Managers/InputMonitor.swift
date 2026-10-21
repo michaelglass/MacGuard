@@ -51,12 +51,8 @@ enum IntrusionInput: CaseIterable {
 
 /// Monitors global keyboard, mouse, and touchpad input using CGEventTap
 /// Requires Accessibility permission
-protocol InputMonitorDelegate: AnyObject {
-    func inputDetected(_ input: IntrusionInput)
-}
-
 class InputMonitor {
-    weak var delegate: InputMonitorDelegate?
+    var onInput: (AlarmInput) -> Void = { _ in }
 
     private var tap: (port: CFMachPort, source: CFRunLoopSource)?
 
@@ -131,7 +127,7 @@ class InputMonitor {
         let now = Date()
         guard now.timeIntervalSince(lastEventTime) > debounceInterval else { return }
         lastEventTime = now
-        delegate?.inputDetected(input)
+        onInput(.intrusion(.input(input)))
     }
 
     /// Stop monitoring input events

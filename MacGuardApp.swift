@@ -70,10 +70,10 @@ struct MenuBarIconView: View {
     }
 
     private var iconName: String {
-        switch alarmManager.state {
+        switch alarmManager.state.phase {
         case .idle:
             return "shield"
-        case .armed:
+        case .arming, .armed:
             return "shield.fill"
         case .triggered, .alarming:
             return "exclamationmark.shield.fill"
@@ -81,9 +81,11 @@ struct MenuBarIconView: View {
     }
 
     private var iconColor: Color {
-        switch alarmManager.state {
+        switch alarmManager.state.phase {
         case .idle:
             return .primary
+        case .arming:
+            return .secondary
         case .armed:
             return .green
         case .triggered:
