@@ -11,7 +11,7 @@ import CoreBluetooth
 class AlarmStateManager: ObservableObject {
     // MARK: - Published Properties
 
-    @Published private(set) var state: AlarmState = .idle
+    @Published private(set) var state: LegacyAlarmState = .idle
     @Published var countdownSeconds: Int = 3
     @Published var hasAccessibilityPermission = false
 
