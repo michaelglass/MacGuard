@@ -198,6 +198,14 @@ class AppSettings: ObservableObject {
     @AppStorage("autoArmOnDeviceLeave") var autoArmOnDeviceLeave: Bool = false
     @AppStorage("exitDelay") private var exitDelayRaw: Int = ExitDelay.default.rawValue
     @AppStorage("usbTriggerEnabled") var usbTriggerEnabled: Bool = true
+    @AppStorage("motionTriggerEnabled") var motionTriggerEnabled: Bool = true
+    @AppStorage("motionSensitivity") private var motionSensitivityRaw = MotionSensitivity.medium.rawValue
+    @AppStorage("lidAngleTriggerEnabled") var lidAngleTriggerEnabled: Bool = true
+
+    var motionSensitivity: MotionSensitivity {
+        get { MotionSensitivity(rawValue: motionSensitivityRaw) ?? .medium }
+        set { motionSensitivityRaw = newValue.rawValue }
+    }
     @AppStorage("networkTriggerEnabled") var networkTriggerEnabled: Bool = false
     @AppStorage("autoArmOnScreenLock") var autoArmOnScreenLock: Bool = false
     @AppStorage("autoArmGracePeriod") private var autoArmGracePeriodRaw: Int = GracePeriod.default.rawValue

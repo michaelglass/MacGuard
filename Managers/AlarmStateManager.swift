@@ -33,6 +33,7 @@ class AlarmStateManager: ObservableObject {
     private let sleepMonitor = SleepMonitor()
     private let powerMonitor = PowerMonitor()
     private let usbMonitor = USBMonitor()
+    private let motionMonitor = MotionMonitor()
     private let networkMonitor = NetworkMonitor()
     private let overlayController = CountdownWindowController()
 
@@ -56,6 +57,7 @@ class AlarmStateManager: ObservableObject {
         sleepMonitor.delegate = self
         powerMonitor.delegate = self
         usbMonitor.delegate = self
+        motionMonitor.delegate = self
         networkMonitor.delegate = self
         bluetoothManager.delegate = self
         checkPermissions()
@@ -136,6 +138,8 @@ class AlarmStateManager: ObservableObject {
             bluetoothStable: bluetoothManager.isBluetoothStable,
             usbTriggerEnabled: settings.usbTriggerEnabled,
             networkTriggerEnabled: settings.networkTriggerEnabled,
+            motionTriggerEnabled: settings.motionTriggerEnabled,
+            lidAngleTriggerEnabled: settings.lidAngleTriggerEnabled,
             autoArmOnScreenLock: settings.autoArmOnScreenLock,
             exitDelay: settings.exitDelay
         )
@@ -268,6 +272,10 @@ extension AlarmStateManager: AlarmHardware {
         powerMonitor.startMonitoring()
         usbMonitor.startMonitoring()
         networkMonitor.startMonitoring()
+        // The accelerometer is only woken when its trigger is on (battery)
+        let settings = AppSettings.shared
+        motionMonitor.start(motion: settings.motionTriggerEnabled ? settings.motionSensitivity : nil,
+                            lidAngle: settings.lidAngleTriggerEnabled)
         bluetoothManager.startScanning()
         bluetoothManager.setArmedState(true)
     }
@@ -276,6 +284,7 @@ extension AlarmStateManager: AlarmHardware {
         inputMonitor.stopMonitoring()
         usbMonitor.stopMonitoring()
         networkMonitor.stopMonitoring()
+        motionMonitor.stop()
         sleepMonitor.stopMonitoring()
         powerMonitor.stopMonitoring()
         bluetoothManager.setArmedState(false)
@@ -382,6 +391,24 @@ extension AlarmStateManager: BluetoothProximityDelegate {
             } else if state == .poweredOn {
                 ActivityLogManager.shared.log(.bluetooth, "Bluetooth turned on")
             }
+        }
+    }
+}
+
+// MARK: - MotionMonitorDelegate
+
+extension AlarmStateManager: MotionMonitorDelegate {
+    nonisolated func motionDetected(deviation: Double) {
+        Task { @MainActor in
+            ActivityLogManager.shared.log(.input, String(format: "Motion detected (%.3f g)", deviation))
+            self.send(.intrusion(.motion))
+        }
+    }
+
+    nonisolated func lidAngleChanged(by degrees: Int) {
+        Task { @MainActor in
+            ActivityLogManager.shared.log(.input, "Lid moved \(degrees)°")
+            self.send(.intrusion(.lidMoved(degrees: degrees)))
         }
     }
 }

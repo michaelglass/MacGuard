@@ -11,6 +11,8 @@ enum TriggerCause: Equatable {
     case lidClosed
     case usbDeviceAttached(name: String)
     case networkChanged
+    case motion
+    case lidMoved(degrees: Int)
     /// MacGuard was killed or crashed while not idle and came back
     case tamper
 
@@ -21,6 +23,8 @@ enum TriggerCause: Equatable {
         case .lidClosed: return "lid closed"
         case .usbDeviceAttached(let name): return "USB device attached (\(name))"
         case .networkChanged: return "network changed"
+        case .motion: return "Mac moved"
+        case .lidMoved(let degrees): return "lid moved \(abs(degrees))°"
         case .tamper: return "MacGuard was terminated while armed"
         }
     }
@@ -72,6 +76,8 @@ struct AlarmEnvironment {
     var bluetoothStable: Bool
     var usbTriggerEnabled: Bool
     var networkTriggerEnabled: Bool
+    var motionTriggerEnabled: Bool
+    var lidAngleTriggerEnabled: Bool
     var autoArmOnScreenLock: Bool
     var exitDelay: ExitDelay
 }
@@ -233,6 +239,8 @@ enum AlarmMachine {
         case .input, .powerDisconnected, .lidClosed, .tamper: return true
         case .usbDeviceAttached: return env.usbTriggerEnabled
         case .networkChanged: return env.networkTriggerEnabled
+        case .motion: return env.motionTriggerEnabled
+        case .lidMoved: return env.lidAngleTriggerEnabled
         }
     }
 

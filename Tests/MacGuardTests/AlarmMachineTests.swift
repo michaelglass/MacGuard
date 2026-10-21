@@ -216,6 +216,14 @@ final class AlarmMachineTests: XCTestCase {
         XCTAssertEqual(step(.armed(manual), .intrusion(.networkChanged), env(network: true)).state.phase, .triggered)
     }
 
+    func testMotionAndLidIntrudeOnlyWhenEnabled() {
+        for cause: TriggerCause in [.motion, .lidMoved(degrees: -6)] {
+            XCTAssertEqual(step(.armed(manual), .intrusion(cause), .fixture()).state.phase, .triggered, "\(cause)")
+        }
+        XCTAssertEqual(step(.armed(manual), .intrusion(.motion), .fixture(motion: false)).state, .armed(manual))
+        XCTAssertEqual(step(.armed(manual), .intrusion(.lidMoved(degrees: 9)), .fixture(lidAngle: false)).state, .armed(manual))
+    }
+
     func testOptionalTriggersIgnoredWhenNotArmed() {
         for state: AlarmState in [.idle, .arming(manual)] {
             XCTAssertEqual(step(state, .intrusion(.usbDeviceAttached(name: "x")), env(usb: true)).state, state)
