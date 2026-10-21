@@ -354,21 +354,10 @@ class AlarmStateManager: ObservableObject {
 // MARK: - InputMonitorDelegate
 
 extension AlarmStateManager: InputMonitorDelegate {
-    nonisolated func inputDetected(eventType: CGEventType) {
+    nonisolated func inputDetected(_ input: IntrusionInput) {
         Task { @MainActor in
             guard self.state == .armed else { return }
-
-            // Log event type
-            let eventName: String
-            switch eventType {
-            case .keyDown: eventName = "keyboard"
-            case .leftMouseDown, .rightMouseDown, .otherMouseDown: eventName = "mouse click"
-            case .mouseMoved: eventName = "mouse move"
-            case .scrollWheel: eventName = "scroll/touchpad"
-            default: eventName = "unknown"
-            }
-            ActivityLogManager.shared.log(.input, "Input detected: \(eventName)")
-
+            ActivityLogManager.shared.log(.input, "Input detected: \(input.label)")
             self.trigger()
         }
     }
@@ -404,15 +393,7 @@ extension AlarmStateManager: PowerMonitorDelegate {
     nonisolated func powerCableDisconnected() {
         Task { @MainActor in
             guard self.state == .armed else { return }
-            // Power disconnect = start countdown
-            ActivityLogManager.shared.log(.power, "Power cable disconnected - starting countdown")
             self.trigger()
-        }
-    }
-
-    nonisolated func powerCableConnected() {
-        Task { @MainActor in
-            ActivityLogManager.shared.log(.power, "Power cable connected")
         }
     }
 }
