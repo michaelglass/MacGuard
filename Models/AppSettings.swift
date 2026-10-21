@@ -170,6 +170,7 @@ struct AlarmVolume: Equatable {
 class AppSettings: ObservableObject {
     static let shared = AppSettings()
 
+
     // MARK: - Published Settings
 
     @AppStorage("autoLockOnArm") var autoLockOnArm: Bool = false

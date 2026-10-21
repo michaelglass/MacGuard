@@ -67,6 +67,7 @@ class InputMonitor {
     private var lastEventTime: Date = .distantPast
     private let debounceInterval: TimeInterval = 0.5
 
+
     // MARK: - Permission Check
 
     /// Check if Accessibility permission is granted

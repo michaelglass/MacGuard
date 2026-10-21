@@ -22,6 +22,7 @@ class PowerMonitor {
     private var lastSource: PowerSource = .ac
     private var isMonitoring = false
 
+
     // MARK: - Monitoring
 
     /// Start monitoring power state changes

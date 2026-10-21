@@ -79,6 +79,7 @@ class BluetoothProximityManager: NSObject, ObservableObject {
     // Device limit
     private let maxTrustedDevices = 10
 
+
     // MARK: - Computed Properties
 
     /// Devices not observed since scanning started are ignored.

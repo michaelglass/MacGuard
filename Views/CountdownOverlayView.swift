@@ -153,6 +153,7 @@ struct CountdownOverlayView: View {
         }
     }
 
+
     // MARK: - Auth Buttons
 
     private var authButtons: some View {

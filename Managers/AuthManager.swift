@@ -120,6 +120,7 @@ class AuthManager: ObservableObject {
         throttle.lockout(at: now)
     }
 
+
     // MARK: - Initialization
 
     init() {
