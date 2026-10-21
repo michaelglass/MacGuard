@@ -12,7 +12,8 @@ struct CountdownOverlayView: View {
     @State private var iconScale: CGFloat = 1.0
     @State private var pulseOpacity: Double = 0.3
     @State private var pulseScale: CGFloat = 1.0
-    @State private var hasAttemptedAutoAuth = false
+
+    private var isAlarming: Bool { alarmManager.state.phase == .alarming }
 
     var body: some View {
         GeometryReader { geometry in
@@ -24,7 +25,7 @@ struct CountdownOverlayView: View {
                 LinearGradient(
                     stops: [
                         .init(color: .black.opacity(0.60), location: 0.0),
-                        .init(color: .black.opacity(alarmManager.state.phase == .alarming ? 0.40 : 0.50), location: 1.0)
+                        .init(color: .black.opacity(isAlarming ? 0.40 : 0.50), location: 1.0)
                     ],
                     startPoint: .top,
                     endPoint: .bottom
@@ -32,7 +33,7 @@ struct CountdownOverlayView: View {
                 .ignoresSafeArea()
 
                 // Pulsing background circle for alarm state - centered and fixed
-                if alarmManager.state.phase == .alarming {
+                if isAlarming {
                     Circle()
                         .fill(Theme.StateColor.alarming.opacity(pulseOpacity))
                         .frame(width: 350, height: 350)
@@ -45,18 +46,14 @@ struct CountdownOverlayView: View {
                 countdownCard
             }
         }
-        .onAppear {
-            startAnimations()
-            // Auto-trigger Touch ID when overlay appears (alarming state)
-            autoTriggerBiometrics()
-        }
-        .onChange(of: alarmManager.state.phase) { newPhase in
-            startAnimations()
-            // Reset auto-auth flag when state changes
-            if newPhase == .alarming {
-                hasAttemptedAutoAuth = false
-                autoTriggerBiometrics()
-            }
+        .onAppear(perform: startAnimations)
+        .onChange(of: isAlarming) { _ in startAnimations() }
+        // Once per entry into alarming: offer Touch ID without a click
+        .task(id: isAlarming) {
+            guard isAlarming, alarmManager.authManager.hasBiometrics else { return }
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard !Task.isCancelled else { return }
+            authenticateWithSystem()
         }
     }
 
@@ -71,7 +68,7 @@ struct CountdownOverlayView: View {
             Text(titleText)
                 .font(.system(size: 28, weight: .bold, design: .rounded))
                 .foregroundStyle(.white)
-                .tracking(alarmManager.state.phase == .alarming ? 4 : 2)
+                .tracking(isAlarming ? 4 : 2)
 
             // Countdown ring (triggered state)
             if case .triggered(_, let countdown, _) = alarmManager.state {
@@ -221,28 +218,20 @@ struct CountdownOverlayView: View {
 
     // MARK: - Computed Properties
 
-    private var iconName: String {
-        alarmManager.state.phase == .alarming ? "bell.badge.waveform.fill" : "exclamationmark.shield.fill"
-    }
-
-    private var iconColor: Color {
-        alarmManager.state.phase == .alarming ? Theme.StateColor.alarming : Theme.StateColor.triggered
-    }
-
-    private var titleText: String {
-        alarmManager.state.phase == .alarming ? "ALARM ACTIVE" : "UNAUTHORIZED ACCESS"
-    }
+    private var iconName: String { isAlarming ? "bell.badge.waveform.fill" : "exclamationmark.shield.fill" }
+    private var iconColor: Color { isAlarming ? Theme.StateColor.alarming : Theme.StateColor.triggered }
+    private var titleText: String { isAlarming ? "ALARM ACTIVE" : "UNAUTHORIZED ACCESS" }
 
     // MARK: - Animations
 
     private func startAnimations() {
         // Icon pulse animation
         withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
-            iconScale = alarmManager.state.phase == .alarming ? 1.15 : 1.05
+            iconScale = isAlarming ? 1.15 : 1.05
         }
 
         // Background pulse for alarm state
-        if alarmManager.state.phase == .alarming {
+        if isAlarming {
             withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
                 pulseOpacity = 0.6
                 pulseScale = 1.1
@@ -257,21 +246,6 @@ struct CountdownOverlayView: View {
             if !success && alarmManager.authManager.hasPIN {
                 withAnimation { showPINEntry = true }
             }
-        }
-    }
-
-    /// Auto-trigger Touch ID when in alarming state
-    private func autoTriggerBiometrics() {
-        // Only auto-trigger once per alarm cycle and if biometrics available
-        guard !hasAttemptedAutoAuth,
-              alarmManager.state.phase == .alarming,
-              alarmManager.authManager.hasBiometrics else { return }
-
-        hasAttemptedAutoAuth = true
-
-        // Small delay to ensure UI is ready
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            authenticateWithSystem()
         }
     }
 }
@@ -327,7 +301,8 @@ struct PINOverlay: View {
         } ?? errorText.map { ("xmark.circle.fill", $0) }
 
         return VStack(spacing: Theme.Spacing.xl) {
-            OverlaySecureTextField(text: $pin, placeholder: "PIN", isEnabled: lockedUntil == nil, onSubmit: validate)
+            NativeSecureField(text: $pin, placeholder: "PIN", isEnabled: lockedUntil == nil, focusOnAppear: true,
+                              font: .systemFont(ofSize: 14), onSubmit: validate)
                 .frame(width: 180, height: 32)
                 .offset(x: shakeOffset)
 
@@ -389,69 +364,6 @@ struct PINOverlay: View {
             withAnimation(.default.speed(2)) {
                 shakeOffset = 0
             }
-        }
-    }
-}
-
-// MARK: - Native SecureTextField for Overlay
-
-struct OverlaySecureTextField: NSViewRepresentable {
-    @Binding var text: String
-    var placeholder: String
-    var isEnabled = true
-    var onSubmit: () -> Void
-
-    func makeNSView(context: Context) -> NSSecureTextField {
-        let textField = NSSecureTextField()
-        textField.placeholderString = placeholder
-        textField.delegate = context.coordinator
-        textField.bezelStyle = .roundedBezel
-        textField.font = NSFont.systemFont(ofSize: 14)
-        textField.refusesFirstResponder = false
-
-        // Focus the field once after a brief delay
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            textField.window?.makeFirstResponder(textField)
-        }
-
-        return textField
-    }
-
-    func updateNSView(_ nsView: NSSecureTextField, context: Context) {
-        // Only update if different to avoid selection issues
-        if nsView.stringValue != text {
-            nsView.stringValue = text
-        }
-        if nsView.isEnabled != isEnabled {
-            nsView.isEnabled = isEnabled
-            // Focus once when a lockout ends; on every update it would select the text
-            if isEnabled { DispatchQueue.main.async { nsView.window?.makeFirstResponder(nsView) } }
-        }
-    }
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(self)
-    }
-
-    class Coordinator: NSObject, NSTextFieldDelegate {
-        var parent: OverlaySecureTextField
-
-        init(_ parent: OverlaySecureTextField) {
-            self.parent = parent
-        }
-
-        func controlTextDidChange(_ obj: Notification) {
-            if let textField = obj.object as? NSTextField {
-                parent.text = textField.stringValue
-            }
-        }
-
-        func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-            if commandSelector == #selector(NSResponder.insertNewline(_:)) {
-                parent.onSubmit()
-                return true
-            }
-            return false
         }
     }
 }

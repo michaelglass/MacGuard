@@ -6,80 +6,26 @@ import SwiftUI
 import CoreBluetooth
 import IOBluetooth
 
-/// Window controller for device scanner
-class DeviceScannerWindowController: NSObject, NSWindowDelegate {
+@MainActor
+final class DeviceScannerWindowController {
     static let shared = DeviceScannerWindowController()
 
-    private var window: NSWindow?
-    private var hostingController: NSHostingController<DeviceScannerContainerView>?
-    private var viewModel = DeviceScannerViewModel()
-    private weak var parentWindow: NSWindow?
-
-    private override init() {
-        super.init()
-    }
+    private let viewModel = DeviceScannerViewModel()
+    private var window: UtilityWindow?
 
     func show(bluetoothManager: BluetoothProximityManager) {
         viewModel.bluetoothManager = bluetoothManager
-        viewModel.discoveredDevices = []
-        viewModel.isScanning = false
-        // Track parent window for refocus
-        self.parentWindow = NSApp.keyWindow
-
-        if window == nil {
-            createWindow()
-        }
-
-        NSApp.setActivationPolicy(.regular)
-        NSApp.activate(ignoringOtherApps: true)
-        window?.center()
-        window?.makeKeyAndOrderFront(nil)
-
-        // Start scanning
+        window = window ?? UtilityWindow(
+            title: "Scan for Devices", size: NSSize(width: 350, height: 400), transparent: true,
+            onClose: { [viewModel] in viewModel.stopScanning() },
+            content: DeviceScannerContainerView(viewModel: viewModel,
+                                                onDismiss: { DeviceScannerWindowController.shared.close() }))
+        window?.show()
         viewModel.startScanning()
     }
 
-    private func createWindow() {
-        let view = DeviceScannerContainerView(viewModel: viewModel, onDismiss: { [weak self] in
-            self?.close()
-        })
-        hostingController = NSHostingController(rootView: view)
-
-        let newWindow = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 350, height: 400),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-
-        // Enable transparency for glass effects
-        newWindow.isOpaque = false
-        newWindow.backgroundColor = .clear
-
-        newWindow.contentViewController = hostingController
-        newWindow.title = "Scan for Devices"
-        newWindow.isReleasedWhenClosed = false
-        newWindow.delegate = self
-
-        window = newWindow
-    }
-
     func close() {
-        guard window?.isVisible == true else { return }
-        viewModel.stopScanning()
-        window?.orderOut(nil)
-        refocusParent()
-    }
-
-    private func refocusParent() {
-        if let parent = parentWindow, parent.isVisible {
-            parent.makeKeyAndOrderFront(nil)
-        }
-    }
-
-    func windowWillClose(_ notification: Notification) {
-        viewModel.stopScanning()
-        refocusParent()
+        window?.close()
     }
 }
 
