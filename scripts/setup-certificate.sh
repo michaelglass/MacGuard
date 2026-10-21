@@ -90,7 +90,7 @@ security import "$TEMP_DIR/cert.p12" -k "$KEYCHAIN" -P "$P12_PASSWORD" -T /usr/b
 
 # Set certificate to always be trusted for code signing
 echo "Setting certificate trust (you may be prompted for password)..."
-security add-trusted-cert -d -r trustAsRoot -p codeSign -k "$KEYCHAIN" "$TEMP_DIR/cert.pem" 2>/dev/null || {
+security add-trusted-cert -r trustRoot -p codeSign -k "$KEYCHAIN" "$TEMP_DIR/cert.pem" 2>/dev/null || {
     echo ""
     echo "Note: Could not automatically trust certificate. You may need to manually trust it:"
     echo "  1. Open Keychain Access"
