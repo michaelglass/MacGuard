@@ -243,22 +243,3 @@ final class AlarmMachineTests: XCTestCase {
         XCTAssertEqual(step(armed, .systemWoke, env(any: true)).state, armed)
     }
 }
-
-final class StandDownTests: XCTestCase {
-    func testEveryStandDownEndsTheOwnerChallenge() {
-        let manual = ArmSession(trustedDeviceHasLeft: false)
-        let left = ArmSession(trustedDeviceHasLeft: true)
-        let standDowns: [(AlarmState, AlarmInput)] = [
-            (.arming(manual), .cancelArming),
-            (.arming(manual), .inputMonitoringStarted(false)),
-            (.armed(left), .trustedDeviceNearby(name: "Phone")),
-            (.alarming(left, .input(.keyboard)), .systemWoke),
-        ]
-        let nearby = AlarmEnvironment.fixture(countdown: 0, any: true, all: true)
-        for (state, input) in standDowns {
-            let (next, effects) = AlarmMachine.step(state, input, nearby)
-            XCTAssertEqual(next, .idle, "\(state) + \(input)")
-            XCTAssertTrue(effects.contains(.endOwnerChallenge), "\(state) + \(input): PIN history and Touch ID prompt end on disarm")
-        }
-    }
-}

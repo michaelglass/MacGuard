@@ -107,6 +107,7 @@ struct SettingsView: View {
                 // Startup Section
                 Section {
                     LaunchAtLoginToggle()
+                    TamperSettingsView()
                 } header: {
                     Label("Startup", systemImage: "power")
                 }

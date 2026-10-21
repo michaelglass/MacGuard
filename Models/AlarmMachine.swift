@@ -11,6 +11,8 @@ enum TriggerCause: Equatable {
     case lidClosed
     case usbDeviceAttached(name: String)
     case networkChanged
+    /// MacGuard was killed or crashed while not idle and came back
+    case tamper
 
     var label: String {
         switch self {
@@ -19,6 +21,7 @@ enum TriggerCause: Equatable {
         case .lidClosed: return "lid closed"
         case .usbDeviceAttached(let name): return "USB device attached (\(name))"
         case .networkChanged: return "network changed"
+        case .tamper: return "MacGuard was terminated while armed"
         }
     }
 }
@@ -52,6 +55,8 @@ enum AlarmInput {
     case autoArmTimerFired
     /// The login session locked (auto-arms when configured).
     case screenLocked
+    /// Launch found the armed marker of a process that died while armed.
+    case resumeAfterTamper(ArmSession)
 }
 
 /// Snapshot of parsed settings and proximity *evidence* the machine decides on.
@@ -91,6 +96,9 @@ enum AlarmEffect: Equatable {
     case resumeIdleScanning
     case log(ActivityLogCategory, String)
     case emit(AlarmEvent)
+    /// Record that this session is armed, so a killed process is detectable.
+    case persistArmedMarker(ArmSession)
+    case clearArmedMarker
     /// Disarmed: drop wrong-PIN history and any open Touch ID prompt.
     case endOwnerChallenge
 }
@@ -116,6 +124,7 @@ enum AlarmMachine {
 
         case (.arming(let session), .inputMonitoringStarted(true)):
             return (.armed(session), [
+                .persistArmedMarker(session),
                 .startSystemMonitors,
                 .log(.armed, "System armed - monitoring active"),
                 .emit(.armed(auto: session.trustedDeviceHasLeft)),
@@ -191,6 +200,12 @@ enum AlarmMachine {
             }
             return (state, [.log(.system, "System woke from sleep")])
 
+        // Killed while armed: come back sounding. The marker is re-written so
+        // a second kill is caught too.
+        case (.idle, .resumeAfterTamper(let session)):
+            let (next, effects) = soundAlarm(session, .tamper, "Restarted after being terminated while armed - ALARM ACTIVE", overlay: true)
+            return (next, [.persistArmedMarker(session), .startSystemMonitors] + effects)
+
         case (.idle, .autoArmTimerFired):
             let (next, effects) = step(.idle, .armRequested(auto: true), env)
             return (next, [.log(.armed, "Auto-arming - trusted device still away")] + effects)
@@ -215,7 +230,7 @@ enum AlarmMachine {
     /// power, lid) always are; optional sensors carry their own setting.
     private static func isEnabled(_ cause: TriggerCause, _ env: AlarmEnvironment) -> Bool {
         switch cause {
-        case .input, .powerDisconnected, .lidClosed: return true
+        case .input, .powerDisconnected, .lidClosed, .tamper: return true
         case .usbDeviceAttached: return env.usbTriggerEnabled
         case .networkChanged: return env.networkTriggerEnabled
         }
@@ -263,6 +278,7 @@ enum AlarmMachine {
             .stopMonitors,
             .stopAlarm,
             .hideOverlay,
+            .clearArmedMarker,
             // PIN attempts only accrue while triggered or alarming, which end
             // only with owner proof or a trusted device's return.
             .endOwnerChallenge,
