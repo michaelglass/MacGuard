@@ -2,6 +2,7 @@
 // MacGuard - Anti-Theft Alarm for macOS
 // Created: 2025-12-18
 
+import AVFoundation
 import SwiftUI
 
 /// Proximity distance presets for trusted device detection
@@ -98,28 +99,34 @@ enum AlarmSound: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    /// Sound file path
-    var soundPath: String? {
+    /// The built-in file for this choice, if it is present and playable.
+    /// `.custom` has no built-in file (see `AppSettings.alarmSoundFile`).
+    var file: PlayableSound? {
         switch self {
         case .dontTouchMyMac:
-            return ResourceBundle.url(forResource: "dont-touch-my-mac", withExtension: "mp3", subdirectory: "Resources")?.path
+            return ResourceBundle.url(forResource: "dont-touch-my-mac", withExtension: "mp3", subdirectory: "Resources")
+                .flatMap(PlayableSound.init(url:))
         case .custom:
             return nil
         default:
-            return "/System/Library/Sounds/\(rawValue).aiff"
+            return PlayableSound(url: URL(fileURLWithPath: "/System/Library/Sounds/\(rawValue).aiff"))
         }
     }
 
-    /// Check if sound file exists
-    var isAvailable: Bool {
-        switch self {
-        case .dontTouchMyMac:
-            return ResourceBundle.url(forResource: "dont-touch-my-mac", withExtension: "mp3", subdirectory: "Resources") != nil
-        case .custom:
-            return true
-        default:
-            return FileManager.default.fileExists(atPath: soundPath ?? "")
-        }
+    /// Choices offered in the picker: built-ins whose file plays, plus `.custom`.
+    /// Computed once - each check opens the file.
+    static let offered: [AlarmSound] = allCases.filter { $0 == .custom || $0.file != nil }
+}
+
+/// An audio file that `AVAudioPlayer` opens and that has non-zero length.
+/// Parsed when a file is picked or a setting is read, so playback never
+/// re-checks a path and a moved or corrupt file can't reach the alarm.
+struct PlayableSound: Equatable {
+    let url: URL
+
+    init?(url: URL) {
+        guard let player = try? AVAudioPlayer(contentsOf: url), player.duration > 0 else { return nil }
+        self.url = url
     }
 }
 
@@ -318,12 +325,12 @@ class AppSettings: ObservableObject {
         _lidCloseProtection = false
     }
 
-    /// Selected alarm sound. `.custom` without a chosen file is not a usable
-    /// state, so it parses to the default sound.
+    /// Selected alarm sound. `.custom` without a playable chosen file is not
+    /// a usable state, so it parses to the default sound.
     var alarmSound: AlarmSound {
         get {
             let sound = AlarmSound(rawValue: alarmSoundRaw) ?? .dontTouchMyMac
-            return sound == .custom && customSoundPath.isEmpty ? .dontTouchMyMac : sound
+            return sound == .custom && customSound == nil ? .dontTouchMyMac : sound
         }
         set {
             alarmSoundRaw = newValue.rawValue
@@ -331,10 +338,20 @@ class AppSettings: ObservableObject {
         }
     }
 
-    /// Get the actual sound file path (custom or system). `nil` only when the
-    /// file is genuinely missing (the caller falls back to a beep).
-    var effectiveSoundPath: String? {
-        alarmSound == .custom ? customSoundPath : alarmSound.soundPath
+    /// The custom file, if one was chosen and it still plays.
+    private var customSound: PlayableSound? {
+        customSoundPath.isEmpty ? nil : PlayableSound(url: URL(fileURLWithPath: customSoundPath))
+    }
+
+    /// A custom sound was chosen but no longer plays (moved, deleted, corrupt).
+    var customSoundUnavailable: Bool {
+        alarmSoundRaw == AlarmSound.custom.rawValue && customSound == nil
+    }
+
+    /// What the alarm plays: the selection, else the bundled sound. `nil` only
+    /// if even the bundled sound is missing (the caller falls back to a beep).
+    var alarmSoundFile: PlayableSound? {
+        (alarmSound == .custom ? customSound : alarmSound.file) ?? AlarmSound.dontTouchMyMac.file
     }
 
     /// Custom sound file name for display
@@ -347,9 +364,8 @@ class AppSettings: ObservableObject {
 
     /// Preview the selected alarm sound
     func previewSound() {
-        guard let path = effectiveSoundPath,
-              FileManager.default.fileExists(atPath: path),
-              let sound = NSSound(contentsOfFile: path, byReference: true) else {
+        guard let file = alarmSoundFile,
+              let sound = NSSound(contentsOf: file.url, byReference: true) else {
             NSSound.beep()
             return
         }
@@ -366,6 +382,10 @@ class AppSettings: ObservableObject {
         panel.message = "Select an audio file for the alarm"
 
         if panel.runModal() == .OK, let url = panel.url {
+            guard PlayableSound(url: url) != nil else {
+                logActivity(.system, "Custom sound rejected: '\(url.lastPathComponent)' is not playable audio")
+                return false
+            }
             customSoundPath = url.path
             alarmSound = .custom
             objectWillChange.send()

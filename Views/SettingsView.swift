@@ -395,8 +395,24 @@ struct SettingsView: View {
                 }
             }
         )) {
-            ForEach(AlarmSound.allCases.filter { $0.isAvailable }) { sound in
+            ForEach(AlarmSound.offered) { sound in
                 Text(sound.rawValue).tag(sound)
+            }
+        }
+
+        if settings.customSoundUnavailable {
+            HStack {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundColor(.orange)
+                Text("'\(settings.customSoundName)' can't be played - using the default sound")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+                Spacer()
+                Button("Choose…") {
+                    _ = settings.selectCustomSound()
+                }
+                .buttonStyle(GlassSecondaryButtonStyle())
             }
         }
 
