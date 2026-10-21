@@ -234,7 +234,7 @@ struct SettingsView: View {
 
     private func simpleTrustedDeviceRow(_ device: TrustedDevice) -> some View {
         let connectionStatus = alarmManager.bluetoothManager.connectionStatus(for: device)
-        let isNearby = device.lastRSSI.map { $0 >= AppSettings.shared.proximityThresholds.away } ?? false
+        let isNearby = alarmManager.bluetoothManager.isNearby(device)
 
         return HStack(spacing: Theme.Spacing.md) {
             Image(systemName: device.icon)

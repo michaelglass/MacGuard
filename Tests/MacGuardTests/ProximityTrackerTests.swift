@@ -162,4 +162,22 @@ final class BluetoothParsingTests: XCTestCase {
         XCTAssertNil(BluetoothAddress("aa-bb-cc-dd-ee-gg"))
         XCTAssertNil(BluetoothAddress("+a-bb-cc-dd-ee-ff"))
     }
+
+    func testTrustedDeviceLegacyDecodingAndRoundTrip() throws {
+        let json = Data("""
+        [{"id":"11111111-1111-1111-1111-111111111111","name":"AirPods","isClassicBluetooth":true,"bluetoothAddress":"aa-bb-cc-dd-ee-ff"},
+         {"id":"22222222-2222-2222-2222-222222222222","name":"Phone","isClassicBluetooth":false},
+         {"id":"33333333-3333-3333-3333-333333333333","name":"NoAddress","isClassicBluetooth":true},
+         {"id":"44444444-4444-4444-4444-444444444444","name":"Oldest"}]
+        """.utf8)
+        let devices = try JSONDecoder().decode([TrustedDevice].self, from: json)
+        let address = try XCTUnwrap(BluetoothAddress("aa-bb-cc-dd-ee-ff"))
+        XCTAssertEqual(devices.map(\.transport), [.classic(address: address), .ble, .ble, .ble])
+
+        let encoded = try JSONEncoder().encode(devices)
+        XCTAssertEqual(try JSONDecoder().decode([TrustedDevice].self, from: encoded), devices)
+        let first = try XCTUnwrap((try JSONSerialization.jsonObject(with: encoded) as? [[String: Any]])?.first)
+        XCTAssertEqual(first["bluetoothAddress"] as? String, "aa-bb-cc-dd-ee-ff")
+        XCTAssertEqual(first["isClassicBluetooth"] as? Bool, true)
+    }
 }

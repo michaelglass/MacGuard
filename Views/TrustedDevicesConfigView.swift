@@ -197,7 +197,7 @@ struct TrustedDevicesConfigContainerView: View {
 
     private func deviceRow(_ device: TrustedDevice) -> some View {
         let connectionStatus = bluetoothManager.connectionStatus(for: device)
-        let isNearby = device.lastRSSI.map { $0 >= AppSettings.shared.proximityThresholds.away } ?? false
+        let isNearby = bluetoothManager.isNearby(device)
 
         return HStack(spacing: Theme.Spacing.md) {
             // Device icon
@@ -230,7 +230,7 @@ struct TrustedDevicesConfigContainerView: View {
                         .font(.caption)
                         .foregroundColor(connectionStatus == .connected ? Theme.StateColor.armed : .secondary)
 
-                    if let rssi = device.lastRSSI {
+                    if let rssi = bluetoothManager.lastObservation(for: device)?.rssi?.dBm {
                         Text("•")
                             .foregroundColor(.secondary)
                         Text("\(rssi) dBm")
@@ -441,7 +441,7 @@ struct TrustedDevicesConfigContainerView: View {
     /// Get the strongest RSSI from connected devices (for reference)
     private var nearestDeviceRSSI: Int? {
         bluetoothManager.trustedDevices
-            .compactMap { $0.lastRSSI }
+            .compactMap { bluetoothManager.lastObservation(for: $0)?.rssi?.dBm }
             .max()
     }
 
