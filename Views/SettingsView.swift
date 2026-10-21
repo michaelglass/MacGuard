@@ -622,6 +622,7 @@ class PINSetupWindowController: NSObject, NSWindowDelegate {
             NSApp.setActivationPolicy(.accessory)
         })
         hostingController = NSHostingController(rootView: view)
+        hostingController?.sizingOptions = .preferredContentSize
 
         let newWindow = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 300, height: 220),
@@ -693,6 +694,10 @@ struct PINSetupContainerView: View {
                 .frame(width: 200, height: 24)
 
             if viewModel.showError {
+                if viewModel.acceptedWeakPIN == viewModel.pin, PIN(viewModel.pin)?.weakness == .luggage,
+                   let gif = AnimatedGIF.luggage {
+                    gif.frame(width: 240, height: 127)
+                }
                 Text(viewModel.errorMessage)
                     .foregroundColor(Theme.StateColor.alarming)
                     .font(.caption)
@@ -752,6 +757,27 @@ struct PINSetupContainerView: View {
             viewModel.showError = true
         }
     }
+}
+
+/// An animated GIF. `luggage` is a user-supplied file, never bundled.
+struct AnimatedGIF: NSViewRepresentable {
+    let url: URL
+
+    static var luggage: AnimatedGIF? {
+        let url = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("MacGuard/luggage.gif")
+        return FileManager.default.fileExists(atPath: url.path) ? AnimatedGIF(url: url) : nil
+    }
+
+    func makeNSView(context: Context) -> NSImageView {
+        let view = NSImageView()
+        view.image = NSImage(contentsOf: url)
+        view.animates = true
+        view.imageScaling = .scaleProportionallyUpOrDown
+        return view
+    }
+
+    func updateNSView(_ nsView: NSImageView, context: Context) {}
 }
 
 // MARK: - Native AppKit SecureTextField Wrapper
