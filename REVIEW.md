@@ -129,6 +129,8 @@ Packaging: verified locally that `create-dmg.sh` builds a bundle with `Contents/
 
 - **Local builds were always offered an older release.** `create-dmg.sh` built the bundle version by deleting dots (2.0.8 → `208`), while `release.yml` and the appcast use MAJOR×1000 + MINOR×100 + PATCH (`2008`). Sparkle orders by that number, so every local build saw upstream's older release as an update. `create-dmg.sh` now uses the release formula and drops any `-suffix`. (The formula itself collides from minor version 10 on: 2.10.0 = 3.0.0.)
 
+- **`release.yml` no longer pastes event values into shell.** The event name, the bump-type input and the PR label names reach the step as environment variables. A label is free text that anyone with triage access can apply, so a label like `$(…)` previously ran inside a job that can push to the repo. The bump type is also checked against patch/minor/major.
+
 ## Open (not fixed)
 
 - **Tamper relaunch saves the wrong "original" audio state.** The alarm switches output to the built-in speaker and raises the volume. A `kill -9` skips the restore, and the relaunched instance then saves the alarm's speaker and volume as the originals, so disarming "restores" those. Fix: persist the pre-alarm device and volume in the armed marker. Found while planning on-device tests; not verified.
@@ -139,7 +141,6 @@ Packaging: verified locally that `create-dmg.sh` builds a bundle with `Contents/
 - **Hardened runtime is not enabled** (`codesign` never passes `--options runtime` or the entitlements file). If it is turned on, add the camera and Apple Events entitlements to `MacGuard.entitlements` and pass it.
 - **Likely blind spot after "lock on arm".** Secure input (the lock-screen password field) stops keystrokes reaching other processes' event taps ([TN2150](https://developer.apple.com/library/mac/technotes/tn2150/_index.html)). Whether pointer events still arrive needs testing on hardware. If they don't, only the lid, power, USB and Bluetooth triggers protect a locked Mac.
 - **Bluetooth identity is spoofable.** Classic-BT trusted devices are matched by MAC address (`bluetoothAddress`), and that address can be spoofed with commodity hardware. A connected Classic device whose RSSI is unavailable is treated as −50 dBm (strong, nearby). BLE matching by `CBPeripheral.identifier` is harder to spoof because iPhones use resolvable private addresses. Proximity should be documented as a convenience, not as authentication.
-- **CI release workflow** interpolates `${{ … }}` label and input values straight into shell. These values are maintainer-controlled today. Passing them through `env:` would be safer.
 
 ## Verification
 
