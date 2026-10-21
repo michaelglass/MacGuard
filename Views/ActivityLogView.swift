@@ -7,6 +7,8 @@ import SwiftUI
 /// Activity log viewer displayed in a sheet/window
 struct ActivityLogView: View {
     @ObservedObject private var logManager = ActivityLogManager.shared
+    /// Clearing is only offered while idle, so an intruder can't wipe the record.
+    @ObservedObject var alarmManager: AlarmStateManager
     @State private var selectedCategories: Set<ActivityLogCategory> = Set(ActivityLogCategory.allCases)
     @State private var searchText = ""
 
@@ -95,10 +97,11 @@ struct ActivityLogView: View {
                     Divider()
 
                     Button(role: .destructive) {
-                        logManager.clear()
+                        alarmManager.clearActivityLog()
                     } label: {
                         Label("Clear Log", systemImage: "trash")
                     }
+                    .disabled(alarmManager.state != .idle)
                 } label: {
                     Image(systemName: "ellipsis.circle")
                         .font(.title3)
@@ -267,12 +270,12 @@ class ActivityLogWindowController: NSObject, NSWindowDelegate {
         super.init()
     }
 
-    func show() {
+    func show(alarmManager: AlarmStateManager) {
         // Track parent window for refocus
         self.parentWindow = NSApp.keyWindow
 
         if window == nil {
-            createWindow()
+            createWindow(alarmManager: alarmManager)
         }
 
         NSApp.setActivationPolicy(.regular)
@@ -281,8 +284,8 @@ class ActivityLogWindowController: NSObject, NSWindowDelegate {
         window?.makeKeyAndOrderFront(nil)
     }
 
-    private func createWindow() {
-        let hostingController = NSHostingController(rootView: ActivityLogView())
+    private func createWindow(alarmManager: AlarmStateManager) {
+        let hostingController = NSHostingController(rootView: ActivityLogView(alarmManager: alarmManager))
 
         let newWindow = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 400),
@@ -317,5 +320,5 @@ class ActivityLogWindowController: NSObject, NSWindowDelegate {
 }
 
 #Preview {
-    ActivityLogView()
+    ActivityLogView(alarmManager: AlarmStateManager())
 }

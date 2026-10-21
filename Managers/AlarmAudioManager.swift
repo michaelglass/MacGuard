@@ -11,22 +11,21 @@ class AlarmAudioManager: ObservableObject {
     @Published var isPlaying = false
 
     private var audioPlayer: AVAudioPlayer?
-    private var originalVolume: Float = 0.5
-    private var originalOutputDeviceID: AudioDeviceID = 0
+    /// Volume before the alarm raised it; `nil` when there is nothing to restore
+    /// (stopAlarm() also runs on every plain disarm).
+    private var originalVolume: Float?
     private var builtInSpeakerID: AudioDeviceID = 0
-    private var shouldRestoreOutputDevice = false
+    /// The output to return to on stop; nil when the alarm didn't move it.
+    private var deviceToRestore: AudioDeviceID?
     private var beepTimer: Timer?
-    private var volumeEnforcementTimer: Timer?
+    /// CoreAudio change listeners registered while the alarm plays.
+    private var enforcementListeners: [(object: AudioObjectID, address: AudioObjectPropertyAddress)] = []
+    private lazy var enforcementBlock: AudioObjectPropertyListenerBlock = { [weak self] _, _ in self?.enforceVolume() }
+    /// The device whose volume and mute the listeners watch.
+    private var enforcedDevice: AudioDeviceID = 0
     private var isPrepared = false
     private var targetVolume: Float = 1.0
 
-    // MARK: - Logging Helper
-
-    private func log(_ category: ActivityLogCategory, _ message: String) {
-        Task { @MainActor in
-            ActivityLogManager.shared.log(category, message)
-        }
-    }
 
     // MARK: - Preparation
 
@@ -35,17 +34,19 @@ class AlarmAudioManager: ObservableObject {
         guard !isPrepared else { return }
 
         let settings = AppSettings.shared
-        if let soundPath = settings.effectiveSoundPath,
-           FileManager.default.fileExists(atPath: soundPath) {
+        if settings.customSoundUnavailable {
+            logActivity(.alarm, "Custom sound '\(settings.customSoundName)' is unavailable - using the default sound")
+        }
+        if let file = settings.alarmSoundFile {
             do {
-                audioPlayer = try AVAudioPlayer(contentsOf: URL(fileURLWithPath: soundPath))
+                audioPlayer = try AVAudioPlayer(contentsOf: file.url)
                 audioPlayer?.numberOfLoops = -1
                 audioPlayer?.volume = 1.0
                 audioPlayer?.prepareToPlay()
                 isPrepared = true
-                log(.alarm, "Audio pre-loaded and ready")
+                logActivity(.alarm, "Audio pre-loaded and ready")
             } catch {
-                log(.alarm, "Failed to pre-load audio: \(error)")
+                logActivity(.alarm, "Failed to pre-load audio: \(error)")
             }
         }
     }
@@ -56,7 +57,7 @@ class AlarmAudioManager: ObservableObject {
             audioPlayer?.stop()
             audioPlayer = nil
             isPrepared = false
-            log(.alarm, "Audio released")
+            logActivity(.alarm, "Audio released")
         }
     }
 
@@ -72,7 +73,8 @@ class AlarmAudioManager: ObservableObject {
         switchToBuiltInSpeaker()
 
         // Save original volume
-        saveOriginalVolume()
+        originalVolume = outputVolume()
+        logActivity(.alarm, "Saved original volume: \(originalVolume.map { String($0) } ?? "unknown")")
 
         // Store target volume for enforcement
         targetVolume = Float(settings.alarmVolume)
@@ -90,13 +92,12 @@ class AlarmAudioManager: ObservableObject {
         if isPrepared, let player = audioPlayer {
             player.play()
             isPlaying = true
-            log(.alarm, "Playing alarm sound (pre-loaded)")
-        } else if let soundPath = settings.effectiveSoundPath,
-           FileManager.default.fileExists(atPath: soundPath) {
-            playAudioFile(URL(fileURLWithPath: soundPath))
+            logActivity(.alarm, "Playing alarm sound (pre-loaded)")
+        } else if let file = settings.alarmSoundFile {
+            playAudioFile(file.url)
         } else {
             // Fallback to system beep
-            log(.alarm, "Alarm sound not found, using system beep")
+            logActivity(.alarm, "Alarm sound not found, using system beep")
             playSystemAlert()
         }
     }
@@ -113,53 +114,77 @@ class AlarmAudioManager: ObservableObject {
         isPlaying = false
         isPrepared = false
 
-        // Restore original volume
-        setSystemVolume(originalVolume)
+        // Restore original volume (only if the alarm changed it)
+        if let originalVolume {
+            setSystemVolume(originalVolume)
+            self.originalVolume = nil
+        }
 
         // Restore original output device
         restoreOutputDevice()
 
-        log(.alarm, "Alarm stopped")
+        logActivity(.alarm, "Alarm stopped")
     }
 
     // MARK: - Volume Enforcement
 
-    /// Start timer to continuously enforce volume (prevents muting via keyboard)
+    /// React the moment the output device, volume or mute changes (keyboard
+    /// keys, connecting headphones), instead of polling for it.
     private func startVolumeEnforcement() {
         stopVolumeEnforcement()
-        volumeEnforcementTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { [weak self] _ in
-            self?.enforceVolume()
+        enforcedDevice = getDefaultOutputDevice()
+        var targets = [(AudioObjectID(kAudioObjectSystemObject),
+                        AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+                                                   mScope: kAudioObjectPropertyScopeGlobal,
+                                                   mElement: kAudioObjectPropertyElementMain))]
+        for selector in [kAudioDevicePropertyVolumeScalar, kAudioDevicePropertyMute] {
+            targets += volumeElements(enforcedDevice, selector).map { (enforcedDevice, outputAddress(selector, $0)) }
         }
-        log(.alarm, "Volume enforcement started")
+        for (object, address) in targets {
+            var address = address
+            if AudioObjectAddPropertyListenerBlock(object, &address, .main, enforcementBlock) == noErr {
+                enforcementListeners.append((object, address))
+            }
+        }
+        logActivity(.alarm, "Volume enforcement started")
     }
 
     private func stopVolumeEnforcement() {
-        volumeEnforcementTimer?.invalidate()
-        volumeEnforcementTimer = nil
+        for (object, address) in enforcementListeners {
+            var address = address
+            AudioObjectRemovePropertyListenerBlock(object, &address, .main, enforcementBlock)
+        }
+        enforcementListeners = []
     }
 
-    /// Check and restore volume if user tries to mute
+    /// Keep the alarm audible: on the built-in speaker, playing, unmuted, loud.
     private func enforceVolume() {
         guard isPlaying else { return }
 
-        // Check if muted
-        let muteScript = "output muted of (get volume settings)"
-        if let result = runAppleScript(muteScript),
-           result.trimmingCharacters(in: .whitespacesAndNewlines) == "true" {
-            unmuteSpeaker()
-            setSystemVolume(targetVolume)
-            log(.alarm, "Mute blocked - volume restored")
+        // Connecting headphones (or picking another output) moves the default
+        // output, and the alarm would follow it. Move it back; the device chosen
+        // mid-alarm is the one restored on disarm.
+        if let moved = moveToBuiltInSpeaker() {
+            logActivity(.alarm, "Output moved to device \(moved) - alarm kept on built-in speaker")
+        }
+        // No built-in speaker to return to: follow the new device instead
+        if getDefaultOutputDevice() != enforcedDevice { startVolumeEnforcement() }
+
+        // A device change can stop the player
+        if let player = audioPlayer, !player.isPlaying {
+            player.play()
+            logActivity(.alarm, "Alarm playback resumed after an output change")
         }
 
-        // Check if volume lowered
-        let volumeScript = "output volume of (get volume settings)"
-        if let result = runAppleScript(volumeScript),
-           let currentVolume = Int(result.trimmingCharacters(in: .whitespacesAndNewlines)) {
-            let targetPercentage = Int(targetVolume * 100)
-            if currentVolume < targetPercentage - 5 {
-                setSystemVolume(targetVolume)
-                log(.alarm, "Volume restored from \(currentVolume)% to \(targetPercentage)%")
-            }
+        if outputMuted() == true {
+            unmuteSpeaker()
+            setSystemVolume(targetVolume)
+            logActivity(.alarm, "Mute blocked - volume restored")
+        }
+
+        if let current = outputVolume(), current < targetVolume - 0.05 {
+            setSystemVolume(targetVolume)
+            logActivity(.alarm, "Volume restored from \(Int(current * 100))% to \(Int(targetVolume * 100))%")
         }
     }
 
@@ -173,67 +198,115 @@ class AlarmAudioManager: ObservableObject {
             audioPlayer?.prepareToPlay() // Pre-load audio buffers
             audioPlayer?.play()
             isPlaying = true
-            log(.alarm, "Playing alarm sound")
+            logActivity(.alarm, "Playing alarm sound")
         } catch {
-            log(.alarm, "Failed to play alarm: \(error)")
+            logActivity(.alarm, "Failed to play alarm: \(error)")
             playSystemAlert()
         }
     }
 
     // MARK: - System Volume Control
 
-    private func saveOriginalVolume() {
-        let script = """
-        output volume of (get volume settings)
-        """
-        if let result = runAppleScript(script),
-           let volume = Int(result.trimmingCharacters(in: .whitespacesAndNewlines)) {
-            originalVolume = Float(volume) / 100.0
-            log(.alarm, "Saved original volume: \(originalVolume)")
-        }
-    }
+    // Volume and mute go through CoreAudio on the current default output
+    // device (the built-in speaker once the alarm has switched to it).
+    // Enforcement runs on every volume change, so this must not compile and
+    // run AppleScript on the main thread.
 
     private func setSystemVolume(_ volume: Float) {
-        let percentage = Int(volume * 100)
-        let script = "set volume output volume \(percentage)"
-        runAppleScript(script)
-        log(.alarm, "Set volume to \(percentage)%")
+        let device = getDefaultOutputDevice()
+        var value = Float32(min(max(volume, 0), 1))
+        for element in volumeElements(device, kAudioDevicePropertyVolumeScalar) {
+            var address = outputAddress(kAudioDevicePropertyVolumeScalar, element)
+            AudioObjectSetPropertyData(device, &address, 0, nil, UInt32(MemoryLayout<Float32>.size), &value)
+        }
+        logActivity(.alarm, "Set volume to \(Int(value * 100))%")
     }
 
     private func unmuteSpeaker() {
-        let script = "set volume without output muted"
-        runAppleScript(script)
+        let device = getDefaultOutputDevice()
+        var value = UInt32(0)
+        for element in volumeElements(device, kAudioDevicePropertyMute) {
+            var address = outputAddress(kAudioDevicePropertyMute, element)
+            AudioObjectSetPropertyData(device, &address, 0, nil, UInt32(MemoryLayout<UInt32>.size), &value)
+        }
+    }
+
+    /// Average output volume (0...1), or `nil` if the device exposes none.
+    private func outputVolume() -> Float? {
+        let device = getDefaultOutputDevice()
+        let values: [Float32] = volumeElements(device, kAudioDevicePropertyVolumeScalar).compactMap { element in
+            var address = outputAddress(kAudioDevicePropertyVolumeScalar, element)
+            var value = Float32(0)
+            var size = UInt32(MemoryLayout<Float32>.size)
+            return AudioObjectGetPropertyData(device, &address, 0, nil, &size, &value) == noErr ? value : nil
+        }
+        guard !values.isEmpty else { return nil }
+        return values.reduce(0, +) / Float(values.count)
+    }
+
+    /// Whether any controllable output element is muted.
+    private func outputMuted() -> Bool? {
+        let device = getDefaultOutputDevice()
+        let values: [UInt32] = volumeElements(device, kAudioDevicePropertyMute).compactMap { element in
+            var address = outputAddress(kAudioDevicePropertyMute, element)
+            var value = UInt32(0)
+            var size = UInt32(MemoryLayout<UInt32>.size)
+            return AudioObjectGetPropertyData(device, &address, 0, nil, &size, &value) == noErr ? value : nil
+        }
+        guard !values.isEmpty else { return nil }
+        return values.contains { $0 != 0 }
+    }
+
+    private func outputAddress(_ selector: AudioObjectPropertySelector,
+                               _ element: AudioObjectPropertyElement) -> AudioObjectPropertyAddress {
+        AudioObjectPropertyAddress(mSelector: selector, mScope: kAudioDevicePropertyScopeOutput, mElement: element)
+    }
+
+    /// The main element if it carries `selector`, otherwise the stereo
+    /// channels (1, 2) that do. Many devices only expose per-channel volume.
+    private func volumeElements(_ device: AudioDeviceID,
+                                _ selector: AudioObjectPropertySelector) -> [AudioObjectPropertyElement] {
+        guard device != 0 else { return [] }
+        func has(_ element: AudioObjectPropertyElement) -> Bool {
+            var address = outputAddress(selector, element)
+            return AudioObjectHasProperty(device, &address)
+        }
+        if has(kAudioObjectPropertyElementMain) { return [kAudioObjectPropertyElementMain] }
+        return [1, 2].filter(has)
     }
 
     // MARK: - Audio Output Device Control
 
     /// Save current output device and switch to built-in speaker
     private func switchToBuiltInSpeaker() {
-        // Save current output device
-        originalOutputDeviceID = getDefaultOutputDevice()
-
-        // Find built-in speaker
         builtInSpeakerID = findBuiltInSpeaker()
-
-        if builtInSpeakerID != 0 && builtInSpeakerID != originalOutputDeviceID {
-            setDefaultOutputDevice(builtInSpeakerID)
-            shouldRestoreOutputDevice = true
-            log(.alarm, "Switched from device \(originalOutputDeviceID) to built-in speaker \(builtInSpeakerID)")
-        } else if builtInSpeakerID == originalOutputDeviceID {
-            log(.alarm, "Already using built-in speaker")
-            shouldRestoreOutputDevice = false
-        } else {
-            log(.alarm, "Could not find built-in speaker, using current device")
-            shouldRestoreOutputDevice = false
+        guard builtInSpeakerID != 0 else {
+            logActivity(.alarm, "Could not find built-in speaker, using current device")
+            return
         }
+        if let previous = moveToBuiltInSpeaker() {
+            logActivity(.alarm, "Switched from device \(previous) to built-in speaker \(builtInSpeakerID)")
+        } else {
+            logActivity(.alarm, "Already using built-in speaker")
+        }
+    }
+
+    /// Make the built-in speaker the output if something else is. Returns the
+    /// device it replaced, which becomes the one restored on stop.
+    private func moveToBuiltInSpeaker() -> AudioDeviceID? {
+        let current = getDefaultOutputDevice()
+        guard builtInSpeakerID != 0, current != 0, current != builtInSpeakerID else { return nil }
+        deviceToRestore = current
+        setDefaultOutputDevice(builtInSpeakerID)
+        return current
     }
 
     /// Restore original output device
     private func restoreOutputDevice() {
-        guard shouldRestoreOutputDevice, originalOutputDeviceID != 0 else { return }
-        setDefaultOutputDevice(originalOutputDeviceID)
-        log(.alarm, "Restored output device to \(originalOutputDeviceID)")
-        shouldRestoreOutputDevice = false
+        guard let device = deviceToRestore else { return }
+        setDefaultOutputDevice(device)
+        logActivity(.alarm, "Restored output device to \(device)")
+        deviceToRestore = nil
     }
 
     /// Get current default output device
@@ -256,7 +329,7 @@ class AlarmAudioManager: ObservableObject {
         )
 
         if status != noErr {
-            log(.alarm, "Failed to get default output device: \(status)")
+            logActivity(.alarm, "Failed to get default output device: \(status)")
         }
         return deviceID
     }
@@ -280,7 +353,7 @@ class AlarmAudioManager: ObservableObject {
         )
 
         if status != noErr {
-            log(.alarm, "Failed to set output device: \(status)")
+            logActivity(.alarm, "Failed to set output device: \(status)")
         }
     }
 
@@ -302,7 +375,7 @@ class AlarmAudioManager: ObservableObject {
         )
 
         guard status == noErr else {
-            log(.alarm, "Failed to get devices size: \(status)")
+            logActivity(.alarm, "Failed to get devices size: \(status)")
             return 0
         }
 
@@ -319,7 +392,7 @@ class AlarmAudioManager: ObservableObject {
         )
 
         guard status == noErr else {
-            log(.alarm, "Failed to get devices: \(status)")
+            logActivity(.alarm, "Failed to get devices: \(status)")
             return 0
         }
 
@@ -360,26 +433,9 @@ class AlarmAudioManager: ObservableObject {
 
         let isBuiltIn = transportType == kAudioDeviceTransportTypeBuiltIn
         if isBuiltIn {
-            log(.alarm, "Found built-in speaker: device ID \(deviceID)")
+            logActivity(.alarm, "Found built-in speaker: device ID \(deviceID)")
         }
         return isBuiltIn
-    }
-
-    @discardableResult
-    private func runAppleScript(_ script: String) -> String? {
-        // Wrap in autoreleasepool to contain NSAppleScript's autoreleased objects
-        // and prevent over-release during main run loop drain
-        return autoreleasepool {
-            var error: NSDictionary?
-            guard let scriptObject = NSAppleScript(source: script) else { return nil }
-            let result = scriptObject.executeAndReturnError(&error)
-            if let error = error {
-                log(.alarm, "AppleScript error: \(error)")
-                return nil
-            }
-            // Copy the string value before leaving the autoreleasepool
-            return result.stringValue.map { String($0) }
-        }
     }
 
     // MARK: - System Alert Fallback

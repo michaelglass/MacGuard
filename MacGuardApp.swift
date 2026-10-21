@@ -5,12 +5,35 @@
 import SwiftUI
 
 /// App delegate to handle app lifecycle events
+@MainActor
 class AppDelegate: NSObject, NSApplicationDelegate {
+    /// Owned here (not by the SwiftUI scene) so termination can consult it.
+    let alarmManager = AlarmStateManager()
+
+    /// A menu-bar-only app has no window to bring forward. Opening it again
+    /// (Finder, Spotlight, `open`) shows Settings, so it stays reachable when
+    /// the menu bar icon is hidden, e.g. behind the notch.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        SettingsWindowController.shared.show(alarmManager: alarmManager)
+        return false
+    }
+
+    /// While the overlay is up the app is a regular, frontmost app with an
+    /// app menu, so ⌘Q would otherwise silence the alarm without authentication.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard alarmManager.state == .idle else {
+            ActivityLogManager.shared.log(.system, "Quit blocked - disarm first")
+            return .terminateCancel
+        }
+        return .terminateNow
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         // Reset lid close protection on app exit to restore normal sleep behavior
         if AppSettings.shared.lidCloseProtection {
             AppSettings.shared.resetLidCloseProtection()
         }
+        ActivityLogManager.shared.flush()
     }
 }
 
@@ -18,7 +41,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 @main
 struct MacGuardApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-    @StateObject private var alarmManager = AlarmStateManager()
 
     // Initialize update manager (starts Sparkle auto-update)
     private let updateManager = UpdateManager.shared
@@ -34,9 +56,9 @@ struct MacGuardApp: App {
         // Menu bar app (no main window)
         MenuBarExtra {
             MenuBarView()
-                .environmentObject(alarmManager)
+                .environmentObject(appDelegate.alarmManager)
         } label: {
-            MenuBarIconView(state: alarmManager.state)
+            MenuBarIconView(alarmManager: appDelegate.alarmManager)
         }
         .menuBarExtraStyle(.window)
     }
@@ -44,7 +66,7 @@ struct MacGuardApp: App {
 
 /// Custom menu bar icon view with state-based color tint
 struct MenuBarIconView: View {
-    let state: AlarmState
+    @ObservedObject var alarmManager: AlarmStateManager
 
     var body: some View {
         Image(systemName: iconName)
@@ -53,10 +75,10 @@ struct MenuBarIconView: View {
     }
 
     private var iconName: String {
-        switch state {
+        switch alarmManager.state.phase {
         case .idle:
             return "shield"
-        case .armed:
+        case .arming, .armed:
             return "shield.fill"
         case .triggered, .alarming:
             return "exclamationmark.shield.fill"
@@ -64,9 +86,11 @@ struct MenuBarIconView: View {
     }
 
     private var iconColor: Color {
-        switch state {
+        switch alarmManager.state.phase {
         case .idle:
             return .primary
+        case .arming:
+            return .secondary
         case .armed:
             return .green
         case .triggered:

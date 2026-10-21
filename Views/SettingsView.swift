@@ -10,6 +10,11 @@ struct SettingsView: View {
     @ObservedObject var alarmManager: AlarmStateManager
     @ObservedObject private var settings = AppSettings.shared
 
+    /// Configuration is read-only unless idle: while armed, anyone a trusted
+    /// device lets past the trigger could otherwise lower the volume, change
+    /// the PIN or remove devices without authenticating.
+    private var isLocked: Bool { alarmManager.state != .idle }
+
     var body: some View {
         VStack(spacing: 0) {
             // Modern header with animated top bar
@@ -18,6 +23,12 @@ struct SettingsView: View {
             Divider()
 
             Form {
+                if isLocked {
+                    Label("Disarm to change settings", systemImage: "lock.fill")
+                        .font(.callout)
+                        .foregroundColor(.secondary)
+                }
+
                 // Permissions Section
                 Section {
                     permissionRow(
@@ -72,6 +83,7 @@ struct SettingsView: View {
                         }
                     }
                 }
+                .disabled(isLocked)
 
                 // Security Section
                 Section {
@@ -80,13 +92,22 @@ struct SettingsView: View {
                 } header: {
                     Label("Security", systemImage: "lock.fill")
                 }
+                .disabled(isLocked)
 
                 // Behavior Section
                 Section {
                     behaviorSection
+                    Picker("Exit delay", selection: $settings.exitDelay) {
+                        ForEach(ExitDelay.allCases) { delay in
+                            Text(delay.label).tag(delay)
+                        }
+                    }
+                    .help("Time between arming and monitoring starting")
                 } header: {
                     Label("Behavior", systemImage: "gearshape.2")
                 }
+                .disabled(isLocked)
+
 
                 // Startup Section
                 Section {
@@ -94,6 +115,7 @@ struct SettingsView: View {
                 } header: {
                     Label("Startup", systemImage: "power")
                 }
+                .disabled(isLocked)
 
                 // Event Log Section
                 Section {
@@ -131,7 +153,7 @@ struct SettingsView: View {
             Rectangle()
                 .fill(headerBarGradient)
                 .frame(height: 3)
-                .animation(.easeInOut(duration: 0.5), value: alarmManager.state)
+                .animation(.easeInOut(duration: 0.5), value: alarmManager.state.phase)
 
             // Header content
             HStack(spacing: Theme.Spacing.lg) {
@@ -146,7 +168,7 @@ struct SettingsView: View {
                             radius: alarmManager.state != .idle ? 12 : 4,
                             x: 0, y: 2
                         )
-                        .animation(.easeInOut(duration: 0.5), value: alarmManager.state)
+                        .animation(.easeInOut(duration: 0.5), value: alarmManager.state.phase)
                 } else {
                     Image(systemName: "lock.shield.fill")
                         .font(.system(size: 40))
@@ -205,14 +227,14 @@ struct SettingsView: View {
                         .font(.subheadline.weight(.medium))
                         .foregroundColor(alarmManager.state == .idle ? .secondary : Theme.StateColor.armed)
                 }
-                .animation(.easeInOut(duration: 0.3), value: alarmManager.state)
+                .animation(.easeInOut(duration: 0.3), value: alarmManager.state.phase)
 
                 // Quick action button with glass
                 Button {
-                    if alarmManager.state == .idle {
-                        alarmManager.arm()
-                    } else {
-                        alarmManager.disarm()
+                    switch alarmManager.state {
+                    case .idle: alarmManager.arm()
+                    case .arming: alarmManager.cancelArming()
+                    case .armed, .triggered, .alarming: alarmManager.requestDisarm()
                     }
                 } label: {
                     Image(systemName: alarmManager.state == .idle ? "shield" : "shield.fill")
@@ -234,7 +256,7 @@ struct SettingsView: View {
 
     private func simpleTrustedDeviceRow(_ device: TrustedDevice) -> some View {
         let connectionStatus = alarmManager.bluetoothManager.connectionStatus(for: device)
-        let isNearby = device.lastRSSI.map { $0 >= AppSettings.shared.effectiveAwayThreshold } ?? false
+        let isNearby = alarmManager.bluetoothManager.isNearby(device)
 
         return HStack(spacing: Theme.Spacing.md) {
             Image(systemName: device.icon)
@@ -293,16 +315,16 @@ struct SettingsView: View {
             Text("Backup PIN")
             Spacer()
             if alarmManager.authManager.hasPIN {
-                Label("Configured", systemImage: "checkmark.circle.fill")
+                Label("Set", systemImage: "checkmark.circle.fill")
                     .font(.caption)
                     .foregroundColor(Theme.StateColor.armed)
-                Button("Change") {
-                    PINSetupWindowController.shared.show(authManager: alarmManager.authManager)
+                Button("Change PIN") {
+                    PINSetupWindowController.shared.show(alarmManager: alarmManager)
                 }
                 .buttonStyle(GlassSecondaryButtonStyle())
             } else {
                 Button("Set PIN") {
-                    PINSetupWindowController.shared.show(authManager: alarmManager.authManager)
+                    PINSetupWindowController.shared.show(alarmManager: alarmManager)
                 }
                 .buttonStyle(GlassBorderedProminentButtonStyle(tint: Theme.Accent.primary))
             }
@@ -338,12 +360,9 @@ struct SettingsView: View {
         Toggle("Lock screen when armed", isOn: $settings.autoLockOnArm)
 
         Picker("Countdown duration", selection: $settings.countdownDuration) {
-            Text("Immediately").tag(0)
-            Text("3 seconds").tag(3)
-            Text("5 seconds").tag(5)
-            Text("10 seconds").tag(10)
-            Text("15 seconds").tag(15)
-            Text("30 seconds").tag(30)
+            ForEach(CountdownDuration.allCases) { duration in
+                Text(duration.label).tag(duration)
+            }
         }
 
         // Lid Close Protection with warning
@@ -374,12 +393,28 @@ struct SettingsView: View {
                 if newValue == .custom {
                     _ = settings.selectCustomSound()
                 } else {
-                    settings.alarmSound = newValue
+                    settings.chooseSound(newValue)
                 }
             }
         )) {
-            ForEach(AlarmSound.allCases.filter { $0.isAvailable }) { sound in
+            ForEach(AlarmSound.offered) { sound in
                 Text(sound.rawValue).tag(sound)
+            }
+        }
+
+        if settings.customSoundUnavailable {
+            HStack {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundColor(.orange)
+                Text("'\(settings.customSoundName)' can't be played - using the default sound")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+                Spacer()
+                Button("Choose…") {
+                    _ = settings.selectCustomSound()
+                }
+                .buttonStyle(GlassSecondaryButtonStyle())
             }
         }
 
@@ -403,7 +438,7 @@ struct SettingsView: View {
 
         HStack {
             Text("Volume")
-            Slider(value: $settings.alarmVolume, in: 0.5...1.0)
+            Slider(value: $settings.alarmVolume, in: AlarmVolume.range)
             Button {
                 settings.previewSound()
             } label: {
@@ -432,7 +467,7 @@ struct SettingsView: View {
             }
             Spacer()
             Button("View Log") {
-                ActivityLogWindowController.shared.show()
+                ActivityLogWindowController.shared.show(alarmManager: alarmManager)
             }
             .buttonStyle(GlassBorderedProminentButtonStyle(tint: Theme.Accent.primary))
         }
@@ -543,6 +578,7 @@ struct SettingsView: View {
 
 // MARK: - PIN Setup Window Controller
 
+@MainActor
 class PINSetupWindowController: NSObject, NSWindowDelegate {
     static let shared = PINSetupWindowController()
 
@@ -554,8 +590,9 @@ class PINSetupWindowController: NSObject, NSWindowDelegate {
         super.init()
     }
 
-    func show(authManager: AuthManager) {
-        viewModel.authManager = authManager
+    func show(alarmManager: AlarmStateManager) {
+        guard alarmManager.state == .idle else { return }
+        viewModel.alarmManager = alarmManager
         viewModel.pin = ""
         viewModel.confirmPIN = ""
         viewModel.showError = false
@@ -576,6 +613,11 @@ class PINSetupWindowController: NSObject, NSWindowDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
             self?.focusFirstTextField()
         }
+    }
+
+    /// Close without saving (used when arming).
+    func close() {
+        window?.close()
     }
 
     private func createWindow() {
@@ -630,11 +672,13 @@ class PINSetupWindowController: NSObject, NSWindowDelegate {
 }
 
 class PINSetupViewModel: ObservableObject {
-    var authManager: AuthManager?
+    weak var alarmManager: AlarmStateManager?
     @Published var pin = ""
     @Published var confirmPIN = ""
     @Published var showError = false
     @Published var errorMessage = ""
+    /// A weak PIN already warned about; saving it again keeps it.
+    var acceptedWeakPIN: String?
 }
 
 struct PINSetupContainerView: View {
@@ -643,7 +687,7 @@ struct PINSetupContainerView: View {
 
     var body: some View {
         VStack(spacing: Theme.Spacing.lg) {
-            Text("Set Backup PIN")
+            Text(viewModel.alarmManager?.authManager.hasPIN == true ? "Change Backup PIN" : "Set Backup PIN")
                 .font(.headline)
 
             // Use native AppKit text field for reliable input
@@ -657,6 +701,8 @@ struct PINSetupContainerView: View {
                 Text(viewModel.errorMessage)
                     .foregroundColor(Theme.StateColor.alarming)
                     .font(.caption)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             HStack {
@@ -677,8 +723,8 @@ struct PINSetupContainerView: View {
     }
 
     private func savePIN() {
-        guard viewModel.pin.count >= 4, viewModel.pin.count <= 8 else {
-            viewModel.errorMessage = "PIN must be 4-8 characters"
+        guard let pin = PIN(viewModel.pin) else {
+            viewModel.errorMessage = "PIN must be 4-8 digits"
             viewModel.showError = true
             return
         }
@@ -690,7 +736,22 @@ struct PINSetupContainerView: View {
             return
         }
 
-        if viewModel.authManager?.savePIN(viewModel.pin) == true {
+        // A guessable PIN needs a second Save with the same PIN
+        if let weakness = pin.weakness, viewModel.acceptedWeakPIN != viewModel.pin {
+            viewModel.errorMessage = weakness.message + "\nSave again to use it anyway."
+            viewModel.showError = true
+            viewModel.acceptedWeakPIN = viewModel.pin
+            return
+        }
+
+        // Re-checked at save time: the window may have been open when arming.
+        guard let alarmManager = viewModel.alarmManager, alarmManager.state == .idle else {
+            viewModel.errorMessage = "Disarm to change the PIN"
+            viewModel.showError = true
+            return
+        }
+
+        if alarmManager.authManager.savePIN(pin) {
             onDismiss()
         } else {
             viewModel.errorMessage = "Failed to save PIN"
@@ -766,7 +827,7 @@ enum LaunchAtLoginManager {
                     try SMAppService.mainApp.unregister()
                 }
             } catch {
-                Task { @MainActor in ActivityLogManager.shared.log(.system, "Failed to update launch at login: \(error)") }
+                logActivity(.system, "Failed to update launch at login: \(error)")
             }
         }
     }
