@@ -28,6 +28,8 @@ class AlarmStateManager: ObservableObject {
     private let inputMonitor = InputMonitor()
     private let sleepMonitor = SleepMonitor()
     private let powerMonitor = PowerMonitor()
+    private let usbMonitor = USBMonitor()
+    private let networkMonitor = NetworkMonitor()
     private lazy var overlayController = CountdownWindowController(alarmManager: self)
 
     private lazy var runtime: AlarmRuntime = {
@@ -52,9 +54,18 @@ class AlarmStateManager: ObservableObject {
         inputMonitor.onInput = forward
         sleepMonitor.onInput = forward
         powerMonitor.onInput = forward
+        usbMonitor.onInput = forward
+        networkMonitor.onInput = forward
         bluetoothManager.onInput = forward
         checkPermissions()
         startPermissionPolling()
+
+        // Always observed (an idle-time signal); the machine decides whether it arms.
+        DistributedNotificationCenter.default().addObserver(
+            forName: Notification.Name("com.apple.screenIsLocked"), object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.send(.screenLocked) }
+        }
 
         // Forward nested managers' changes so views observing this one redraw
         Publishers.Merge(bluetoothManager.objectWillChange, authManager.objectWillChange)
@@ -120,6 +131,9 @@ class AlarmStateManager: ObservableObject {
             anyTrustedDeviceNearby: bluetoothManager.isTrustedDeviceNearby(),
             allTrustedDevicesNearby: bluetoothManager.areAllDevicesNearby,
             bluetoothStable: bluetoothManager.isBluetoothStable,
+            usbTriggerEnabled: settings.usbTriggerEnabled,
+            networkTriggerEnabled: settings.networkTriggerEnabled,
+            autoArmOnScreenLock: settings.autoArmOnScreenLock,
             exitDelay: settings.exitDelay
         )
     }
@@ -223,12 +237,16 @@ extension AlarmStateManager: AlarmHardware {
     func startSystemMonitors() {
         sleepMonitor.startMonitoring()
         powerMonitor.startMonitoring()
+        usbMonitor.startMonitoring()
+        networkMonitor.startMonitoring()
         bluetoothManager.startScanning()
         bluetoothManager.setArmedState(true)
     }
 
     func stopMonitors() {
         inputMonitor.stopMonitoring()
+        usbMonitor.stopMonitoring()
+        networkMonitor.stopMonitoring()
         sleepMonitor.stopMonitoring()
         powerMonitor.stopMonitoring()
         bluetoothManager.setArmedState(false)

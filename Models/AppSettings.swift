@@ -184,6 +184,9 @@ class AppSettings: ObservableObject {
     @AppStorage("customDetectionRange") var customDetectionRange: Int = -65  // Single value, hysteresis auto-calculated
     @AppStorage("autoArmOnDeviceLeave") var autoArmOnDeviceLeave: Bool = false
     @AppStorage("exitDelay") var exitDelay: ExitDelay = .default
+    @AppStorage("usbTriggerEnabled") var usbTriggerEnabled: Bool = true
+    @AppStorage("networkTriggerEnabled") var networkTriggerEnabled: Bool = false
+    @AppStorage("autoArmOnScreenLock") var autoArmOnScreenLock: Bool = false
     @AppStorage("autoArmGracePeriod") var autoArmGracePeriod: GracePeriod = .default
     @AppStorage("autoArmMode") var autoArmMode: AutoArmMode = .allDevicesAway
 

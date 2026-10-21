@@ -95,12 +95,7 @@ struct SettingsView: View {
                 // Behavior Section
                 Section {
                     behaviorSection
-                    Picker("Exit delay", selection: $settings.exitDelay) {
-                        ForEach(ExitDelay.allCases) { delay in
-                            Text(delay.label).tag(delay)
-                        }
-                    }
-                    .help("Time between arming and monitoring starting")
+                    TriggerSettingsView()
                 } header: {
                     Label("Behavior", systemImage: "gearshape.2")
                 }

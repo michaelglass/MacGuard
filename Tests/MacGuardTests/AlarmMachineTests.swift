@@ -47,10 +47,11 @@ final class AlarmMachineTests: XCTestCase {
     }
 
     func testIntrusionsIgnoredUnlessArmed() {
-        let inputs: [AlarmInput] = [.intrusion(key), .severeIntrusion(.lidClosed), .intrusion(.powerDisconnected)]
+        let inputs: [AlarmInput] = [.intrusion(key), .severeIntrusion(.lidClosed),
+                                    .intrusion(.usbDeviceAttached(name: "x")), .intrusion(.networkChanged)]
         for state: AlarmState in [.idle, .arming(manual)] {
             for input in inputs {
-                XCTAssertEqual(step(state, input, .fixture()).state, state, "\(state) + \(input)")
+                XCTAssertEqual(step(state, input, .fixture(network: true)).state, state, "\(state) + \(input)")
             }
         }
     }
@@ -182,6 +183,37 @@ final class AlarmMachineTests: XCTestCase {
             XCTAssertEqual(step(state, .settingsChanged, .fixture(autoArm: false)).effects, [], "\(state)")
         }
     }
+
+    // MARK: Exit delay
+
+    // MARK: Optional triggers
+
+    func testUSBAttachIntrudesOnlyWhenEnabled() throws {
+        let usb = TriggerCause.usbDeviceAttached(name: "Flash Drive")
+        XCTAssertEqual(step(.armed(manual), .intrusion(usb), .fixture(usb: true)).state,
+                       .triggered(manual, try XCTUnwrap(Countdown(seconds: 3)), usb))
+        XCTAssertEqual(step(.armed(manual), .intrusion(usb), .fixture(usb: false)).state, .armed(manual))
+    }
+
+    func testNetworkChangeIntrudesOnlyWhenEnabled() {
+        XCTAssertEqual(step(.armed(manual), .intrusion(.networkChanged), .fixture(network: false)).state, .armed(manual))
+        XCTAssertEqual(step(.armed(manual), .intrusion(.networkChanged), .fixture(network: true)).state.phase, .triggered)
+    }
+
+    func testCoreTriggersCannotBeDisabledBySensorSettings() {
+        let off = AlarmEnvironment.fixture(usb: false, network: false)
+        XCTAssertEqual(step(.armed(manual), .intrusion(key), off).state.phase, .triggered)
+        XCTAssertEqual(step(.armed(manual), .intrusion(.powerDisconnected), off).state.phase, .triggered)
+    }
+
+    // MARK: Screen lock
+
+    func testScreenLockArmsOnlyWhenEnabledAndIdle() {
+        XCTAssertEqual(step(.idle, .screenLocked, .fixture(lockArms: true)).state, .arming(manual))
+        XCTAssertEqual(step(.idle, .screenLocked, .fixture(lockArms: false)).state, .idle)
+        XCTAssertEqual(step(.armed(left), .screenLocked, .fixture(lockArms: true)).state, .armed(left))
+    }
+
 }
 
 final class StandDownTests: XCTestCase {
