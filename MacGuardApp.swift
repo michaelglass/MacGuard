@@ -18,6 +18,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             exit(0)
         }
 
+        // Observers attach before any resume, so a tamper alarm is reported
+        // Opt-in remote notifications (all channels off by default)
+        alarmManager.onEvent(NotificationDispatcher.shared.handle)
+
         let tamperGuard = TamperGuard.shared
         if case .resumeAfterTamper(let session) = tamperGuard.launchDecision() {
             alarmManager.resumeAfterTamper(session)

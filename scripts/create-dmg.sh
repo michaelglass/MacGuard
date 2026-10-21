@@ -114,6 +114,8 @@ cat > "$APP_BUNDLE/Contents/Info.plist" << PLIST
     <true/>
     <key>NSBluetoothAlwaysUsageDescription</key>
     <string>MacGuard uses Bluetooth to detect your trusted devices for auto-disarm.</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>MacGuard sends the alerts you enable through Mail and Messages, and can lock the screen when arming.</string>
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSPrincipalClass</key>
