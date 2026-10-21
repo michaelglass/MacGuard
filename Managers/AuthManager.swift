@@ -55,7 +55,7 @@ enum PINWeakness: Equatable {
     var message: String {
         switch self {
         case .luggage:
-            return "“That's the kind of thing an idiot would have on his luggage!” - Dark Helmet"
+            return "“That's the kind of thing an idiot would have on his luggage!”"
         case .repeated: return "A repeated digit is one of the first PINs anyone tries."
         case .sequence: return "A straight run of digits is one of the first PINs anyone tries."
         case .common: return "This is one of the most common PINs."

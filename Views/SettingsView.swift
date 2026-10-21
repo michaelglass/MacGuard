@@ -592,6 +592,7 @@ class PINSetupWindowController: NSObject, NSWindowDelegate {
         viewModel.pin = ""
         viewModel.confirmPIN = ""
         viewModel.showError = false
+        viewModel.weakPINWarning = nil
 
         if window == nil {
             createWindow()
@@ -675,6 +676,8 @@ class PINSetupViewModel: ObservableObject {
     @Published var errorMessage = ""
     /// A weak PIN already warned about; saving it again keeps it.
     var acceptedWeakPIN: String?
+    /// Set while the weak-PIN confirmation is showing.
+    @Published var weakPINWarning: PINWeakness?
 }
 
 struct PINSetupContainerView: View {
@@ -694,9 +697,15 @@ struct PINSetupContainerView: View {
                 .frame(width: 200, height: 24)
 
             if viewModel.showError {
-                if viewModel.acceptedWeakPIN == viewModel.pin, PIN(viewModel.pin)?.weakness == .luggage,
-                   let gif = AnimatedGIF.luggage {
-                    gif.frame(width: 240, height: 127)
+                if let weakness = viewModel.weakPINWarning {
+                    if weakness == .luggage, let gif = AnimatedGIF.luggage {
+                        gif.frame(width: 240, height: 127)
+                    } else {
+                        Text(weakness.message)
+                            .font(.caption)
+                            .multilineTextAlignment(.center)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
                 Text(viewModel.errorMessage)
                     .foregroundColor(Theme.StateColor.alarming)
@@ -723,6 +732,7 @@ struct PINSetupContainerView: View {
     }
 
     private func savePIN() {
+        viewModel.weakPINWarning = nil
         guard let pin = PIN(viewModel.pin) else {
             viewModel.errorMessage = "PIN must be 4-8 digits"
             viewModel.showError = true
@@ -737,7 +747,8 @@ struct PINSetupContainerView: View {
         }
 
         if let weakness = pin.weakness, viewModel.acceptedWeakPIN != viewModel.pin {
-            viewModel.errorMessage = weakness.message + "\nSave again to use it anyway."
+            viewModel.weakPINWarning = weakness
+            viewModel.errorMessage = "Save again to use it anyway."
             viewModel.showError = true
             viewModel.acceptedWeakPIN = viewModel.pin
             return
