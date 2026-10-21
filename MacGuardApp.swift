@@ -30,6 +30,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         tamperGuard.syncAgent()
     }
 
+    /// A menu-bar-only app has no window to bring forward. Opening it again
+    /// (Finder, Spotlight, `open`) shows Settings, so it stays reachable when
+    /// the menu bar icon is hidden, e.g. behind the notch.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        SettingsWindowController.shared.show(alarmManager: alarmManager)
+        return false
+    }
+
     private static func otherRunningInstance() -> NSRunningApplication? {
         guard let bundleID = Bundle.main.bundleIdentifier else { return nil }
         let me = ProcessInfo.processInfo.processIdentifier
