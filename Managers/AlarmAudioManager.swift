@@ -18,7 +18,11 @@ class AlarmAudioManager: ObservableObject {
     /// The output to return to on stop; nil when the alarm didn't move it.
     private var deviceToRestore: AudioDeviceID?
     private var beepTimer: Timer?
-    private var volumeEnforcementTimer: Timer?
+    /// CoreAudio change listeners registered while the alarm plays.
+    private var enforcementListeners: [(object: AudioObjectID, address: AudioObjectPropertyAddress)] = []
+    private lazy var enforcementBlock: AudioObjectPropertyListenerBlock = { [weak self] _, _ in self?.enforceVolume() }
+    /// The device whose volume and mute the listeners watch.
+    private var enforcedDevice: AudioDeviceID = 0
     private var isPrepared = false
     private var targetVolume: Float = 1.0
 
@@ -124,18 +128,33 @@ class AlarmAudioManager: ObservableObject {
 
     // MARK: - Volume Enforcement
 
-    /// Start timer to continuously enforce volume (prevents muting via keyboard)
+    /// React the moment the output device, volume or mute changes (keyboard
+    /// keys, connecting headphones), instead of polling for it.
     private func startVolumeEnforcement() {
         stopVolumeEnforcement()
-        volumeEnforcementTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { [weak self] _ in
-            self?.enforceVolume()
+        enforcedDevice = getDefaultOutputDevice()
+        var targets = [(AudioObjectID(kAudioObjectSystemObject),
+                        AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+                                                   mScope: kAudioObjectPropertyScopeGlobal,
+                                                   mElement: kAudioObjectPropertyElementMain))]
+        for selector in [kAudioDevicePropertyVolumeScalar, kAudioDevicePropertyMute] {
+            targets += volumeElements(enforcedDevice, selector).map { (enforcedDevice, outputAddress(selector, $0)) }
+        }
+        for (object, address) in targets {
+            var address = address
+            if AudioObjectAddPropertyListenerBlock(object, &address, .main, enforcementBlock) == noErr {
+                enforcementListeners.append((object, address))
+            }
         }
         logActivity(.alarm, "Volume enforcement started")
     }
 
     private func stopVolumeEnforcement() {
-        volumeEnforcementTimer?.invalidate()
-        volumeEnforcementTimer = nil
+        for (object, address) in enforcementListeners {
+            var address = address
+            AudioObjectRemovePropertyListenerBlock(object, &address, .main, enforcementBlock)
+        }
+        enforcementListeners = []
     }
 
     /// Keep the alarm audible: on the built-in speaker, playing, unmuted, loud.
@@ -148,6 +167,8 @@ class AlarmAudioManager: ObservableObject {
         if let moved = moveToBuiltInSpeaker() {
             logActivity(.alarm, "Output moved to device \(moved) - alarm kept on built-in speaker")
         }
+        // No built-in speaker to return to: follow the new device instead
+        if getDefaultOutputDevice() != enforcedDevice { startVolumeEnforcement() }
 
         // A device change can stop the player
         if let player = audioPlayer, !player.isPlaying {
@@ -188,8 +209,8 @@ class AlarmAudioManager: ObservableObject {
 
     // Volume and mute go through CoreAudio on the current default output
     // device (the built-in speaker once the alarm has switched to it).
-    // The enforcement timer runs every 0.3s, so this must not compile and run
-    // AppleScript on the main thread.
+    // Enforcement runs on every volume change, so this must not compile and
+    // run AppleScript on the main thread.
 
     private func setSystemVolume(_ volume: Float) {
         let device = getDefaultOutputDevice()

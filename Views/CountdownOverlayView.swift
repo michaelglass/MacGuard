@@ -324,7 +324,7 @@ struct PINOverlay: View {
     /// Field, message and buttons. No input at all while locked out.
     private func entry(lockedUntil: Date?, now: Date) -> some View {
         let message = lockedUntil.map {
-            ("lock.fill", "Too many attempts - try again in \(Int($0.timeIntervalSince(now).rounded(.up)))s")
+            ("lock.fill", "Too many attempts - try again in \($0.secondsLeft(from: now))s")
         } ?? errorText.map { ("xmark.circle.fill", $0) }
 
         return VStack(spacing: Theme.Spacing.xl) {

@@ -206,7 +206,7 @@ struct MenuBarView: View {
                 ProgressView().controlSize(.small)
                 TimelineView(.periodic(from: .now, by: 1)) { context in
                     if let deadline = alarmManager.armingDeadline, deadline > context.date {
-                        Text("Arming in \(Int(deadline.timeIntervalSince(context.date).rounded(.up)))s… (Cancel)")
+                        Text("Arming in \(deadline.secondsLeft(from: context.date))s… (Cancel)")
                     } else {
                         Text("Arming… (Cancel)")
                     }
