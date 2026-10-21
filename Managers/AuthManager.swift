@@ -127,7 +127,7 @@ class AuthManager: ObservableObject {
         throttle = UserDefaults.standard.data(forKey: Self.throttleKey)
             .flatMap { try? JSONDecoder().decode(PINThrottle.self, from: $0) } ?? PINThrottle()
         checkBiometrics()
-        hasPIN = retrievePIN() != nil
+        hasPIN = pinExists()
     }
 
     // MARK: - System Authentication
@@ -194,6 +194,18 @@ class AuthManager: ObservableObject {
     }
 
     /// Retrieve the stored PIN bytes from Keychain
+    /// Attributes only: reading the secret would prompt for keychain access at launch.
+    private func pinExists() -> Bool {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: keychainAccount,
+            kSecReturnAttributes as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        return SecItemCopyMatching(query as CFDictionary, nil) == errSecSuccess
+    }
+
     private func retrievePIN() -> Data? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
