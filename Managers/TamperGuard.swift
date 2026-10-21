@@ -3,6 +3,7 @@
 
 import AppKit
 import Darwin
+import Security
 import ServiceManagement
 import SwiftUI
 
@@ -79,6 +80,8 @@ final class TamperGuard: ObservableObject {
     nonisolated static let decoder = JSONDecoder()
 
     @AppStorage("tamperProtection") private var enabledRaw = true
+    /// Code signature the watchdog was registered with (see `syncAgent`).
+    @AppStorage("watchdogRegisteredCode") private var registeredCode = ""
     @Published private(set) var status: WatchdogStatus = .off
     private var registrationError: String?
 
@@ -133,7 +136,19 @@ final class TamperGuard: ObservableObject {
         registrationError = nil
         do {
             if isEnabled {
-                if agent.status != .enabled { try agent.register() }
+                // launchd pins the agent to the code signature that registered
+                // it. After an update or rebuild it refuses to start the
+                // watchdog (EX_CONFIG) while status still reads `.enabled`, so
+                // a changed signature re-registers.
+                let code = Self.ownCodeHash ?? ""
+                if agent.status == .enabled && registeredCode != code {
+                    logActivity(.system, "App signature changed - re-registering tamper watchdog")
+                    try agent.unregister()
+                }
+                if agent.status != .enabled {
+                    try agent.register()
+                    registeredCode = code
+                }
             } else if agent.status == .enabled || agent.status == .requiresApproval {
                 try agent.unregister()
             }
@@ -153,6 +168,18 @@ final class TamperGuard: ObservableObject {
         guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return false }
         let path = URL(fileURLWithPath: String(cString: buffer)).resolvingSymlinksInPath().path
         return path == ownExecutablePath
+    }
+
+    /// This build's code directory hash (hex), or nil when unsigned.
+    nonisolated static var ownCodeHash: String? {
+        var code: SecCode?
+        var staticCode: SecStaticCode?
+        var info: CFDictionary?
+        guard SecCodeCopySelf([], &code) == errSecSuccess, let code,
+              SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode,
+              SecCodeCopySigningInformation(staticCode, [], &info) == errSecSuccess,
+              let unique = (info as? [String: Any])?[kSecCodeInfoUnique as String] as? Data else { return nil }
+        return unique.map { String(format: "%02x", $0) }.joined()
     }
 
     nonisolated static var ownExecutablePath: String? {
