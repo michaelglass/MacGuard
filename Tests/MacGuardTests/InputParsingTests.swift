@@ -42,24 +42,17 @@ final class IntrusionInputTests: XCTestCase {
 
         let mask = Set(fromEnum).reduce(CGEventMask(0)) { $0 | (CGEventMask(1) << $1) }
         XCTAssertEqual(IntrusionInput.eventMask, mask)
-    }
-
-    func testEveryCaseIsReachable() {
-        XCTAssertEqual(Set(expected.map(\.1)), Set(IntrusionInput.allCases))
+        XCTAssertEqual(Set(expected.map(\.1)), Set(IntrusionInput.allCases), "every case is reachable")
     }
 }
 
 final class PowerSourceTransitionTests: XCTestCase {
-    func testUnplugReportsBattery() {
-        XCTAssertEqual(PowerMonitor.transition(from: .ac, to: .battery), .battery)
-    }
-
-    func testPlugInReportsAC() {
-        XCTAssertEqual(PowerMonitor.transition(from: .battery, to: .ac), .ac)
-    }
-
-    func testNoChangeReportsNothing() {
-        XCTAssertNil(PowerMonitor.transition(from: .battery, to: .battery))
-        XCTAssertNil(PowerMonitor.transition(from: .ac, to: .ac))
+    func testReportsOnlyChanges() {
+        let cases: [(PowerSource, PowerSource, PowerSource?)] = [
+            (.ac, .battery, .battery), (.battery, .ac, .ac), (.battery, .battery, nil), (.ac, .ac, nil),
+        ]
+        for (from, to, expected) in cases {
+            XCTAssertEqual(PowerMonitor.transition(from: from, to: to), expected, "\(from) -> \(to)")
+        }
     }
 }

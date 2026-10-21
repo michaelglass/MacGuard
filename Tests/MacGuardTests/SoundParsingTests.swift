@@ -20,20 +20,12 @@ final class SoundParsingTests: XCTestCase {
         XCTAssertNotNil(PlayableSound(url: URL(fileURLWithPath: "/System/Library/Sounds/Ping.aiff")))
     }
 
-    func testMissingFileIsRejected() {
-        XCTAssertNil(PlayableSound(url: scratch.appendingPathComponent("gone.mp3")))
-    }
-
-    func testNonAudioFileIsRejected() throws {
-        let fake = scratch.appendingPathComponent("not-audio.mp3")
-        try Data("definitely not audio".utf8).write(to: fake)
-        XCTAssertNil(PlayableSound(url: fake))
-    }
-
-    func testEmptyFileIsRejected() throws {
-        let empty = scratch.appendingPathComponent("empty.aiff")
-        try Data().write(to: empty)
-        XCTAssertNil(PlayableSound(url: empty))
+    func testRejectsMissingNonAudioAndEmptyFiles() throws {
+        try Data("definitely not audio".utf8).write(to: scratch.appendingPathComponent("not-audio.mp3"))
+        try Data().write(to: scratch.appendingPathComponent("empty.aiff"))
+        for name in ["gone.mp3", "not-audio.mp3", "empty.aiff"] {
+            XCTAssertNil(PlayableSound(url: scratch.appendingPathComponent(name)), name)
+        }
     }
 
     func testPickerOffersCustomAndOnlyPlayableBuiltIns() {

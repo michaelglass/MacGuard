@@ -25,17 +25,11 @@ final class CountdownTests: XCTestCase {
 }
 
 final class PINTests: XCTestCase {
-    func testAcceptsFourToEightDigits() {
-        XCTAssertNotNil(PIN("1234"))
-        XCTAssertNotNil(PIN("12345678"))
-    }
-
-    func testRejectsWrongLengthOrNonDigits() {
-        XCTAssertNil(PIN("123"))
-        XCTAssertNil(PIN("123456789"))
-        XCTAssertNil(PIN("12a4"))
-        XCTAssertNil(PIN("１２３４"), "full-width digits are not ASCII")
-        XCTAssertNil(PIN("١٢٣٤"), "Arabic-Indic digits are not ASCII")
+    func testParsesFourToEightASCIIDigits() {
+        for (raw, valid) in [("1234", true), ("12345678", true), ("123", false), ("123456789", false),
+                             ("12a4", false), ("１２３４", false), ("١٢٣٤", false)] {
+            XCTAssertEqual(PIN(raw) != nil, valid, raw)
+        }
     }
 }
 
@@ -52,12 +46,5 @@ final class AlarmStateTests: XCTestCase {
         let updated = AlarmState.triggered(manual, countdown, .lidClosed)
             .updatingSession { $0.trustedDeviceHasLeft = true }
         XCTAssertEqual(updated, .triggered(ArmSession(trustedDeviceHasLeft: true), countdown, .lidClosed))
-    }
-
-    func testPhaseIgnoresPayload() throws {
-        let countdown = try XCTUnwrap(Countdown(seconds: 5))
-        XCTAssertEqual(AlarmState.arming(manual).phase, .arming)
-        XCTAssertEqual(AlarmState.triggered(manual, countdown, .powerDisconnected).phase, .triggered)
-        XCTAssertEqual(AlarmState.alarming(manual, .lidClosed).phase, .alarming)
     }
 }

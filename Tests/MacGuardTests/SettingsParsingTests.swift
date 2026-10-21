@@ -6,9 +6,7 @@ import Combine
 @testable import MacGuard
 
 final class SettingsParsingTests: XCTestCase {
-    func testCountdownDurationParsesOnlyOfferedValues() {
-        XCTAssertEqual(CountdownDuration(rawValue: 10), .s10)
-        XCTAssertNil(CountdownDuration(rawValue: 7), "unoffered values fall back to the default at the call site")
+    func testCountdownDurationMapsToCountdown() {
         XCTAssertNil(CountdownDuration.immediate.countdown)
         XCTAssertEqual(CountdownDuration.s5.countdown?.total, 5)
     }

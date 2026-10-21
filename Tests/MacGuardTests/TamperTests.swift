@@ -26,23 +26,23 @@ final class TamperMachineTests: XCTestCase {
         for (state, input) in standDowns {
             let (next, effects) = AlarmMachine.step(state, input, nearby)
             XCTAssertEqual(next, .idle, "\(state) + \(input)")
-            XCTAssertTrue(effects.contains(.clearArmedMarker), "\(state) + \(input)")
-            XCTAssertTrue(effects.contains(.endOwnerChallenge), "\(state) + \(input): PIN history and Touch ID prompt end on disarm")
+            for required: AlarmEffect in [.stopCountdownTimer, .stopMonitors, .stopAlarm, .hideOverlay,
+                                          .clearArmedMarker, .endOwnerChallenge] {
+                XCTAssertTrue(effects.contains(required), "\(state) + \(input): \(required)")
+            }
         }
     }
 
-    func testResumeAfterTamperSoundsImmediately() {
-        let (state, effects) = AlarmMachine.step(.idle, .resumeAfterTamper(left), env)
-        XCTAssertEqual(state, .alarming(left, .tamper))
-        for required: AlarmEffect in [.persistArmedMarker(left), .startSystemMonitors, .showOverlay, .playAlarm,
-                                      .emit(.alarmSounding(.tamper))] {
-            XCTAssertTrue(effects.contains(required), "\(required)")
+    /// Sounds at once with the stored session: a killed manual arm gains no proximity-disarm rights.
+    func testResumeAfterTamperSoundsWithTheStoredSession() {
+        for session in [left, manual] {
+            let (state, effects) = AlarmMachine.step(.idle, .resumeAfterTamper(session), env)
+            XCTAssertEqual(state, .alarming(session, .tamper))
+            for required: AlarmEffect in [.persistArmedMarker(session), .startSystemMonitors, .showOverlay,
+                                          .playAlarm, .emit(.alarmSounding(.tamper))] {
+                XCTAssertTrue(effects.contains(required), "\(session): \(required)")
+            }
         }
-    }
-
-    func testResumeKeepsTheStoredProximityRights() {
-        // A manual-arm session must not gain proximity-disarm rights by being killed
-        XCTAssertEqual(AlarmMachine.step(.idle, .resumeAfterTamper(manual), env).state, .alarming(manual, .tamper))
     }
 
     func testResumeIgnoredWhenAlreadyActive() {
@@ -55,24 +55,18 @@ final class LaunchDecisionTests: XCTestCase {
         try TamperGuard.encoder.encode(ArmedMarker(ArmSession(trustedDeviceHasLeft: left), armedAt: Date(), pid: pid))
     }
 
-    func testNoMarkerIsNormalLaunch() {
-        XCTAssertEqual(LaunchDecision.decide(markerData: nil) { _ in false }, .normal)
-    }
-
-    func testDeadOwnerMeansTamper() throws {
-        let data = try markerData(left: true, pid: 4242)
-        XCTAssertEqual(LaunchDecision.decide(markerData: data) { _ in false },
-                       .resumeAfterTamper(ArmSession(trustedDeviceHasLeft: true)))
-    }
-
-    func testLiveOwnerIsNotTamper() throws {
-        let data = try markerData(left: false, pid: 4242)
-        XCTAssertEqual(LaunchDecision.decide(markerData: data) { $0 == 4242 }, .normal)
-    }
-
-    func testCorruptMarkerFailsClosed() {
-        XCTAssertEqual(LaunchDecision.decide(markerData: Data("garbage".utf8)) { _ in true },
-                       .resumeAfterTamper(ArmSession(trustedDeviceHasLeft: false)))
+    func testDecision() throws {
+        let cases: [(String, Data?, Bool, LaunchDecision)] = [
+            ("no marker", nil, false, .normal),
+            ("dead owner", try markerData(left: true, pid: 4242), false,
+             .resumeAfterTamper(ArmSession(trustedDeviceHasLeft: true))),
+            ("live owner", try markerData(left: false, pid: 4242), true, .normal),
+            ("corrupt marker fails closed", Data("garbage".utf8), true,
+             .resumeAfterTamper(ArmSession(trustedDeviceHasLeft: false))),
+        ]
+        for (name, data, alive, expected) in cases {
+            XCTAssertEqual(LaunchDecision.decide(markerData: data) { _ in alive }, expected, name)
+        }
     }
 
     func testOwnProcessIsRecognised() {

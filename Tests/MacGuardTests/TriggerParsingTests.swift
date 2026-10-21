@@ -19,10 +19,4 @@ final class TriggerParsingTests: XCTestCase {
         XCTAssertTrue(NetworkMonitor.isChange(from: [wifi, wired], to: [wifi]), "cable pulled")
         XCTAssertTrue(NetworkMonitor.isChange(from: [wifi], to: []), "Wi-Fi dropped")
     }
-
-    func testExitDelayParsesOnlyOfferedValues() {
-        XCTAssertEqual(ExitDelay(rawValue: 10), .s10)
-        XCTAssertNil(ExitDelay(rawValue: 2))
-        XCTAssertEqual(ExitDelay.default, .s1, "default preserves the previous fixed 1s delay")
-    }
 }

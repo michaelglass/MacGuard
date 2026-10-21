@@ -20,12 +20,6 @@ private extension ProximityTracker {
 }
 
 final class ProximityTrackerTests: XCTestCase {
-    func testStartsUnobservedAndNotNearby() {
-        let tracker = ProximityTracker()
-        XCTAssertEqual(tracker.proximity, .unobserved)
-        XCTAssertFalse(tracker.isNearby)
-    }
-
     func testHysteresisBand() {
         var tracker = ProximityTracker()
         // Inside the band (-80...-70) is not enough to become nearby

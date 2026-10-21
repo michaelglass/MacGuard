@@ -7,17 +7,10 @@ import XCTest
 final class PINThrottleTests: XCTestCase {
     private let t0 = Date(timeIntervalSince1970: 1_000_000)
 
-    func testFreeAttemptsDoNotLockOut() {
+    func testFreeAttemptsThenDoublingLockoutThatExpires() {
         var throttle = PINThrottle()
-        for _ in 0..<PINThrottle.freeAttempts {
-            XCTAssertNil(throttle.recordFailure(at: t0))
-        }
+        for _ in 0..<PINThrottle.freeAttempts { XCTAssertNil(throttle.recordFailure(at: t0)) }
         XCTAssertNil(throttle.lockout(at: t0))
-    }
-
-    func testLockoutDoublesAndExpires() {
-        var throttle = PINThrottle()
-        for _ in 0..<PINThrottle.freeAttempts { _ = throttle.recordFailure(at: t0) }
 
         XCTAssertEqual(throttle.recordFailure(at: t0), t0.addingTimeInterval(30))
         XCTAssertEqual(throttle.lockout(at: t0.addingTimeInterval(29)), t0.addingTimeInterval(30))
@@ -51,22 +44,14 @@ final class PINThrottleTests: XCTestCase {
 final class PINWeaknessTests: XCTestCase {
     private func weakness(_ raw: String) -> PINWeakness? { PIN(raw)?.weakness }
 
-    func testLuggageCombination() {
-        XCTAssertEqual(weakness("12345"), .luggage)
-        XCTAssertEqual(weakness("1234"), .luggage)
-    }
-
-    func testRepeatedAndSequential() {
-        XCTAssertEqual(weakness("0000"), .repeated)
-        XCTAssertEqual(weakness("99999999"), .repeated)
-        XCTAssertEqual(weakness("2345"), .sequence)
-        XCTAssertEqual(weakness("9876"), .sequence)
-        XCTAssertEqual(weakness("2580"), .common)
-    }
-
-    func testOrdinaryPINsPass() {
-        for raw in ["4071", "8352", "13579", "90210", "246813"] {
-            XCTAssertNil(weakness(raw), raw)
+    func testClassifies() {
+        let cases: [(String, PINWeakness?)] = [
+            ("12345", .luggage), ("1234", .luggage), ("0000", .repeated), ("99999999", .repeated),
+            ("2345", .sequence), ("9876", .sequence), ("2580", .common),
+            ("4071", nil), ("8352", nil), ("13579", nil), ("90210", nil), ("246813", nil),
+        ]
+        for (raw, expected) in cases {
+            XCTAssertEqual(weakness(raw), expected, raw)
         }
     }
 }
