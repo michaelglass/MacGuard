@@ -163,7 +163,9 @@ class AuthManager: ObservableObject {
     /// Using `.deviceOwnerAuthentication` means a Mac without Touch ID (or
     /// with the lid closed on an external display) can still disarm.
     func authenticate(completion: @escaping (OwnerAuthentication?) -> Void) {
+        pendingAuthentication?.invalidate()
         let context = LAContext()
+        pendingAuthentication = context
         let reason = "Authenticate to disable MacGuard alarm"
 
         context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason) { success, _ in
@@ -171,6 +173,15 @@ class AuthManager: ObservableObject {
                 completion(success ? OwnerAuthentication(.system) : nil)
             }
         }
+    }
+
+    /// The open Touch ID / password prompt, if any.
+    private var pendingAuthentication: LAContext?
+
+    /// Dismiss an open Touch ID / password prompt (e.g. disarmed by PIN).
+    func cancelPendingAuthentication() {
+        pendingAuthentication?.invalidate()
+        pendingAuthentication = nil
     }
 
     // MARK: - PIN Management

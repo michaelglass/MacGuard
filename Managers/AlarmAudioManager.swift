@@ -138,9 +138,26 @@ class AlarmAudioManager: ObservableObject {
         volumeEnforcementTimer = nil
     }
 
-    /// Check and restore volume if user tries to mute
+    /// Keep the alarm audible: on the built-in speaker, playing, unmuted, loud.
     private func enforceVolume() {
         guard isPlaying else { return }
+
+        // Connecting headphones (or picking another output) moves the default
+        // output, and the alarm would follow it. Move it back; the device chosen
+        // mid-alarm is the one restored on disarm.
+        let current = getDefaultOutputDevice()
+        if builtInSpeakerID != 0, current != 0, current != builtInSpeakerID {
+            originalOutputDeviceID = current
+            shouldRestoreOutputDevice = true
+            setDefaultOutputDevice(builtInSpeakerID)
+            logActivity(.alarm, "Output moved to device \(current) - alarm kept on built-in speaker")
+        }
+
+        // A device change can stop the player
+        if let player = audioPlayer, !player.isPlaying {
+            player.play()
+            logActivity(.alarm, "Alarm playback resumed after an output change")
+        }
 
         if outputMuted() == true {
             unmuteSpeaker()
