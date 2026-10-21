@@ -103,20 +103,9 @@ class DeviceScannerViewModel: NSObject, ObservableObject {
         }
     }
 
-    /// Check if device is already trusted
-    func isDeviceAlreadyTrusted(_ device: DiscoveredDevice) -> Bool {
-        guard let manager = bluetoothManager else { return false }
-
-        // Check by ID or Bluetooth address
-        return manager.trustedDevices.contains {
-            $0.id == device.trustedID ||
-            (device.classicAddress != nil && $0.classicAddress == device.classicAddress)
-        }
-    }
-
-    /// Check if max devices reached
-    var isMaxDevicesReached: Bool {
-        (bluetoothManager?.trustedDevices.count ?? 0) >= 10
+    /// Why `device` can't be added, if it can't (the manager's one rule).
+    func refusal(for device: DiscoveredDevice) -> BluetoothProximityManager.Refusal? {
+        bluetoothManager?.admission(of: device.trustedID, classicAddress: device.classicAddress)
     }
 
     private func sortDevices() {
@@ -317,11 +306,11 @@ struct DeviceScannerContainerView: View {
         ScrollView {
             LazyVStack(spacing: Theme.Spacing.sm) {
                 ForEach(viewModel.discoveredDevices) { device in
-                    let isAlreadyAdded = viewModel.isDeviceAlreadyTrusted(device)
+                    let refusal = viewModel.refusal(for: device)
                     DeviceRowButton(
                         device: device,
-                        isAlreadyAdded: isAlreadyAdded,
-                        isDisabled: isAlreadyAdded || viewModel.isMaxDevicesReached
+                        isAlreadyAdded: refusal == .alreadyTrusted,
+                        isDisabled: refusal != nil
                     ) {
                         viewModel.selectDevice(device)
                         onDismiss()
