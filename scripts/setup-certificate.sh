@@ -67,14 +67,20 @@ EOF
 openssl x509 -req -days 3650 -in "$TEMP_DIR/csr.pem" -signkey "$TEMP_DIR/key.pem" \
     -out "$TEMP_DIR/cert.pem" -extfile "$CERT_CONFIG" -extensions v3_req 2>/dev/null
 
-# Create PKCS12 bundle (use legacy format for macOS compatibility)
+# Create PKCS12 bundle. OpenSSL 3 defaults to ciphers macOS's keychain can't
+# import, so it needs -legacy; LibreSSL (macOS's /usr/bin/openssl) already
+# writes the legacy format and rejects the flag.
+LEGACY_FLAG=()
+if openssl version | grep -q '^OpenSSL 3'; then
+    LEGACY_FLAG=(-legacy)
+fi
 # Random per-run password, never printed. Passed to openssl via the
 # environment so it doesn't appear in `ps`.
 P12_PASSWORD=$(openssl rand -base64 24)
 export P12_PASSWORD
 openssl pkcs12 -export -out "$TEMP_DIR/cert.p12" \
     -inkey "$TEMP_DIR/key.pem" -in "$TEMP_DIR/cert.pem" \
-    -name "$CERT_NAME" -passout env:P12_PASSWORD -legacy
+    -name "$CERT_NAME" -passout env:P12_PASSWORD "${LEGACY_FLAG[@]}"
 
 # Import to keychain with trust for code signing
 echo "Importing certificate to keychain..."
