@@ -16,6 +16,8 @@ extension AlarmEnvironment {
         stable: Bool = true,
         usb: Bool = true,
         network: Bool = false,
+        motion: Bool = true,
+        lidAngle: Bool = true,
         lockArms: Bool = false,
         exitDelay: ExitDelay = .s1
     ) -> AlarmEnvironment {
@@ -24,6 +26,7 @@ extension AlarmEnvironment {
             autoArmEnabled: autoArm, autoArmMode: mode, hasTrustedDevices: devices,
             anyTrustedDeviceNearby: any, allTrustedDevicesNearby: all, bluetoothStable: stable,
             usbTriggerEnabled: usb, networkTriggerEnabled: network,
+            motionTriggerEnabled: motion, lidAngleTriggerEnabled: lidAngle,
             autoArmOnScreenLock: lockArms, exitDelay: exitDelay
         )
     }

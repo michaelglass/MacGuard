@@ -29,6 +29,7 @@ class AlarmStateManager: ObservableObject {
     private let sleepMonitor = SleepMonitor()
     private let powerMonitor = PowerMonitor()
     private let usbMonitor = USBMonitor()
+    private let motionMonitor = MotionMonitor()
     private let networkMonitor = NetworkMonitor()
     private lazy var overlayController = CountdownWindowController(alarmManager: self)
 
@@ -55,6 +56,7 @@ class AlarmStateManager: ObservableObject {
         sleepMonitor.onInput = forward
         powerMonitor.onInput = forward
         usbMonitor.onInput = forward
+        motionMonitor.onInput = forward
         networkMonitor.onInput = forward
         bluetoothManager.onInput = forward
         checkPermissions()
@@ -133,6 +135,8 @@ class AlarmStateManager: ObservableObject {
             bluetoothStable: bluetoothManager.isBluetoothStable,
             usbTriggerEnabled: settings.usbTriggerEnabled,
             networkTriggerEnabled: settings.networkTriggerEnabled,
+            motionTriggerEnabled: settings.motionTriggerEnabled,
+            lidAngleTriggerEnabled: settings.lidAngleTriggerEnabled,
             autoArmOnScreenLock: settings.autoArmOnScreenLock,
             exitDelay: settings.exitDelay
         )
@@ -239,6 +243,10 @@ extension AlarmStateManager: AlarmHardware {
         powerMonitor.startMonitoring()
         usbMonitor.startMonitoring()
         networkMonitor.startMonitoring()
+        // The accelerometer is only woken when its trigger is on (battery)
+        let settings = AppSettings.shared
+        motionMonitor.start(motion: settings.motionTriggerEnabled ? settings.motionSensitivity : nil,
+                            lidAngle: settings.lidAngleTriggerEnabled)
         bluetoothManager.startScanning()
         bluetoothManager.setArmedState(true)
     }
@@ -247,6 +255,7 @@ extension AlarmStateManager: AlarmHardware {
         inputMonitor.stopMonitoring()
         usbMonitor.stopMonitoring()
         networkMonitor.stopMonitoring()
+        motionMonitor.stop()
         sleepMonitor.stopMonitoring()
         powerMonitor.stopMonitoring()
         bluetoothManager.setArmedState(false)

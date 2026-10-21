@@ -200,8 +200,16 @@ final class AlarmMachineTests: XCTestCase {
         XCTAssertEqual(step(.armed(manual), .intrusion(.networkChanged), .fixture(network: true)).state.phase, .triggered)
     }
 
+    func testMotionAndLidIntrudeOnlyWhenEnabled() {
+        for cause: TriggerCause in [.motion, .lidMoved(degrees: -6)] {
+            XCTAssertEqual(step(.armed(manual), .intrusion(cause), .fixture()).state.phase, .triggered, "\(cause)")
+        }
+        XCTAssertEqual(step(.armed(manual), .intrusion(.motion), .fixture(motion: false)).state, .armed(manual))
+        XCTAssertEqual(step(.armed(manual), .intrusion(.lidMoved(degrees: 9)), .fixture(lidAngle: false)).state, .armed(manual))
+    }
+
     func testCoreTriggersCannotBeDisabledBySensorSettings() {
-        let off = AlarmEnvironment.fixture(usb: false, network: false)
+        let off = AlarmEnvironment.fixture(usb: false, network: false, motion: false, lidAngle: false)
         XCTAssertEqual(step(.armed(manual), .intrusion(key), off).state.phase, .triggered)
         XCTAssertEqual(step(.armed(manual), .intrusion(.powerDisconnected), off).state.phase, .triggered)
     }
