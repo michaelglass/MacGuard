@@ -5,13 +5,16 @@ import Foundation
 
 /// Also UserDefaults key stems, so stable.
 enum NotifierID: String, CaseIterable, Identifiable, Comparable {
-    case notificationCenter, webhook
+    case notificationCenter, mail, messages, shortcuts, webhook
 
     var id: String { rawValue }
 
     var displayName: String {
         switch self {
         case .notificationCenter: return "Notification Center"
+        case .mail: return "Mail"
+        case .messages: return "Messages"
+        case .shortcuts: return "Shortcuts"
         case .webhook: return "Webhook"
         }
     }

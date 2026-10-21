@@ -101,6 +101,7 @@ struct SettingsView: View {
                 }
                 .disabled(isLocked)
 
+                NotificationSettingsSection().disabled(isLocked)
 
                 // Startup Section
                 Section {

@@ -6,12 +6,18 @@ import SwiftUI
 /// Raw user input; only `notifier(for:)` turns it into a notifier.
 struct NotifierDrafts: Equatable {
     var enabled: Set<NotifierID> = []
+    var mailTo = ""
+    var messagesTo = ""
+    var shortcutName = ""
     var webhookURL = ""
 
     /// `nil` while the configuration is incomplete.
     func notifier(for id: NotifierID) -> (any Notifier)? {
         switch id {
         case .notificationCenter: return NotificationCenterNotifier()
+        case .mail: return EmailAddress(mailTo).map { MailNotifier(recipient: $0) }
+        case .messages: return MessagesRecipient(messagesTo).map { MessagesNotifier(recipient: $0) }
+        case .shortcuts: return ShortcutName(shortcutName).map { ShortcutsNotifier(shortcut: $0) }
         case .webhook: return WebhookURL(webhookURL).map { WebhookNotifier(endpoint: $0) }
         }
     }
@@ -28,12 +34,15 @@ final class NotificationSettings: ObservableObject {
 
     @AppStorage("notify.enabled") private var enabledRaw = ""
     @AppStorage("notify.includeArmed") var includeArmed = false
+    @AppStorage("notify.mail.to") var mailTo = ""
+    @AppStorage("notify.messages.to") var messagesTo = ""
+    @AppStorage("notify.shortcuts.name") var shortcutName = ""
     @AppStorage("notify.webhook.url") var webhookURL = ""
 
     var drafts: NotifierDrafts {
         NotifierDrafts(
             enabled: Set(enabledRaw.split(separator: ",").compactMap { NotifierID(rawValue: String($0)) }),
-            webhookURL: webhookURL
+            mailTo: mailTo, messagesTo: messagesTo, shortcutName: shortcutName, webhookURL: webhookURL
         )
     }
 

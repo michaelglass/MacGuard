@@ -5,6 +5,31 @@ import XCTest
 @testable import MacGuard
 
 final class NotifierValueTests: XCTestCase {
+    func testEmailAddress() {
+        XCTAssertEqual(EmailAddress("  owner@example.com ")?.value, "owner@example.com")
+        for bad in ["", "owner", "@example.com", "owner@", "owner@example", "a@b@c.com",
+                    "own er@example.com", "owner@.example.com", "owner@example..com",
+                    "\"x\"@example.com", "owner@example.com\n"  + "x"] {
+            XCTAssertNil(EmailAddress(bad), bad)
+        }
+    }
+
+    func testMessagesRecipient() {
+        XCTAssertEqual(MessagesRecipient("+1 (555) 123-4567"), .phone("+15551234567"))
+        XCTAssertEqual(MessagesRecipient("0151 2345678")?.handle, "01512345678")
+        XCTAssertEqual(MessagesRecipient("me@icloud.com"), .appleID(EmailAddress("me@icloud.com")!))
+        for bad in ["", "123", "+1234567890123456", "555-CALL-NOW", "++15551234567"] {
+            XCTAssertNil(MessagesRecipient(bad), bad)
+        }
+    }
+
+    func testShortcutName() {
+        XCTAssertEqual(ShortcutName(" Alert Me ")?.value, "Alert Me")
+        XCTAssertNil(ShortcutName("   "))
+        XCTAssertNil(ShortcutName("two\nlines"))
+        XCTAssertNil(ShortcutName(String(repeating: "x", count: 256)))
+    }
+
     func testWebhookURLRequiresHTTPS() {
         XCTAssertEqual(WebhookURL("https://ntfy.sh/topic")?.url.host, "ntfy.sh")
         XCTAssertNotNil(WebhookURL("HTTPS://example.com/hook"))
@@ -51,15 +76,18 @@ final class AlertTests: XCTestCase {
 
 final class NotifierDraftsTests: XCTestCase {
     func testIncompleteDraftsYieldNoNotifier() {
-        let drafts = NotifierDrafts(enabled: Set(NotifierID.allCases), webhookURL: "http://x.com")
+        let drafts = NotifierDrafts(enabled: Set(NotifierID.allCases),
+                                    mailTo: "nope", messagesTo: "", shortcutName: " ", webhookURL: "http://x.com")
         XCTAssertEqual(drafts.enabledNotifiers().map(\.id), [.notificationCenter],
                        "enabled but unparseable drafts must not become notifiers")
     }
 
     func testOnlyEnabledCompleteNotifiers() {
-        let drafts = NotifierDrafts(enabled: [.webhook], webhookURL: "https://example.com/hook")
-        XCTAssertEqual(drafts.enabledNotifiers().map(\.id), [.webhook])
-        XCTAssertNotNil(drafts.notifier(for: .notificationCenter), "available but not enabled")
+        let drafts = NotifierDrafts(enabled: [.mail, .webhook],
+                                    mailTo: "me@example.com", messagesTo: "+15551234567",
+                                    shortcutName: "Alert", webhookURL: "https://example.com/hook")
+        XCTAssertEqual(drafts.enabledNotifiers().map(\.id), [.mail, .webhook])
+        XCTAssertNotNil(drafts.notifier(for: .messages), "configured but not enabled")
     }
 
     func testNothingEnabledByDefault() {
@@ -94,35 +122,36 @@ final class NotificationDispatcherTests: XCTestCase {
     }
 
     func testFansOutToEveryNotifierAndIsolatesFailures() async {
-        let center = Recorder(.notificationCenter), broken = Recorder(.webhook, fails: true)
+        let mail = Recorder(.mail), broken = Recorder(.webhook, fails: true), shortcut = Recorder(.shortcuts)
         var logs: [String] = []
         let lock = NSLock()
-        let results = await dispatcher([broken, center], logged: { line in lock.withLock { logs.append(line) } })
+        let results = await dispatcher([mail, broken, shortcut], logged: { line in lock.withLock { logs.append(line) } })
             .dispatch(.alarmSounding(.powerDisconnected))
 
-        XCTAssertEqual(results, [.delivered(.notificationCenter), .failed(.webhook, "boom")])
-        XCTAssertEqual(center.sent.first?.kind, .alarm)
+        XCTAssertEqual(results, [.delivered(.mail), .delivered(.shortcuts), .failed(.webhook, "boom")])
+        XCTAssertEqual(mail.sent.count, 1)
+        XCTAssertEqual(shortcut.sent.first?.kind, .alarm)
         XCTAssertTrue(logs.contains("Notification via Webhook failed: boom"))
     }
 
     func testPolicyFilteredEventSendsNothing() async {
-        let mail = Recorder(.notificationCenter)
+        let mail = Recorder(.mail)
         let results = await dispatcher([mail]).dispatch(.armed(auto: false))
         XCTAssertTrue(results.isEmpty)
         XCTAssertTrue(mail.sent.isEmpty)
     }
 
     func testAttachmentsAreAddedToEventAlerts() async {
-        let mail = Recorder(.notificationCenter)
+        let mail = Recorder(.mail)
         let photo = URL(fileURLWithPath: "/tmp-free/intruder.jpg")
         _ = await dispatcher([mail], attachments: [photo]).dispatch(.countdownStarted(.input(.click), seconds: 3))
         XCTAssertEqual(mail.sent.first?.attachments, [photo])
     }
 
     func testTestAlertGoesOnlyToTheChosenNotifier() async {
-        let mail = Recorder(.notificationCenter), other = Recorder(.webhook)
+        let mail = Recorder(.mail), other = Recorder(.messages)
         let result = await dispatcher([mail, other]).sendTest(via: mail)
-        XCTAssertEqual(result, .delivered(.notificationCenter))
+        XCTAssertEqual(result, .delivered(.mail))
         XCTAssertEqual(mail.sent.first?.kind, .test)
         XCTAssertTrue(other.sent.isEmpty)
     }
