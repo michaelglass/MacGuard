@@ -37,7 +37,9 @@ let package = Package(
                 "docs",
                 "featured-image.png",
                 "Tests",
-                "LaunchAgents"
+                "LaunchAgents",
+                "landing",
+                "mise.toml"
             ],
             sources: [
                 "main.swift",

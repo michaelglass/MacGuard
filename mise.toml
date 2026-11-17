@@ -1,0 +1,8 @@
+# One verb for every check: `mise check` (alias of `mise run check`).
+
+[tasks.check]
+description = "Type check with warnings as errors, then run the tests"
+run = [
+  "swift build --build-tests -Xswiftc -warnings-as-errors",
+  "swift test --skip-build",
+]

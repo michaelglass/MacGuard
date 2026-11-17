@@ -52,6 +52,10 @@ swift build -c release
 
 The DMG will be at `dist/MacGuard-1.3.4.dmg`
 
+### Checks
+
+`mise check` builds with warnings as errors and runs the tests. CI runs the same command on every pull request.
+
 ### Release Automation
 
 Releases are automated via GitHub Actions:
