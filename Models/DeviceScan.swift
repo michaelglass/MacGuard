@@ -18,8 +18,8 @@ struct DiscoveredDevice: Identifiable, Equatable {
     let classicAddress: BluetoothAddress?
     let isConnected: Bool
     fileprivate(set) var signal: RSSI?
-    /// Set only while exactly one BLE peripheral advertises this name
-    fileprivate var blePeripheral: UUID?
+    /// `.ble` only while exactly one BLE peripheral advertises this name
+    fileprivate(set) var tracking: Tracking
 
     init(id: UUID, name: String, classicAddress: BluetoothAddress?, isConnected: Bool, signal: RSSI?) {
         self.id = id
@@ -27,12 +27,12 @@ struct DiscoveredDevice: Identifiable, Equatable {
         self.classicAddress = classicAddress
         self.isConnected = isConnected
         self.signal = signal
+        self.tracking = Self.pairedTracking(classicAddress)
     }
 
-    var tracking: Tracking {
-        if let blePeripheral { return .ble(peripheral: blePeripheral) }
-        if let classicAddress { return .classic(classicAddress) }
-        return .untrackable
+    /// Tracking without a BLE binding.
+    fileprivate static func pairedTracking(_ classicAddress: BluetoothAddress?) -> Tracking {
+        classicAddress.map(Tracking.classic) ?? .untrackable
     }
 
     enum RowState: Equatable {
@@ -103,11 +103,11 @@ struct DeviceScan: Equatable {
             // Unpaired BLE devices are ignored; only the first same-named paired device binds
             if let index = model.devices.firstIndex(where: { $0.name.lowercased() == key }) {
                 if peripherals.count == 1 {
-                    model.devices[index].blePeripheral = ad.peripheral
+                    model.devices[index].tracking = .ble(peripheral: ad.peripheral)
                     model.devices[index].signal = ad.signal ?? model.devices[index].signal
                     effects.append(.bound(name: ad.name, peripheral: ad.peripheral))
-                } else if model.devices[index].blePeripheral != nil {
-                    model.devices[index].blePeripheral = nil
+                } else if case .ble = model.devices[index].tracking {
+                    model.devices[index].tracking = DiscoveredDevice.pairedTracking(model.devices[index].classicAddress)
                     effects.append(.unboundAmbiguous(name: ad.name))
                 }
             }
