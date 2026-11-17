@@ -510,11 +510,15 @@ extension BluetoothProximityManager: CBCentralManagerDelegate {
     }
 
     func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
-        guard let deviceID = device(peripheral.identifier)?.id else { return }
+        guard let trusted = device(peripheral.identifier) else { return }
+        let deviceID = trusted.id
 
         logActivity(.bluetooth, "Disconnected: \(peripheral.name ?? "Unknown")")
         connectedPeripherals.removeValue(forKey: deviceID)
+        let wasNearby = tracking[deviceID]?.proximity.isNearby ?? false
         tracking[deviceID, default: DeviceTracking()].proximity.markDisconnected()
+        // A disconnect is a departure like a weak signal, so the machine hears of it.
+        if wasNearby { onInput(.trustedDeviceAway(trusted)) }
 
         if isScanning {
             scanForBLE()
