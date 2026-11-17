@@ -244,20 +244,26 @@ enum Watchdog {
     private static let pollInterval: TimeInterval = 2
     /// After a relaunch, give the new instance time to rewrite the marker.
     private static let relaunchBackoff: TimeInterval = 15
+    @MainActor private static var nextAttempt = Date.distantPast
 
     static func run() -> Never {
-        var nextAttempt = Date.distantPast
+        // On the main run loop, so it fires on the main thread.
         let timer = Timer(timeInterval: pollInterval, repeats: true) { _ in
-            guard Date() >= nextAttempt,
-                  let data = try? Data(contentsOf: TamperGuard.markerURL) else { return }
-            let decision = LaunchDecision.decide(markerData: data) { TamperGuard.isMacGuardProcess($0) }
-            guard case .resumeAfterTamper = decision else { return }
-            nextAttempt = Date().addingTimeInterval(relaunchBackoff)
-            relaunchApp()
+            MainActor.assumeIsolated { poll() }
         }
         RunLoop.main.add(timer, forMode: .common)
         RunLoop.main.run()
         exit(0)
+    }
+
+    @MainActor
+    private static func poll() {
+        guard Date() >= nextAttempt,
+              let data = try? Data(contentsOf: TamperGuard.markerURL) else { return }
+        let decision = LaunchDecision.decide(markerData: data) { TamperGuard.isMacGuardProcess($0) }
+        guard case .resumeAfterTamper = decision else { return }
+        nextAttempt = Date().addingTimeInterval(relaunchBackoff)
+        relaunchApp()
     }
 
     private static func relaunchApp() {
