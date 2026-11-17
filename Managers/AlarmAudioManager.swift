@@ -170,8 +170,8 @@ class AlarmAudioManager {
             beeper.start()
         case .stopBeeping:
             beeper.stop()
-        case .log(let message):
-            logActivity(.alarm, message)
+        case .log(let category, let message):
+            logActivity(category, message)
         }
     }
 

@@ -104,7 +104,7 @@ final class AlarmPlaybackTests: XCTestCase {
     func testStopFromIdleRestoresNothing() {
         let (state, cmds) = update(.idle(prepared: "siren"), .stop)
         XCTAssertEqual(state, .idle(prepared: nil))
-        XCTAssertEqual(cmds, [.log("Alarm stopped")])
+        XCTAssertEqual(cmds, [.log(.alarm, "Alarm stopped")])
     }
 
     // MARK: While playing

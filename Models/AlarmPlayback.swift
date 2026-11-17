@@ -81,7 +81,7 @@ enum AlarmPlayback<Sound: Equatable> {
         case stopSound(Sound)
         case startBeeping
         case stopBeeping
-        case log(String)
+        case log(ActivityLogCategory, String)
     }
 
     static func update(_ state: State, _ msg: Msg) -> (State, [Cmd]) {
@@ -89,9 +89,9 @@ enum AlarmPlayback<Sound: Equatable> {
         case (.idle(.none), .prepare):
             return (state, [.preload])
         case (.idle(.none), .preloaded(let sound)):
-            return (.idle(prepared: sound), sound == nil ? [] : [.log("Audio pre-loaded and ready")])
+            return (.idle(prepared: sound), sound == nil ? [] : [.log(.alarm, "Audio pre-loaded and ready")])
         case (.idle, .unprepare):
-            return (.idle(prepared: nil), [.log("Audio released")])
+            return (.idle(prepared: nil), [.log(.alarm, "Audio released")])
         case (.idle(.none), .start(let start)):
             return (state, [.loadSound(then: start)])
         case (.idle(.some(let sound)), .start(let start)):
@@ -102,7 +102,7 @@ enum AlarmPlayback<Sound: Equatable> {
             return begin(start, .beeping, playLog: "Alarm sound not found, using system beep")
         // stop runs on every disarm, played or not: nothing to restore.
         case (.idle, .stop):
-            return (.idle(prepared: nil), [.log("Alarm stopped")])
+            return (.idle(prepared: nil), [.log(.alarm, "Alarm stopped")])
         // Listener callbacks queued before the alarm stopped.
         case (.idle, .outputChanged), (.idle, .outputRead):
             return (state, [])
@@ -127,25 +127,25 @@ enum AlarmPlayback<Sound: Equatable> {
         /// Where the alarm will sound, once any move is done.
         let alarmOutput: Reading?
         if let speaker = start.speaker {
-            cmds.append(.log("Found built-in speaker: device ID \(speaker.device)"))
+            cmds.append(.log(.alarm, "Found built-in speaker: device ID \(speaker.device)"))
             if let current = start.output, current.device != speaker.device {
                 route = .speaker(speaker.device, displaced: current.device)
                 alarmOutput = speaker
                 cmds += [.setDefaultOutput(speaker.device),
-                         .log("Switched from device \(current.device) to built-in speaker \(speaker.device)")]
+                         .log(.alarm, "Switched from device \(current.device) to built-in speaker \(speaker.device)")]
             } else {
                 route = .speaker(speaker.device, displaced: nil)
                 alarmOutput = start.output
-                cmds.append(.log("Already using built-in speaker"))
+                cmds.append(.log(.alarm, "Already using built-in speaker"))
             }
         } else {
             route = .followOutput
             alarmOutput = start.output
-            cmds.append(.log("Could not find built-in speaker, using current device"))
+            cmds.append(.log(.alarm, "Could not find built-in speaker, using current device"))
         }
 
         let savedVolume = alarmOutput?.volume
-        cmds += [.log("Saved original volume: \(savedVolume.map { String($0) } ?? "unknown")"),
+        cmds += [.log(.alarm, "Saved original volume: \(savedVolume.map { String($0) } ?? "unknown")"),
                  .setOutputVolume(start.targetVolume),
                  .unmuteOutput,
                  .watch(alarmOutput?.device)]
@@ -153,7 +153,7 @@ enum AlarmPlayback<Sound: Equatable> {
         case .sound(let sound): cmds.append(.playSound(sound))
         case .beeping: cmds.append(.startBeeping)
         }
-        cmds.append(.log(playLog))
+        cmds.append(.log(.alarm, playLog))
 
         let playing = Playing(targetVolume: start.targetVolume, route: route, savedVolume: savedVolume,
                               watched: alarmOutput?.device, output: output)
@@ -169,7 +169,7 @@ enum AlarmPlayback<Sound: Equatable> {
             if let output, output != speaker {
                 playing.route = .speaker(speaker, displaced: output)
                 cmds += [.setDefaultOutput(speaker),
-                         .log("Output moved to device \(output) - alarm kept on built-in speaker")]
+                         .log(.alarm, "Output moved to device \(output) - alarm kept on built-in speaker")]
             }
         case .followOutput:
             break
@@ -193,10 +193,10 @@ enum AlarmPlayback<Sound: Equatable> {
         let target = playing.targetVolume
         if let reading {
             if reading.isMuted {
-                cmds += [.unmuteOutput, .setOutputVolume(target), .log("Mute blocked - volume restored")]
+                cmds += [.unmuteOutput, .setOutputVolume(target), .log(.alarm, "Mute blocked - volume restored")]
             } else if let current = reading.volume, current < target - 0.05 {
                 cmds += [.setOutputVolume(target),
-                         .log("Volume restored from \(Int(current * 100))% to \(Int(target * 100))%")]
+                         .log(.alarm, "Volume restored from \(Int(current * 100))% to \(Int(target * 100))%")]
             }
         }
         return (.playing(playing), cmds)
@@ -212,11 +212,11 @@ enum AlarmPlayback<Sound: Equatable> {
         if let volume = playing.savedVolume { cmds.append(.setOutputVolume(volume)) }
         switch playing.route {
         case .speaker(_, displaced: .some(let device)):
-            cmds += [.setDefaultOutput(device), .log("Restored output device to \(device)")]
+            cmds += [.setDefaultOutput(device), .log(.alarm, "Restored output device to \(device)")]
         case .speaker(_, displaced: .none), .followOutput:
             break
         }
-        cmds.append(.log("Alarm stopped"))
+        cmds.append(.log(.alarm, "Alarm stopped"))
         return cmds
     }
 }
