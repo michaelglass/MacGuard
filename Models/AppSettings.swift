@@ -408,9 +408,7 @@ class AppSettings: ObservableObject {
         return true
     }
 
-    private init() {
-        SettingsMigration.run(.standard)
-    }
+    private init() {}
 
     /// Plays it once, so it can be judged without arming.
     func chooseSound(_ sound: AlarmSound) {

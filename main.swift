@@ -5,5 +5,7 @@
 if CommandLine.arguments.contains(Watchdog.argument) {
     Watchdog.run()
 } else {
+    // Before anything reads settings. The watchdog reads none, so it skips this.
+    SettingsMigration.run(.standard)
     MacGuardApp.main()
 }
