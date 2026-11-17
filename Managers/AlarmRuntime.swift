@@ -129,7 +129,7 @@ final class AlarmRuntime {
         case .resumeIdleScanning: hardware.resumeIdleScanning()
         case .stopIdleScanning: hardware.stopIdleScanning()
         case .log(let category, let message): hardware.log(category, message)
-        case .emit(let event): eventSinks.forEach { $0(event) }
+        case .emit(let event): for sink in eventSinks { sink(event) }
         case .persistArmedMarker(let session): hardware.persistArmedMarker(session)
         case .clearArmedMarker: hardware.clearArmedMarker()
         case .endOwnerChallenge: hardware.endOwnerChallenge()

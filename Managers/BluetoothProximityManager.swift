@@ -476,7 +476,7 @@ extension BluetoothProximityManager: @MainActor CBCentralManagerDelegate {
         _ central: CBCentralManager,
         didDiscover peripheral: CBPeripheral,
         advertisementData: [String: Any],
-        rssi RSSINumber: NSNumber
+        rssi rssiNumber: NSNumber
     ) {
         guard let device = device(peripheral.identifier), !device.isClassicBluetooth else { return }
 
@@ -488,7 +488,7 @@ extension BluetoothProximityManager: @MainActor CBCentralManagerDelegate {
         }
 
         // 127 = RSSI unavailable: no reading, not a strong one
-        if let rssi = RSSI(RSSINumber.intValue) {
+        if let rssi = RSSI(rssiNumber.intValue) {
             observe(.signal(rssi), for: peripheral.identifier, at: Date())
         }
     }
@@ -533,13 +533,13 @@ extension BluetoothProximityManager: @MainActor CBCentralManagerDelegate {
 // MARK: - CBPeripheralDelegate
 
 extension BluetoothProximityManager: @MainActor CBPeripheralDelegate {
-    func peripheral(_ peripheral: CBPeripheral, didReadRSSI RSSINumber: NSNumber, error: Error?) {
+    func peripheral(_ peripheral: CBPeripheral, didReadRSSI rssiNumber: NSNumber, error: Error?) {
         if let error {
             logActivity(.bluetooth, "RSSI read error: \(error.localizedDescription)")
             return
         }
         // 127 = RSSI unavailable: no reading, not a strong one
-        if let rssi = RSSI(RSSINumber.intValue) {
+        if let rssi = RSSI(rssiNumber.intValue) {
             observe(.signal(rssi), for: peripheral.identifier, at: Date())
         }
     }

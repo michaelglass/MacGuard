@@ -57,7 +57,7 @@ class SleepMonitor {
             caffeinate.terminate()
             logActivity(.system, "Caffeinate stopped")
         }
-        session.assertions.forEach { IOPMAssertionRelease($0) }
+        for assertion in session.assertions { IOPMAssertionRelease(assertion) }
         self.session = nil
         logActivity(.system, "Sleep allowed")
         logActivity(.system, "Stopped monitoring sleep events")

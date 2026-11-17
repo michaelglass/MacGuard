@@ -63,7 +63,7 @@ final class CountdownWindowController {
     func hide() {
         if let shown {
             NotificationCenter.default.removeObserver(shown.screenObserver)
-            shown.shields.forEach { $0.orderOut(nil) }
+            for shield in shown.shields { shield.orderOut(nil) }
             NSApp.presentationOptions = shown.previousPresentation
         }
         shown = nil
@@ -73,7 +73,7 @@ final class CountdownWindowController {
 
     private func coverAllScreens() {
         guard var current = shown, let controls = NSScreen.underMouse else { return }
-        current.shields.forEach { $0.orderOut(nil) }
+        for shield in current.shields { shield.orderOut(nil) }
         window.setFrame(controls.frame, display: true)
         current.shields = NSScreen.screens.filter { $0 != controls }.map { screen in
             let shield = NSWindow(contentRect: screen.frame, styleMask: [.borderless], backing: .buffered, defer: false)

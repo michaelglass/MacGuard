@@ -118,12 +118,12 @@ extension DeviceScannerViewModel: @MainActor CBCentralManagerDelegate {
         _ central: CBCentralManager,
         didDiscover peripheral: CBPeripheral,
         advertisementData: [String: Any],
-        rssi RSSI: NSNumber
+        rssi rssiNumber: NSNumber
     ) {
         guard
             let ad = Advertisement(
                 name: peripheral.name, peripheral: peripheral.identifier,
-                rawRSSI: RSSI.intValue)
+                rawRSSI: rssiNumber.intValue)
         else { return }
         send(.advertised(ad))
     }

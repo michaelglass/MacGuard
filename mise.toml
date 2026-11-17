@@ -8,8 +8,9 @@ description = "Format the Swift sources in place"
 run = "swift format format --in-place --parallel --recursive {{vars.swift_sources}}"
 
 [tasks.check]
-description = "Type check with warnings as errors, then run the tests"
+description = "Formatting and lint, type check with warnings as errors, then the tests"
 run = [
+  "swift format lint --strict --parallel --recursive {{vars.swift_sources}}",
   "swift build --build-tests -Xswiftc -warnings-as-errors",
   "swift test --skip-build",
 ]

@@ -273,7 +273,7 @@ final class PresenceChangeTests: XCTestCase {
             [.phone: .assumedNearby, .watch: .seen(.nearby)],
         ] {
             var applied = old
-            changes(old, new).forEach { $0.apply(to: &applied) { $0 } }
+            for change in changes(old, new) { change.apply(to: &applied) { $0 } }
             XCTAssertEqual(applied, new, "\(new)")
         }
     }
