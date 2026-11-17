@@ -12,14 +12,14 @@ final class TamperMachineTests: XCTestCase {
     private let env = AlarmEnvironment.fixture()
 
     func testArmingPersistsTheMarker() {
-        let effects = AlarmMachine.step(.arming(left), .inputMonitoringStarted(true), env).effects
+        let effects = AlarmMachine.step(.arming(left, until: AlarmEnvironment.t0), .inputMonitoringStarted(true), env).effects
         XCTAssertEqual(effects.first, .persistArmedMarker(left))
     }
 
     func testEveryStandDownClearsTheMarker() {
         let standDowns: [(AlarmState, AlarmInput)] = [
-            (.arming(manual), .cancelArming),
-            (.arming(manual), .inputMonitoringStarted(false)),
+            (.arming(manual, until: AlarmEnvironment.t0), .cancelArming),
+            (.arming(manual, until: AlarmEnvironment.t0), .inputMonitoringStarted(false)),
             (.armed(left), .trustedDeviceNearby(name: "Phone")),
             (.alarming(left, .tamper), .systemWoke),
         ]

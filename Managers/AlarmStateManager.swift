@@ -12,8 +12,6 @@ class AlarmStateManager: ObservableObject {
 
     @Published private(set) var state: AlarmState = .idle
     @Published var hasAccessibilityPermission = false
-    /// Display only; the machine decides via `.armingDelayElapsed`.
-    @Published private(set) var armingDeadline: Date?
 
     // MARK: - Public Managers (for UI access)
 
@@ -37,11 +35,10 @@ class AlarmStateManager: ObservableObject {
         let runtime = AlarmRuntime(
             hardware: self,
             scheduler: RunLoopScheduler(),
-            environment: { [unowned self] in self.environment },
+            environment: { [unowned self] now in self.environment(at: now) },
             gracePeriod: { AppSettings.shared.autoArmGracePeriod }
         )
         runtime.onStateChange = { [unowned self] in self.state = $0 }
-        runtime.onArmingDeadlineChange = { [unowned self] in self.armingDeadline = $0 }
         return runtime
     }()
 
@@ -122,9 +119,10 @@ class AlarmStateManager: ObservableObject {
 
     // MARK: - Machine
 
-    private var environment: AlarmEnvironment {
+    private func environment(at now: Date) -> AlarmEnvironment {
         let settings = AppSettings.shared
         return AlarmEnvironment(
+            now: now,
             countdown: settings.countdownDuration.countdown,
             autoLockOnArm: settings.autoLockOnArm,
             proximity: ProximityEvidence(

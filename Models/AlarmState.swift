@@ -36,8 +36,9 @@ struct Countdown: Equatable {
 enum AlarmState: Equatable {
     /// App running, theft mode OFF
     case idle
-    /// Monitors start after the exit delay, so the arming keystroke is not an intrusion
-    case arming(ArmSession)
+    /// Monitors start after the exit delay, so the arming keystroke is not an intrusion.
+    /// `until` is when that delay ends.
+    case arming(ArmSession, until: Date)
     /// Theft mode ON, monitoring for unauthorized input
     case armed(ArmSession)
     /// Intrusion detected, countdown active before alarm
@@ -48,14 +49,14 @@ enum AlarmState: Equatable {
     var session: ArmSession? {
         switch self {
         case .idle: return nil
-        case .arming(let s), .armed(let s), .triggered(let s, _, _), .alarming(let s, _): return s
+        case .arming(let s, _), .armed(let s), .triggered(let s, _, _), .alarming(let s, _): return s
         }
     }
 
     func updatingSession(_ update: (inout ArmSession) -> Void) -> AlarmState {
         switch self {
         case .idle: return self
-        case .arming(var s): update(&s); return .arming(s)
+        case .arming(var s, let until): update(&s); return .arming(s, until: until)
         case .armed(var s): update(&s); return .armed(s)
         case .triggered(var s, let c, let cause): update(&s); return .triggered(s, c, cause)
         case .alarming(var s, let cause): update(&s); return .alarming(s, cause)

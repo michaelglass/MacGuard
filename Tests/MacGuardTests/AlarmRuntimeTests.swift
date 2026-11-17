@@ -90,7 +90,11 @@ final class AlarmRuntimeTests: XCTestCase {
         events = []
         env = .fixture()
         runtime = AlarmRuntime(hardware: hardware, scheduler: scheduler,
-                               environment: { [unowned self] in self.env },
+                               environment: { [unowned self] now in
+                                   var env = self.env
+                                   env.now = now
+                                   return env
+                               },
                                gracePeriod: { .s15 })
         runtime.onEvent { [unowned self] in self.events.append($0) }
     }
@@ -102,13 +106,12 @@ final class AlarmRuntimeTests: XCTestCase {
 
     func testArmRunsDelayThenStartsMonitoringViaFeedback() {
         runtime.send(.armRequested(auto: false))
-        XCTAssertEqual(runtime.state.phase, .arming)
-        XCTAssertNotNil(runtime.armingDeadline)
+        XCTAssertEqual(runtime.state, .arming(ArmSession(trustedDeviceHasLeft: false),
+                                              until: scheduler.now().addingTimeInterval(1)))
         XCTAssertFalse(hardware.calls.contains(.startInputMonitoring), "nothing starts before the exit delay")
 
         scheduler.advance(by: 1)
         XCTAssertEqual(runtime.state, .armed(ArmSession(trustedDeviceHasLeft: false)))
-        XCTAssertNil(runtime.armingDeadline)
         XCTAssertEqual(Array(hardware.calls.suffix(3)),
                        [.startInputMonitoring, .persistArmedMarker(ArmSession(trustedDeviceHasLeft: false)), .startSystemMonitors])
         XCTAssertEqual(events, [.armed(auto: false)])
@@ -187,7 +190,8 @@ final class AlarmRuntimeTests: XCTestCase {
 
         runtime.send(.allTrustedDevicesAway)
         scheduler.advance(by: 15)
-        XCTAssertEqual(runtime.state, .arming(ArmSession(trustedDeviceHasLeft: true)))
+        XCTAssertEqual(runtime.state, .arming(ArmSession(trustedDeviceHasLeft: true),
+                                              until: scheduler.now().addingTimeInterval(1)))
         scheduler.advance(by: 1)
         XCTAssertEqual(events, [.armed(auto: true)])
     }

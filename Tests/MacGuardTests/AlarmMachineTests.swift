@@ -9,6 +9,10 @@ final class AlarmMachineTests: XCTestCase {
     private let left = ArmSession(trustedDeviceHasLeft: true)
     private let key = TriggerCause.input(.keyboard)
 
+    private func arming(_ session: ArmSession, _ delay: ExitDelay = .s1) -> AlarmState {
+        .arming(session, until: AlarmEnvironment.t0.addingTimeInterval(delay.seconds))
+    }
+
     private func step(_ s: AlarmState, _ i: AlarmInput, _ e: AlarmEnvironment = .fixture()) -> AlarmMachine.Transition {
         AlarmMachine.step(s, i, e)
     }
@@ -17,10 +21,16 @@ final class AlarmMachineTests: XCTestCase {
 
     func testArmEntersArmingSynchronously() {
         let (state, effects) = step(.idle, .armRequested(auto: false))
-        XCTAssertEqual(state, .arming(manual))
+        XCTAssertEqual(state, arming(manual))
         XCTAssertEqual(effects, [.closeConfigWindows, .prepareAudio, .scheduleArmingDelay(.s1)])
         XCTAssertTrue(step(.idle, .armRequested(auto: false), .fixture(exitDelay: .s30)).effects
             .contains(.scheduleArmingDelay(.s30)))
+    }
+
+    func testArmingCarriesItsDeadline() {
+        let now = AlarmEnvironment.t0.addingTimeInterval(100)
+        XCTAssertEqual(step(.idle, .armRequested(auto: false), .fixture(now: now, exitDelay: .s30)).state,
+                       .arming(manual, until: now.addingTimeInterval(30)))
     }
 
     func testArmLocksScreenOnlyWhenConfigured() {
@@ -28,19 +38,19 @@ final class AlarmMachineTests: XCTestCase {
     }
 
     func testSecondArmRequestIsIgnored() {
-        XCTAssertTrue(step(.arming(manual), .armRequested(auto: false)).effects.isEmpty)
+        XCTAssertTrue(step(arming(manual), .armRequested(auto: false)).effects.isEmpty)
         XCTAssertTrue(step(.armed(manual), .armRequested(auto: false)).effects.isEmpty)
     }
 
     func testArmingCompletesWhenInputMonitoringStarts() {
-        XCTAssertEqual(step(.arming(manual), .armingDelayElapsed).effects, [.startInputMonitoring])
-        let (state, effects) = step(.arming(manual), .inputMonitoringStarted(true))
+        XCTAssertEqual(step(arming(manual), .armingDelayElapsed).effects, [.startInputMonitoring])
+        let (state, effects) = step(arming(manual), .inputMonitoringStarted(true))
         XCTAssertEqual(state, .armed(manual))
         XCTAssertTrue(effects.contains(.emit(.armed(auto: false))))
     }
 
     func testDelayAfterCancelDoesNotArm() {
-        let (cancelled, _) = step(.arming(manual), .cancelArming)
+        let (cancelled, _) = step(arming(manual), .cancelArming)
         XCTAssertEqual(cancelled, .idle)
         XCTAssertEqual(step(cancelled, .armingDelayElapsed).state, .idle)
         XCTAssertEqual(step(cancelled, .inputMonitoringStarted(true)).state, .idle)
@@ -49,7 +59,7 @@ final class AlarmMachineTests: XCTestCase {
     func testIntrusionsIgnoredUnlessArmed() {
         let inputs: [AlarmInput] = [.intrusion(key), .severeIntrusion(.lidClosed),
                                     .intrusion(.usbDeviceAttached(name: "x")), .intrusion(.networkChanged)]
-        for state: AlarmState in [.idle, .arming(manual)] {
+        for state: AlarmState in [.idle, arming(manual)] {
             for input in inputs {
                 XCTAssertEqual(step(state, input, .fixture(network: true)).state, state, "\(state) + \(input)")
             }
@@ -137,7 +147,7 @@ final class AlarmMachineTests: XCTestCase {
     }
 
     func testNoProximityDisarmWhileArming() {
-        XCTAssertEqual(step(.arming(left), .trustedDeviceNearby(name: "Phone"), .fixture(proximity: .devices(nearby: .some))).state, .arming(left))
+        XCTAssertEqual(step(arming(left), .trustedDeviceNearby(name: "Phone"), .fixture(proximity: .devices(nearby: .some))).state, arming(left))
     }
 
     func testNearbyAlwaysCancelsAutoArmTimer() {
@@ -160,16 +170,16 @@ final class AlarmMachineTests: XCTestCase {
     }
 
     func testAutoArmTimerArmsAsDeviceLeft() {
-        XCTAssertEqual(step(.idle, .autoArmTimerFired).state, .arming(left))
+        XCTAssertEqual(step(.idle, .autoArmTimerFired).state, arming(left))
         XCTAssertEqual(step(.armed(manual), .autoArmTimerFired).state, .armed(manual))
     }
 
     // MARK: Stand down
 
     func testStandDownResumesIdleScanningOnlyWhenAutoArmConfigured() {
-        XCTAssertTrue(step(.arming(manual), .cancelArming, .fixture(proximity: .autoArmStable)).effects.contains(.resumeIdleScanning))
-        XCTAssertFalse(step(.arming(manual), .cancelArming, .fixture(proximity: .noTrustedDevices)).effects.contains(.resumeIdleScanning))
-        XCTAssertFalse(step(.arming(manual), .cancelArming, .fixture(proximity: .devices())).effects.contains(.resumeIdleScanning))
+        XCTAssertTrue(step(arming(manual), .cancelArming, .fixture(proximity: .autoArmStable)).effects.contains(.resumeIdleScanning))
+        XCTAssertFalse(step(arming(manual), .cancelArming, .fixture(proximity: .noTrustedDevices)).effects.contains(.resumeIdleScanning))
+        XCTAssertFalse(step(arming(manual), .cancelArming, .fixture(proximity: .devices())).effects.contains(.resumeIdleScanning))
     }
 
     func testSettingsChangeAppliesTheIdleScanningRule() {
@@ -179,7 +189,7 @@ final class AlarmMachineTests: XCTestCase {
     }
 
     func testSettingsChangeLeavesActiveScanningAlone() {
-        for state: AlarmState in [.arming(manual), .armed(manual)] {
+        for state: AlarmState in [arming(manual), .armed(manual)] {
             XCTAssertEqual(step(state, .settingsChanged, .fixture(proximity: .devices())).effects, [], "\(state)")
         }
     }
@@ -215,7 +225,7 @@ final class AlarmMachineTests: XCTestCase {
     // MARK: Screen lock
 
     func testScreenLockArmsOnlyWhenEnabledAndIdle() {
-        XCTAssertEqual(step(.idle, .screenLocked, .fixture(lockArms: true)).state, .arming(manual))
+        XCTAssertEqual(step(.idle, .screenLocked, .fixture(lockArms: true)).state, arming(manual))
         XCTAssertEqual(step(.idle, .screenLocked, .fixture(lockArms: false)).state, .idle)
         XCTAssertEqual(step(.armed(left), .screenLocked, .fixture(lockArms: true)).state, .armed(left))
     }

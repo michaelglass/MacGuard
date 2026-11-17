@@ -43,16 +43,12 @@ final class AlarmRuntime {
     private(set) var state: AlarmState = .idle {
         didSet { if state != oldValue { onStateChange(state) } }
     }
-    private(set) var armingDeadline: Date? {
-        didSet { onArmingDeadlineChange(armingDeadline) }
-    }
 
     var onStateChange: (AlarmState) -> Void = { _ in }
-    var onArmingDeadlineChange: (Date?) -> Void = { _ in }
 
     private unowned let hardware: AlarmHardware
     private let scheduler: AlarmScheduler
-    private let environment: () -> AlarmEnvironment
+    private let environment: (Date) -> AlarmEnvironment
     private let gracePeriod: () -> GracePeriod
 
     private var armingDelay: AlarmTimer?
@@ -62,7 +58,7 @@ final class AlarmRuntime {
 
     init(hardware: AlarmHardware,
          scheduler: AlarmScheduler,
-         environment: @escaping () -> AlarmEnvironment,
+         environment: @escaping (_ now: Date) -> AlarmEnvironment,
          gracePeriod: @escaping () -> GracePeriod) {
         self.hardware = hardware
         self.scheduler = scheduler
@@ -71,7 +67,7 @@ final class AlarmRuntime {
     }
 
     func send(_ input: AlarmInput) {
-        let (next, effects) = AlarmMachine.step(state, input, environment())
+        let (next, effects) = AlarmMachine.step(state, input, environment(scheduler.now()))
         state = next
         effects.forEach(perform)
     }
@@ -88,10 +84,8 @@ final class AlarmRuntime {
         case .scheduleArmingDelay(let delay):
             // Cancelled on reschedule or stand-down, so a stale delay can't arm a later session early.
             armingDelay?.cancel()
-            armingDeadline = scheduler.now().addingTimeInterval(delay.seconds)
             armingDelay = scheduler.schedule(after: delay.seconds, repeats: false) { [weak self] in
                 self?.armingDelay = nil
-                self?.armingDeadline = nil
                 self?.send(.armingDelayElapsed)
             }
         case .startInputMonitoring:
@@ -100,7 +94,6 @@ final class AlarmRuntime {
         case .stopMonitors:
             armingDelay?.cancel()
             armingDelay = nil
-            armingDeadline = nil
             hardware.stopMonitors()
         case .showOverlay: hardware.showOverlay()
         case .hideOverlay: hardware.hideOverlay()

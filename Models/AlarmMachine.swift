@@ -110,6 +110,8 @@ enum ProximityEvidence: Equatable {
 
 /// Snapshot of parsed settings and proximity *evidence* the machine decides on.
 struct AlarmEnvironment {
+    /// The runtime's clock at this step.
+    var now: Date
     var countdown: Countdown?
     var autoLockOnArm: Bool
     var proximity: ProximityEvidence
@@ -161,12 +163,13 @@ enum AlarmMachine {
             var effects: [AlarmEffect] = [.closeConfigWindows, .prepareAudio]
             if env.autoLockOnArm { effects.append(.lockScreen) }
             effects.append(.scheduleArmingDelay(env.exitDelay))
-            return (.arming(ArmSession(trustedDeviceHasLeft: auto)), effects)
+            let until = env.now.addingTimeInterval(env.exitDelay.seconds)
+            return (.arming(ArmSession(trustedDeviceHasLeft: auto), until: until), effects)
 
         case (.arming, .armingDelayElapsed):
             return (state, [.startInputMonitoring])
 
-        case (.arming(let session), .inputMonitoringStarted(true)):
+        case (.arming(let session, _), .inputMonitoringStarted(true)):
             return (.armed(session), [
                 .persistArmedMarker(session),
                 .startSystemMonitors,

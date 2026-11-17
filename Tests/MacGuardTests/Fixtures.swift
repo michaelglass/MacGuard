@@ -1,11 +1,16 @@
 // Fixtures.swift
 // MacGuard - Anti-Theft Alarm for macOS
 
+import Foundation
 @testable import MacGuard
 
 extension AlarmEnvironment {
+    /// The clock every machine fixture runs at.
+    static let t0 = Date(timeIntervalSince1970: 0)
+
     /// The one place tests build an environment; defaults match the app's.
     static func fixture(
+        now: Date = t0,
         countdown: Int = 3,
         autoLock: Bool = false,
         proximity: ProximityEvidence = .devices(),
@@ -17,7 +22,7 @@ extension AlarmEnvironment {
         exitDelay: ExitDelay = .s1
     ) -> AlarmEnvironment {
         AlarmEnvironment(
-            countdown: Countdown(seconds: countdown), autoLockOnArm: autoLock,
+            now: now, countdown: Countdown(seconds: countdown), autoLockOnArm: autoLock,
             proximity: proximity,
             usbTriggerEnabled: usb, networkTriggerEnabled: network,
             motionTriggerEnabled: motion, lidAngleTriggerEnabled: lidAngle,
