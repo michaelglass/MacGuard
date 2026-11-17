@@ -56,11 +56,6 @@ enum AlarmInput {
     case settingsChanged
 }
 
-/// A trusted device positively observed (scanning, outside the BT recovery cooldown).
-enum Sighting: Equatable {
-    case nearby, away
-}
-
 enum BluetoothHealth: Equatable {
     case stable, unstable
 }

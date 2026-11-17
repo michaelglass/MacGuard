@@ -30,9 +30,14 @@ struct ProximityThresholds: Equatable {
     let away: Int
 }
 
+enum Sighting: Equatable {
+    case nearby, away
+}
+
 /// `unobserved` (no reading since scanning started) never vouches for presence.
 enum Proximity: Equatable {
-    case unobserved, nearby, away
+    case unobserved
+    case seen(Sighting)
 }
 
 enum ProximityChange: Equatable {
@@ -57,7 +62,7 @@ struct ProximityTracker: Equatable {
     private(set) var lastNearby: Date?
     private var lastNearbySignal: Date?
 
-    var isNearby: Bool { proximity == .nearby }
+    var isNearby: Bool { proximity == .seen(.nearby) }
 
     mutating func observe(
         _ observation: Observation,
@@ -87,7 +92,7 @@ struct ProximityTracker: Equatable {
         if observation.meets(thresholds.away) {
             lastNearbySignal = now
         }
-        proximity = nearby ? .nearby : .away
+        proximity = .seen(nearby ? .nearby : .away)
         lastObservation = observation
         if nearby {
             lastNearby = now
@@ -103,13 +108,13 @@ struct ProximityTracker: Equatable {
     }
 
     mutating func markDisconnected() {
-        proximity = .away
+        proximity = .seen(.away)
     }
 
     /// So devices don't flap "away" (and auto-arm) while connections recover after BT power-on.
     mutating func assumeNearbyForRecovery() {
-        if proximity != .unobserved {
-            proximity = .nearby
+        if case .seen = proximity {
+            proximity = .seen(.nearby)
         }
     }
 

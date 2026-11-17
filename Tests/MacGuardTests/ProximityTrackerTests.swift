@@ -24,7 +24,7 @@ final class ProximityTrackerTests: XCTestCase {
         var tracker = ProximityTracker()
         // Inside the band (-80...-70) is not enough to become nearby
         XCTAssertEqual(tracker.feed(signal(-75), at: 0), .unchanged)
-        XCTAssertEqual(tracker.proximity, .away)
+        XCTAssertEqual(tracker.proximity, .seen(.away))
         XCTAssertEqual(tracker.feed(signal(-70), at: 1), .becameNearby)
         // ...but is enough to stay nearby
         XCTAssertEqual(tracker.feed(signal(-79), at: 2), .unchanged)

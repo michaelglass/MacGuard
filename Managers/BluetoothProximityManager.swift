@@ -82,10 +82,8 @@ class BluetoothProximityManager: NSObject, ObservableObject {
     var sightings: [TrustedDevice.ID: Sighting] {
         guard isScanning, !recoveryCooldown.isActive(at: Date()) else { return [:] }
         return trustedDevices.reduce(into: [:]) { result, device in
-            switch tracking[device.id]?.proximity.proximity ?? .unobserved {
-            case .unobserved: break
-            case .nearby: result[device.id] = .nearby
-            case .away: result[device.id] = .away
+            if case .seen(let sighting) = tracking[device.id]?.proximity.proximity {
+                result[device.id] = sighting
             }
         }
     }
