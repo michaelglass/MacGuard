@@ -40,9 +40,10 @@ final class DeviceScannerWindowController {
 class DeviceScannerViewModel: NSObject, ObservableObject {
     var bluetoothManager: BluetoothProximityManager
     @Published private(set) var scan = DeviceScan()
-    @Published var isScanning = false
+    /// Exists exactly while scanning.
+    @Published private var centralManager: CBCentralManager?
 
-    private var centralManager: CBCentralManager?
+    var isScanning: Bool { centralManager != nil }
 
     init(bluetoothManager: BluetoothProximityManager) {
         self.bluetoothManager = bluetoothManager
@@ -50,7 +51,6 @@ class DeviceScannerViewModel: NSObject, ObservableObject {
 
     func startScanning() {
         guard !isScanning else { return }
-        isScanning = true
         scan = DeviceScan()
         send(.pairedLoaded(loadPairedDevices()))
         // BLE scan supplies RSSI and binds BLE-capable devices
@@ -85,7 +85,6 @@ class DeviceScannerViewModel: NSObject, ObservableObject {
     func stopScanning() {
         centralManager?.stopScan()
         centralManager = nil
-        isScanning = false
     }
 
     func select(_ device: TrustedDevice) {
