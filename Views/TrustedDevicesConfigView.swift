@@ -228,20 +228,28 @@ struct TrustedDevicesConfigContainerView: View {
             HStack {
                 Text("Detection Distance")
                 Spacer()
-                Picker("", selection: $settings.proximityDistance) {
-                    ForEach(ProximityDistance.presets) { distance in
-                        Text("\(distance.rawValue) (\(distance.description))").tag(distance)
+                Picker("", selection: Binding(
+                    get: { ProximityMenuItem(settings.proximityDistance) },
+                    set: { item in
+                        switch (item, settings.proximityDistance) {
+                        case (.preset(let preset), _): settings.proximityDistance = .preset(preset)
+                        case (.custom, .custom): break
+                        case (.custom, .preset): settings.proximityDistance = .custom(.default)
+                        }
+                    }
+                )) {
+                    ForEach(ProximityPreset.allCases) { preset in
+                        Text("\(preset.rawValue) (\(preset.description))").tag(ProximityMenuItem.preset(preset))
                     }
                     Divider()
-                    Text("Custom").tag(ProximityDistance.custom)
+                    Text("Custom").tag(ProximityMenuItem.custom)
                 }
                 .pickerStyle(.menu)
                 .frame(width: 180)
             }
 
-            // Custom threshold sliders (when custom is selected)
-            if settings.proximityDistance == .custom {
-                customThresholdView
+            if case .custom(let range) = settings.proximityDistance {
+                customThresholdView(range)
             }
 
             // Auto-arm toggle
@@ -281,7 +289,7 @@ struct TrustedDevicesConfigContainerView: View {
 
     // MARK: - Custom Threshold View
 
-    private var customThresholdView: some View {
+    private func customThresholdView(_ detectionRange: DetectionRange) -> some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.md) {
             // Current device signal reference
             if let nearestRSSI = nearestDeviceRSSI {
@@ -306,7 +314,7 @@ struct TrustedDevicesConfigContainerView: View {
                     Text("Detection Range")
                         .font(.subheadline)
                     Spacer()
-                    Text(rangeDescription)
+                    Text(rangeDescription(detectionRange))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -319,12 +327,11 @@ struct TrustedDevicesConfigContainerView: View {
 
                     Slider(
                         value: Binding(
-                            get: { Double(settings.customDetectionRange) },
-                            set: { settings.customDetectionRange = Int($0) }
+                            get: { Double(detectionRange.dBm) },
+                            set: { settings.proximityDistance = .custom(DetectionRange(clamping: Int($0))) }
                         ),
-                        in: Double(ProximityDistance.customRange.lowerBound)...Double(ProximityDistance.customRange.upperBound),
+                        in: Double(DetectionRange.range.lowerBound)...Double(DetectionRange.range.upperBound),
                         step: 5
-
                     )
 
                     Text("Close")
@@ -335,8 +342,8 @@ struct TrustedDevicesConfigContainerView: View {
                 // Visual indicator showing current device position
                 if let nearestRSSI = nearestDeviceRSSI {
                     GeometryReader { geo in
-                        let range = -55.0 - (-100.0)  // 50 dBm range
-                        let position = (Double(nearestRSSI) - (-100.0)) / range
+                        let bounds = DetectionRange.range
+                        let position = Double(nearestRSSI - bounds.lowerBound) / Double(bounds.upperBound - bounds.lowerBound)
                         let clampedPosition = min(max(position, 0), 1)
 
                         ZStack(alignment: .leading) {
@@ -377,12 +384,12 @@ struct TrustedDevicesConfigContainerView: View {
     }
 
     /// User-friendly range description based on the effective away threshold
-    private var rangeDescription: String {
-        let awayThreshold = settings.proximityThresholds.away
-        if awayThreshold >= -70 { return "\(settings.customDetectionRange)dBm [~1-2m (Near)]" }
-        if awayThreshold >= -80 { return "\(settings.customDetectionRange)dBm [~3-5m (Medium)]" }
-        if awayThreshold >= -95 { return "\(settings.customDetectionRange)dBm [~7-10m (Far)]" }
-        return "\(settings.customDetectionRange)dBm [~10m+ (Very Far)]"
+    private func rangeDescription(_ range: DetectionRange) -> String {
+        let awayThreshold = ProximityDistance.custom(range).thresholds.away
+        if awayThreshold >= -70 { return "\(range.dBm)dBm [~1-2m (Near)]" }
+        if awayThreshold >= -80 { return "\(range.dBm)dBm [~3-5m (Medium)]" }
+        if awayThreshold >= -95 { return "\(range.dBm)dBm [~7-10m (Far)]" }
+        return "\(range.dBm)dBm [~10m+ (Very Far)]"
     }
 
     /// Get the strongest RSSI from connected devices (for reference)

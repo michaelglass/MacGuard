@@ -21,19 +21,111 @@ final class SettingsParsingTests: XCTestCase {
 
 final class ProximityDistanceTests: XCTestCase {
     func testEveryDistanceHasAProperBand() {
-        for distance in ProximityDistance.allCases {
-            for raw in [-200, -100, -65, -55, 0] {
-                let band = distance.thresholds(customDetectionRange: raw)
-                XCTAssertGreaterThan(band.present, band.away, "\(distance) @ \(raw)")
-            }
+        let distances = ProximityPreset.allCases.map(ProximityDistance.preset)
+            + [-200, -100, -65, -55, 0].map { .custom(DetectionRange(clamping: $0)) }
+        for distance in distances {
+            let band = distance.thresholds
+            XCTAssertGreaterThan(band.present, band.away, "\(distance)")
         }
     }
 
     func testCustomRangeIsClampedToTheSliderRange() {
-        XCTAssertEqual(ProximityDistance.custom.thresholds(customDetectionRange: 0),
+        XCTAssertEqual(ProximityDistance.custom(DetectionRange(clamping: 0)).thresholds,
                        ProximityThresholds(present: -50, away: -60))
-        XCTAssertEqual(ProximityDistance.custom.thresholds(customDetectionRange: -500),
+        XCTAssertEqual(ProximityDistance.custom(DetectionRange(clamping: -500)).thresholds,
                        ProximityThresholds(present: -95, away: -105))
+    }
+
+    func testStoredFormRoundTripsAndClamps() {
+        for distance in ProximityPreset.allCases.map(ProximityDistance.preset) + [.custom(.default)] {
+            XCTAssertEqual(ProximityDistance(rawValue: distance.rawValue), distance)
+        }
+        XCTAssertEqual(ProximityDistance(rawValue: "custom:0"), .custom(DetectionRange(clamping: -55)))
+        for junk in ["", "Custom", "custom:", "custom:abc", "Nowhere"] {
+            XCTAssertNil(ProximityDistance(rawValue: junk), junk)
+        }
+    }
+}
+
+final class AlarmSoundChoiceTests: XCTestCase {
+    func testStoredFormRoundTrips() {
+        let choices: [AlarmSoundChoice] = AlarmSound.allCases.map(AlarmSoundChoice.builtIn)
+            + [.custom(URL(fileURLWithPath: "/Users/me/Music/alarm sound.mp3"))]
+        for choice in choices {
+            XCTAssertEqual(AlarmSoundChoice(rawValue: choice.rawValue), choice)
+        }
+        for junk in ["", "Custom...", "custom:", "Kazoo"] {
+            XCTAssertNil(AlarmSoundChoice(rawValue: junk), junk)
+        }
+    }
+}
+
+final class SettingsMigrationTests: XCTestCase {
+    private var suiteName: String!
+    private var defaults: UserDefaults!
+
+    override func setUpWithError() throws {
+        suiteName = "SettingsMigrationTests.\(UUID().uuidString)"
+        defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+    }
+
+    override func tearDown() {
+        defaults.removePersistentDomain(forName: suiteName)
+    }
+
+    private func migrated(_ legacy: [String: Any]) -> (AlarmSoundChoice?, ProximityDistance?) {
+        for (key, value) in legacy { defaults.set(value, forKey: key) }
+        SettingsMigration.run(defaults)
+        return (defaults.string(forKey: SettingsMigration.alarmSoundKey).flatMap(AlarmSoundChoice.init(rawValue:)),
+                defaults.string(forKey: SettingsMigration.proximityDistanceKey).flatMap(ProximityDistance.init(rawValue:)))
+    }
+
+    func testAlarmSoundMigration() {
+        let cases: [([String: Any], AlarmSoundChoice?)] = [
+            ([:], nil),
+            (["alarmSound": "Ping"], .builtIn(.ping)),
+            (["alarmSound": "Ping", "customSoundPath": "/a.mp3"], .builtIn(.ping)),
+            (["alarmSound": "Custom...", "customSoundPath": "/a.mp3"], .custom(URL(fileURLWithPath: "/a.mp3"))),
+            (["alarmSound": "Custom...", "customSoundPath": ""], .default),
+            (["alarmSound": "Custom..."], .default),
+            (["alarmSound": "Kazoo"], .default),
+        ]
+        for (legacy, expected) in cases {
+            setUpDefaultsFresh()
+            XCTAssertEqual(migrated(legacy).0, expected, "\(legacy)")
+        }
+    }
+
+    func testProximityMigration() {
+        let cases: [([String: Any], ProximityDistance?)] = [
+            ([:], nil),
+            (["proximityDistance": "Far"], .preset(.far)),
+            (["proximityDistance": "Near", "customDetectionRange": -90], .preset(.near)),
+            (["proximityDistance": "Custom", "customDetectionRange": -90], .custom(DetectionRange(clamping: -90))),
+            (["proximityDistance": "Custom", "customDetectionRange": 0], .custom(DetectionRange(clamping: -55))),
+            (["proximityDistance": "Custom"], .custom(.default)),
+            (["proximityDistance": "Nowhere"], .default),
+        ]
+        for (legacy, expected) in cases {
+            setUpDefaultsFresh()
+            XCTAssertEqual(migrated(legacy).1, expected, "\(legacy)")
+        }
+    }
+
+    func testMigrationRemovesLegacyKeysAndKeepsNewValues() {
+        defaults.set("Tink", forKey: SettingsMigration.alarmSoundKey)
+        defaults.set("custom:-80", forKey: SettingsMigration.proximityDistanceKey)
+        let (sound, distance) = migrated(["alarmSound": "Ping", "customSoundPath": "/a.mp3",
+                                          "proximityDistance": "Near", "customDetectionRange": -90])
+        XCTAssertEqual(sound, .builtIn(.tink))
+        XCTAssertEqual(distance, .custom(DetectionRange(clamping: -80)))
+        for key in ["alarmSound", "customSoundPath", "proximityDistance", "customDetectionRange"] {
+            XCTAssertNil(defaults.object(forKey: key), key)
+        }
+    }
+
+    private func setUpDefaultsFresh() {
+        defaults.removePersistentDomain(forName: suiteName)
     }
 }
 

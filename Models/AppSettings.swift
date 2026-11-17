@@ -6,29 +6,19 @@ import AVFoundation
 import SwiftUI
 
 /// Proximity distance presets for trusted device detection
-enum ProximityDistance: String, CaseIterable, Identifiable {
+enum ProximityPreset: String, CaseIterable, Identifiable {
     case near = "Near"      // ~1-2m
     case medium = "Medium"  // ~3-5m (default)
     case far = "Far"        // ~7-10m
-    case custom = "Custom"  // User-defined
 
     var id: String { rawValue }
 
-    func thresholds(customDetectionRange: Int) -> ProximityThresholds {
+    var thresholds: ProximityThresholds {
         switch self {
         case .near: return ProximityThresholds(present: -60, away: -70)
         case .medium: return ProximityThresholds(present: -70, away: -80)
         case .far: return ProximityThresholds(present: -80, away: -95)
-        case .custom:
-            let center = Self.clampedCustomRange(customDetectionRange)
-            return ProximityThresholds(present: center + 5, away: center - 5)
         }
-    }
-
-    static let customRange: ClosedRange<Int> = -100 ... -55
-
-    static func clampedCustomRange(_ raw: Int) -> Int {
-        min(max(raw, customRange.lowerBound), customRange.upperBound)
     }
 
     /// Human-readable description
@@ -37,13 +27,69 @@ enum ProximityDistance: String, CaseIterable, Identifiable {
         case .near: return "~1-2 meters"
         case .medium: return "~3-5 meters"
         case .far: return "~7-10 meters"
-        case .custom: return "User-defined"
+        }
+    }
+}
+
+/// A user-chosen detection centre in dBm, within the slider's range.
+struct DetectionRange: Equatable {
+    static let range: ClosedRange<Int> = -100 ... -55
+    static let `default` = DetectionRange(clamping: -65)
+
+    let dBm: Int
+
+    init(clamping raw: Int) {
+        dBm = min(max(raw, Self.range.lowerBound), Self.range.upperBound)
+    }
+}
+
+enum ProximityDistance: Equatable {
+    case preset(ProximityPreset)
+    case custom(DetectionRange)
+
+    static let `default` = ProximityDistance.preset(.medium)
+
+    /// Custom gets a fixed hysteresis band around the chosen centre.
+    var thresholds: ProximityThresholds {
+        switch self {
+        case .preset(let preset): return preset.thresholds
+        case .custom(let range): return ProximityThresholds(present: range.dBm + 5, away: range.dBm - 5)
+        }
+    }
+}
+
+/// Stored as "Near"/"Medium"/"Far" or "custom:<dBm>".
+extension ProximityDistance: RawRepresentable {
+    private static let customPrefix = "custom:"
+
+    init?(rawValue: String) {
+        if let preset = ProximityPreset(rawValue: rawValue) {
+            self = .preset(preset)
+        } else if rawValue.hasPrefix(Self.customPrefix), let dBm = Int(rawValue.dropFirst(Self.customPrefix.count)) {
+            self = .custom(DetectionRange(clamping: dBm))
+        } else {
+            return nil
         }
     }
 
-    /// Presets only (excludes custom for picker display)
-    static var presets: [ProximityDistance] {
-        [.near, .medium, .far]
+    var rawValue: String {
+        switch self {
+        case .preset(let preset): return preset.rawValue
+        case .custom(let range): return Self.customPrefix + String(range.dBm)
+        }
+    }
+}
+
+/// The Detection Distance menu: the presets plus one "Custom" entry, whatever its dBm.
+enum ProximityMenuItem: Hashable {
+    case preset(ProximityPreset)
+    case custom
+
+    init(_ distance: ProximityDistance) {
+        switch distance {
+        case .preset(let preset): self = .preset(preset)
+        case .custom: self = .custom
+        }
     }
 }
 
@@ -90,8 +136,6 @@ enum AlarmSound: String, CaseIterable, Identifiable {
     case sosumi = "Sosumi"
     case submarine = "Submarine"
     case tink = "Tink"
-    // Custom file
-    case custom = "Custom..."
 
     var id: String { rawValue }
 
@@ -100,15 +144,91 @@ enum AlarmSound: String, CaseIterable, Identifiable {
         case .dontTouchMyMac:
             return ResourceBundle.url(forResource: "dont-touch-my-mac", withExtension: "mp3", subdirectory: "Resources")
                 .flatMap(PlayableSound.init(url:))
-        case .custom:
-            return nil
-        default:
+        case .funk, .basso, .blow, .bottle, .frog, .glass, .hero, .morse, .ping, .pop, .purr, .sosumi, .submarine, .tink:
             return PlayableSound(url: URL(fileURLWithPath: "/System/Library/Sounds/\(rawValue).aiff"))
+        }
+    }
+}
+
+/// The stored alarm sound choice.
+enum AlarmSoundChoice: Equatable {
+    case builtIn(AlarmSound)
+    case custom(URL)
+
+    static let `default` = AlarmSoundChoice.builtIn(.dontTouchMyMac)
+
+    /// Checks a custom file now: it may have moved since it was chosen.
+    var resolved: ResolvedAlarmSound {
+        switch self {
+        case .builtIn(let sound): return .builtIn(sound)
+        case .custom(let url): return PlayableSound(url: url).map(ResolvedAlarmSound.custom) ?? .customUnavailable(url)
+        }
+    }
+}
+
+/// Stored as the built-in name or "custom:<path>".
+extension AlarmSoundChoice: RawRepresentable {
+    private static let customPrefix = "custom:"
+
+    init?(rawValue: String) {
+        if let sound = AlarmSound(rawValue: rawValue) {
+            self = .builtIn(sound)
+        } else if rawValue.hasPrefix(Self.customPrefix), rawValue.count > Self.customPrefix.count {
+            self = .custom(URL(fileURLWithPath: String(rawValue.dropFirst(Self.customPrefix.count))))
+        } else {
+            return nil
+        }
+    }
+
+    var rawValue: String {
+        switch self {
+        case .builtIn(let sound): return sound.rawValue
+        case .custom(let url): return Self.customPrefix + url.path
+        }
+    }
+}
+
+enum ResolvedAlarmSound: Equatable {
+    case builtIn(AlarmSound)
+    case custom(PlayableSound)
+    case customUnavailable(URL)
+
+    /// `nil` only if even the bundled sound is missing (the caller beeps).
+    var file: PlayableSound? {
+        switch self {
+        case .builtIn(let sound): return sound.file ?? AlarmSound.dontTouchMyMac.file
+        case .custom(let sound): return sound
+        case .customUnavailable: return AlarmSound.dontTouchMyMac.file
+        }
+    }
+}
+
+/// The Alarm Sound menu: built-in sounds plus a "Custom..." entry that opens a file picker.
+enum AlarmSoundMenuItem: Hashable, Identifiable {
+    case builtIn(AlarmSound)
+    case custom
+
+    /// An unplayable custom file shows as the default it falls back to.
+    init(_ sound: ResolvedAlarmSound) {
+        switch sound {
+        case .builtIn(let sound): self = .builtIn(sound)
+        case .custom: self = .custom
+        case .customUnavailable: self = .builtIn(.dontTouchMyMac)
+        }
+    }
+
+    var id: String { label }
+
+    var label: String {
+        switch self {
+        case .builtIn(let sound): return sound.rawValue
+        case .custom: return "Custom..."
         }
     }
 
     /// Computed once: each check opens the file.
-    static let offered: [AlarmSound] = allCases.filter { $0 == .custom || $0.file != nil }
+    static let offered: [AlarmSoundMenuItem] =
+        AlarmSound.allCases.filter { $0.file != nil }.map(AlarmSoundMenuItem.builtIn) + [.custom]
 }
 
 /// A file `AVAudioPlayer` opens, with non-zero length, so a moved or corrupt file can't reach the alarm.
@@ -166,6 +286,50 @@ struct AlarmVolume: Equatable {
     }
 }
 
+/// Older installs kept the custom sound path and custom dBm in second keys; this folds them into one key each.
+enum SettingsMigration {
+    static let alarmSoundKey = "alarmSoundChoice"
+    static let proximityDistanceKey = "detectionDistance"
+
+    private enum Legacy {
+        static let alarmSound = "alarmSound"
+        static let customSoundPath = "customSoundPath"
+        static let proximityDistance = "proximityDistance"
+        static let customDetectionRange = "customDetectionRange"
+        static let customSound = "Custom..."
+        static let customDistance = "Custom"
+    }
+
+    static func run(_ defaults: UserDefaults) {
+        if defaults.object(forKey: alarmSoundKey) == nil, let raw = defaults.string(forKey: Legacy.alarmSound) {
+            defaults.set(alarmSound(raw: raw, customPath: defaults.string(forKey: Legacy.customSoundPath)).rawValue,
+                         forKey: alarmSoundKey)
+        }
+        if defaults.object(forKey: proximityDistanceKey) == nil, let raw = defaults.string(forKey: Legacy.proximityDistance) {
+            let range = defaults.object(forKey: Legacy.customDetectionRange) as? Int
+            defaults.set(proximityDistance(raw: raw, customDetectionRange: range).rawValue, forKey: proximityDistanceKey)
+        }
+        for key in [Legacy.alarmSound, Legacy.customSoundPath, Legacy.proximityDistance, Legacy.customDetectionRange] {
+            defaults.removeObject(forKey: key)
+        }
+    }
+
+    /// "Custom..." with no path used to play (and show) the default.
+    private static func alarmSound(raw: String, customPath: String?) -> AlarmSoundChoice {
+        if raw == Legacy.customSound, let path = customPath, !path.isEmpty {
+            return .custom(URL(fileURLWithPath: path))
+        }
+        return AlarmSound(rawValue: raw).map(AlarmSoundChoice.builtIn) ?? .default
+    }
+
+    private static func proximityDistance(raw: String, customDetectionRange: Int?) -> ProximityDistance {
+        if raw == Legacy.customDistance {
+            return .custom(customDetectionRange.map(DetectionRange.init(clamping:)) ?? .default)
+        }
+        return ProximityPreset(rawValue: raw).map(ProximityDistance.preset) ?? .default
+    }
+}
+
 /// App settings manager with UserDefaults persistence
 class AppSettings: ObservableObject {
     static let shared = AppSettings()
@@ -174,14 +338,12 @@ class AppSettings: ObservableObject {
     // MARK: - Published Settings
 
     @AppStorage("autoLockOnArm") var autoLockOnArm: Bool = false
-    @AppStorage("alarmSound") private var alarmSoundRaw: String = AlarmSound.dontTouchMyMac.rawValue
-    @AppStorage("alarmVolume") private var alarmVolumeRaw: Double = 1.0
-    @AppStorage("customSoundPath") private var customSoundPath: String = ""
     // Enums parse in AppStorage itself: an unoffered stored value reads as the default.
+    @AppStorage(SettingsMigration.alarmSoundKey) private(set) var alarmSound: AlarmSoundChoice = .default
+    @AppStorage("alarmVolume") private var alarmVolumeRaw: Double = 1.0
     @AppStorage("countdownDuration") var countdownDuration: CountdownDuration = .default
     @AppStorage("lidCloseProtection") private var _lidCloseProtection: Bool = false
-    @AppStorage("proximityDistance") var proximityDistance: ProximityDistance = .medium
-    @AppStorage("customDetectionRange") var customDetectionRange: Int = -65  // Single value, hysteresis auto-calculated
+    @AppStorage(SettingsMigration.proximityDistanceKey) var proximityDistance: ProximityDistance = .default
     @AppStorage("autoArmOnDeviceLeave") var autoArmOnDeviceLeave: Bool = false
     @AppStorage("exitDelay") var exitDelay: ExitDelay = .default
     @AppStorage("usbTriggerEnabled") var usbTriggerEnabled: Bool = true
@@ -198,9 +360,7 @@ class AppSettings: ObservableObject {
         set { alarmVolumeRaw = AlarmVolume(clamping: newValue).value }
     }
 
-    var proximityThresholds: ProximityThresholds {
-        proximityDistance.thresholds(customDetectionRange: customDetectionRange)
-    }
+    var proximityThresholds: ProximityThresholds { proximityDistance.thresholds }
 
     /// Enabling only sticks if the admin prompt succeeds; disabling always clears it.
     var lidCloseProtection: Bool {
@@ -230,39 +390,30 @@ class AppSettings: ObservableObject {
         return true
     }
 
-    /// `.custom` without a playable file parses to the default.
-    var alarmSound: AlarmSound {
-        get {
-            let sound = AlarmSound(rawValue: alarmSoundRaw) ?? .dontTouchMyMac
-            return sound == .custom && customSound == nil ? .dontTouchMyMac : sound
-        }
-        set { alarmSoundRaw = newValue.rawValue }
-    }
-
-    /// The stored path, parsed once ("" means none chosen).
-    private var customSoundURL: URL? {
-        customSoundPath.isEmpty ? nil : URL(fileURLWithPath: customSoundPath)
-    }
-
-    private var customSound: PlayableSound? { customSoundURL.flatMap(PlayableSound.init(url:)) }
-
+    // Kept for AlarmAudioManager's log line.
     var customSoundUnavailable: Bool {
-        alarmSoundRaw == AlarmSound.custom.rawValue && customSound == nil
+        if case .customUnavailable = alarmSound.resolved { return true }
+        return false
+    }
+
+    // Kept for AlarmAudioManager's log line.
+    var customSoundName: String {
+        switch alarmSound {
+        case .builtIn: return "None"
+        case .custom(let url): return url.lastPathComponent
+        }
     }
 
     /// `nil` only if even the bundled sound is missing (the caller beeps).
-    var alarmSoundFile: PlayableSound? {
-        (alarmSound == .custom ? customSound : alarmSound.file) ?? AlarmSound.dontTouchMyMac.file
+    var alarmSoundFile: PlayableSound? { alarmSound.resolved.file }
+
+    private init() {
+        SettingsMigration.run(.standard)
     }
-
-    /// Custom sound file name for display
-    var customSoundName: String { customSoundURL?.lastPathComponent ?? "None" }
-
-    private init() {}
 
     /// Plays it once, so it can be judged without arming.
     func chooseSound(_ sound: AlarmSound) {
-        alarmSound = sound
+        alarmSound = .builtIn(sound)
         previewSound()
     }
 
@@ -290,8 +441,7 @@ class AppSettings: ObservableObject {
                 logActivity(.system, "Custom sound rejected: '\(url.lastPathComponent)' is not playable audio")
                 return false
             }
-            customSoundPath = url.path
-            alarmSound = .custom
+            alarmSound = .custom(url)
             previewSound()
             return true
         }

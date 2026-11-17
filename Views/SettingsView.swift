@@ -384,25 +384,27 @@ struct SettingsView: View {
         }
 
         Picker("Alarm Sound", selection: Binding(
-            get: { settings.alarmSound },
-            set: { newValue in
-                if newValue == .custom {
-                    _ = settings.selectCustomSound()
-                } else {
-                    settings.chooseSound(newValue)
+            get: { AlarmSoundMenuItem(settings.alarmSound.resolved) },
+            set: { item in
+                switch item {
+                case .builtIn(let sound): settings.chooseSound(sound)
+                case .custom: _ = settings.selectCustomSound()
                 }
             }
         )) {
-            ForEach(AlarmSound.offered) { sound in
-                Text(sound.rawValue).tag(sound)
+            ForEach(AlarmSoundMenuItem.offered) { item in
+                Text(item.label).tag(item)
             }
         }
 
-        if settings.customSoundUnavailable {
+        switch settings.alarmSound.resolved {
+        case .builtIn:
+            EmptyView()
+        case .customUnavailable(let url):
             HStack {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundColor(.orange)
-                Text("'\(settings.customSoundName)' can't be played - using the default sound")
+                Text("'\(url.lastPathComponent)' can't be played - using the default sound")
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .lineLimit(2)
@@ -412,14 +414,11 @@ struct SettingsView: View {
                 }
                 .buttonStyle(GlassSecondaryButtonStyle())
             }
-        }
-
-        // Show custom file info when custom is selected
-        if settings.alarmSound == .custom {
+        case .custom(let file):
             HStack {
                 Image(systemName: "music.note")
                     .foregroundColor(.secondary)
-                Text(settings.customSoundName)
+                Text(file.url.lastPathComponent)
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .lineLimit(1)

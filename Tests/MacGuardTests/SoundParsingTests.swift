@@ -29,9 +29,23 @@ final class SoundParsingTests: XCTestCase {
     }
 
     func testPickerOffersCustomAndOnlyPlayableBuiltIns() {
-        XCTAssertTrue(AlarmSound.offered.contains(.custom))
-        for sound in AlarmSound.offered where sound != .custom {
+        XCTAssertEqual(AlarmSoundMenuItem.offered.last, .custom)
+        for case .builtIn(let sound) in AlarmSoundMenuItem.offered {
             XCTAssertNotNil(sound.file, "\(sound)")
         }
+    }
+
+    func testUnplayableCustomFallsBackToTheBundledSound() {
+        let gone = scratch.appendingPathComponent("gone.mp3")
+        let resolved = AlarmSoundChoice.custom(gone).resolved
+        XCTAssertEqual(resolved, .customUnavailable(gone))
+        XCTAssertEqual(resolved.file, AlarmSound.dontTouchMyMac.file)
+        XCTAssertEqual(AlarmSoundMenuItem(resolved), .builtIn(.dontTouchMyMac))
+    }
+
+    func testPlayableCustomResolves() {
+        let ping = URL(fileURLWithPath: "/System/Library/Sounds/Ping.aiff")
+        XCTAssertEqual(AlarmSoundChoice.custom(ping).resolved.file?.url, ping)
+        XCTAssertEqual(AlarmSoundMenuItem(AlarmSoundChoice.custom(ping).resolved), .custom)
     }
 }
