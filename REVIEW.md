@@ -161,9 +161,15 @@ Behaviour changes:
 - During the recovery cooldown, real readings now count as evidence. Before, the time gate hid every device for 15 s.
 - An assumed "nearby" is never evidence. Before, it counted once the cooldown ended, even without a new reading.
 
-## Open (not fixed)
+## Round 7: a tamper relaunch restores the owner's audio
 
-- **Tamper relaunch saves the wrong "original" audio state.** The alarm switches output to the built-in speaker and raises the volume. A `kill -9` skips the restore, and the relaunched instance then saves the alarm's speaker and volume as the originals, so disarming "restores" those. Fix: persist the pre-alarm device and volume in the armed marker. Found while planning on-device tests; not verified.
+- **Problem.** The alarm moves output to the built-in speaker and raises the volume. A `kill -9` skips the restore, and the relaunched instance then saved the alarm's speaker and volume as the "originals", so disarming restored those.
+- **Fix.** When the alarm starts, `AlarmPlayback` emits `.recordRestore(AudioRestore)`: the output it displaced and the volume it overrode. This comes before any change, and again if headphones change what stop would put back. The shell writes it into the armed marker as `MarkedAudio.recorded(SavedAudioRestore)`. The marker stores devices by CoreAudio UID, because an `AudioDeviceID` doesn't survive a relaunch.
+- **On relaunch.** The marker is adopted under the new pid right away, so the resume's rewrite keeps the record. The record goes to the audio model as `.inherit`, and the model state `.inherited(AudioRestore)` makes the next start restore it instead of reading the current output. The model records it again, so a second kill keeps the originals. A disarm before the alarm sounds again still undoes the killed alarm's changes. A device that is no longer present is not restored.
+- A marker without the `audio` field (from before this change) fails closed, as before.
+- **Not verified on hardware:** the UID lookups (`kAudioDevicePropertyDeviceUID`, `kAudioHardwarePropertyTranslateUIDToDevice`) and the real kill-and-relaunch sequence.
+
+## Open (not fixed)
 
 - **Fork users auto-update back to upstream.** `Info.plist` `SUFeedURL` points at `shenglong209/MacGuard`, and `SUPublicEDKey` is upstream's key. A build from this fork will offer upstream's release and silently replace these changes. To distribute the fork, change both values and sign the appcast with your own key.
 - **Lid-close protection.** `pmset -a disablesleep 1` is a system-wide, persistent setting. If MacGuard crashes or is force-quit, sleep stays disabled until the user notices. On quit, `resetLidCloseProtection` prompts for an administrator password, although its comment says "silent". A privileged helper (`SMAppService`) or a launchd watchdog that resets the setting would be more robust. This needs on-device testing, so it was left unchanged.
