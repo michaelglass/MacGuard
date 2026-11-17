@@ -41,6 +41,14 @@ struct DetectionRange: Equatable {
     init(clamping raw: Int) {
         dBm = raw.clamped(to: Self.range)
     }
+
+    /// A fixed hysteresis band around the centre.
+    var thresholds: ProximityThresholds { ProximityThresholds(present: dBm + 5, away: dBm - 5) }
+
+    /// The closest preset this range still covers, if any.
+    var nearestPreset: ProximityPreset? {
+        ProximityPreset.allCases.first { thresholds.away >= $0.thresholds.away }
+    }
 }
 
 enum ProximityDistance: Equatable {
@@ -49,11 +57,10 @@ enum ProximityDistance: Equatable {
 
     static let `default` = ProximityDistance.preset(.medium)
 
-    /// Custom gets a fixed hysteresis band around the chosen centre.
     var thresholds: ProximityThresholds {
         switch self {
         case .preset(let preset): return preset.thresholds
-        case .custom(let range): return ProximityThresholds(present: range.dBm + 5, away: range.dBm - 5)
+        case .custom(let range): return range.thresholds
         }
     }
 }

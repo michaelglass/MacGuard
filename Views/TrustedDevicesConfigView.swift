@@ -368,13 +368,12 @@ struct TrustedDevicesConfigContainerView: View {
         .glassBorder(cornerRadius: Theme.CornerRadius.md)
     }
 
-    /// User-friendly range description based on the effective away threshold
+    /// The range in dBm and the preset distance it matches.
     private func rangeDescription(_ range: DetectionRange) -> String {
-        let awayThreshold = ProximityDistance.custom(range).thresholds.away
-        if awayThreshold >= -70 { return "\(range.dBm)dBm [~1-2m (Near)]" }
-        if awayThreshold >= -80 { return "\(range.dBm)dBm [~3-5m (Medium)]" }
-        if awayThreshold >= -95 { return "\(range.dBm)dBm [~7-10m (Far)]" }
-        return "\(range.dBm)dBm [~10m+ (Very Far)]"
+        switch range.nearestPreset {
+        case .some(let preset): return "\(range.dBm)dBm [\(preset.description) (\(preset.rawValue))]"
+        case .none: return "\(range.dBm)dBm [~10+ meters (Very Far)]"
+        }
     }
 
     /// Get the strongest RSSI from connected devices (for reference)

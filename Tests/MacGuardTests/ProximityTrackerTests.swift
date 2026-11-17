@@ -5,7 +5,7 @@ import XCTest
 @testable import MacGuard
 
 private let t0 = Date(timeIntervalSinceReferenceDate: 1_000_000)
-private let medium = ProximityThresholds(present: -70, away: -80)
+private let medium = ProximityPreset.medium.thresholds
 
 private func signal(_ dBm: Int) -> Observation {
     .signal(RSSI(dBm)!)

@@ -36,6 +36,14 @@ final class ProximityDistanceTests: XCTestCase {
                        ProximityThresholds(present: -95, away: -105))
     }
 
+    func testCustomRangeNamesTheNearestPreset() {
+        let cases: [(Int, ProximityPreset?)] = [(-55, .near), (-65, .near), (-70, .medium), (-75, .medium),
+                                                (-80, .far), (-90, .far), (-95, nil), (-100, nil)]
+        for (dBm, expected) in cases {
+            XCTAssertEqual(DetectionRange(clamping: dBm).nearestPreset, expected, "\(dBm)")
+        }
+    }
+
     func testStoredFormRoundTripsAndClamps() {
         for distance in ProximityPreset.allCases.map(ProximityDistance.preset) + [.custom(.default)] {
             XCTAssertEqual(ProximityDistance(rawValue: distance.rawValue), distance)
