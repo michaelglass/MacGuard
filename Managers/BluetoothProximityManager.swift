@@ -72,15 +72,12 @@ class BluetoothProximityManager: NSObject, ObservableObject {
         btStateChangeCount < btStabilityThreshold && centralManager.state == .poweredOn
     }
 
-    /// Positive evidence only: nothing while not scanning, and nothing during the
-    /// BT recovery cooldown, when proximity is assumed rather than observed.
+    /// Positive evidence only: nothing while not scanning. Proximity assumed during
+    /// the BT recovery cooldown is not a sighting, so needs no gate here.
     var sightings: [TrustedDevice.ID: Sighting] {
-        guard isScanning, !recoveryCooldown.isActive(at: Date()) else { return [:] }
-        return trustedDevices.reduce(into: [:]) { result, device in
-            if case .seen(let sighting) = tracking[device.id]?.proximity.proximity {
-                result[device.id] = sighting
-            }
-        }
+        guard isScanning else { return [:] }
+        let seen = Proximity.sightings(of: trustedDevices) { tracking[$0]?.proximity.proximity ?? .unobserved }
+        return Dictionary(uniqueKeysWithValues: seen.map { ($0.key.id, $0.value) })
     }
 
     private func device(_ id: UUID) -> TrustedDevice? {

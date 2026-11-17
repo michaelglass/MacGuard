@@ -34,10 +34,37 @@ enum Sighting: Equatable {
     case nearby, away
 }
 
-/// `unobserved` (no reading since scanning started) never vouches for presence.
+/// Only `seen` is evidence. `unobserved` (no reading since scanning started) and
+/// `assumedNearby` (held nearby during the BT recovery cooldown, not observed) are not.
 enum Proximity: Equatable {
     case unobserved
+    /// Treated as nearby for hysteresis and debounce, so devices don't flap away
+    /// while connections recover; only a real observation replaces it.
+    case assumedNearby
     case seen(Sighting)
+
+    /// Nearby for the tracker's own hysteresis, whether observed or assumed.
+    var holdsNearby: Bool {
+        switch self {
+        case .assumedNearby, .seen(.nearby): return true
+        case .unobserved, .seen(.away): return false
+        }
+    }
+}
+
+extension Proximity {
+    /// Positive evidence only: what each trusted device was actually seen as.
+    static func sightings(
+        of devices: [TrustedDevice],
+        _ proximity: (TrustedDevice.ID) -> Proximity
+    ) -> [TrustedDevice: Sighting] {
+        devices.reduce(into: [:]) { result, device in
+            switch proximity(device.id) {
+            case .seen(let sighting): result[device] = sighting
+            case .unobserved, .assumedNearby: break
+            }
+        }
+    }
 }
 
 enum ProximityChange: Equatable {
@@ -62,7 +89,7 @@ struct ProximityTracker: Equatable {
     private(set) var lastNearby: Date?
     private var lastNearbySignal: Date?
 
-    var isNearby: Bool { proximity == .seen(.nearby) }
+    var isNearby: Bool { proximity.holdsNearby }
 
     mutating func observe(
         _ observation: Observation,
@@ -92,7 +119,8 @@ struct ProximityTracker: Equatable {
         if observation.meets(thresholds.away) {
             lastNearbySignal = now
         }
-        proximity = .seen(nearby ? .nearby : .away)
+        // Held nearby only by the cooldown: an assumption, not a sighting
+        proximity = change == .awaySuppressedByCooldown ? .assumedNearby : .seen(nearby ? .nearby : .away)
         lastObservation = observation
         if nearby {
             lastNearby = now
@@ -116,9 +144,9 @@ struct ProximityTracker: Equatable {
     /// So devices don't flap "away" (and auto-arm) while connections recover after BT power-on.
     mutating func assumeNearbyForRecovery() -> ProximityChange {
         switch proximity {
-        case .unobserved, .seen(.nearby): return .unchanged
+        case .unobserved, .assumedNearby, .seen(.nearby): return .unchanged
         case .seen(.away):
-            proximity = .seen(.nearby)
+            proximity = .assumedNearby
             return .becameNearby
         }
     }

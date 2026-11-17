@@ -54,6 +54,7 @@ final class ProximityTrackerTests: XCTestCase {
         _ = tracker.feed(signal(-60), at: 0)
         XCTAssertEqual(tracker.feed(.disconnected, at: 60, cooldown: true), .awaySuppressedByCooldown)
         XCTAssertTrue(tracker.isNearby)
+        XCTAssertEqual(tracker.proximity, .assumedNearby, "held nearby, not seen nearby")
         XCTAssertEqual(tracker.feed(.disconnected, at: 61), .becameAway)
     }
 
@@ -85,10 +86,29 @@ final class ProximityTrackerTests: XCTestCase {
         _ = observed.feed(signal(-90), at: 0)
         XCTAssertEqual(observed.assumeNearbyForRecovery(), .becameNearby)
         XCTAssertTrue(observed.isNearby)
+        XCTAssertEqual(observed.proximity, .assumedNearby)
 
         var unseen = ProximityTracker()
         XCTAssertEqual(unseen.assumeNearbyForRecovery(), .unchanged)
         XCTAssertEqual(unseen.proximity, .unobserved)
+    }
+
+    /// The old time gate let an assumption count as nearby once the cooldown ended.
+    func testAssumedProximityIsNeverASightingUntilObserved() {
+        var tracker = ProximityTracker()
+        _ = tracker.feed(signal(-90), at: 0)
+        _ = tracker.assumeNearbyForRecovery()
+        // Long after any cooldown, with no new reading: still not evidence
+        XCTAssertEqual(Proximity.sightings(of: [.phone]) { _ in tracker.proximity }, [:])
+        // The assumption still holds hysteresis: a band reading keeps it nearby
+        XCTAssertEqual(tracker.feed(signal(-75), at: 100), .unchanged)
+        XCTAssertEqual(Proximity.sightings(of: [.phone]) { _ in tracker.proximity }, [.phone: .nearby])
+    }
+
+    func testSightingsSkipUnobservedAndAssumedDevices() {
+        let proximity: [TrustedDevice.ID: Proximity] = [TrustedDevice.phone.id: .seen(.away), TrustedDevice.watch.id: .assumedNearby]
+        XCTAssertEqual(Proximity.sightings(of: [.phone, .watch]) { proximity[$0] ?? .unobserved }, [.phone: .away])
+        XCTAssertEqual(Proximity.sightings(of: [.phone, .watch]) { _ in .unobserved }, [:])
     }
 
     func testMarkDisconnectedReportsAwayOnlyWhenItWasNearby() {
