@@ -3,7 +3,8 @@
 // Created: 2025-12-18
 
 import Cocoa
-import ApplicationServices
+// Declares constant CFStrings such as kAXTrustedCheckOptionPrompt as mutable C globals.
+@preconcurrency import ApplicationServices
 
 /// User input that counts as an intrusion, parsed from raw `CGEventType`s at the boundary.
 enum IntrusionInput: CaseIterable {
@@ -51,6 +52,7 @@ enum IntrusionInput: CaseIterable {
 
 /// Monitors global keyboard, mouse, and touchpad input using CGEventTap
 /// Requires Accessibility permission
+@MainActor
 class InputMonitor {
     var onInput: (AlarmMachine.Msg) -> Void = { _ in }
 
@@ -91,7 +93,9 @@ class InputMonitor {
 
         let callback: CGEventTapCallBack = { _, type, event, refcon -> Unmanaged<CGEvent>? in
             if let refcon {
-                Unmanaged<InputMonitor>.fromOpaque(refcon).takeUnretainedValue().handle(type)
+                MainActor.assumeIsolated {
+                    Unmanaged<InputMonitor>.fromOpaque(refcon).takeUnretainedValue().handle(type)
+                }
             }
             // Listen-only: always pass the event through
             return Unmanaged.passUnretained(event)
@@ -142,7 +146,7 @@ class InputMonitor {
         logActivity(.input, "Stopped monitoring input events")
     }
 
-    deinit {
+    isolated deinit {
         stopMonitoring()
     }
 }

@@ -10,7 +10,8 @@ struct NetworkLink: Hashable {
     let kind: Kind
 }
 
-/// Reports when the set of Wi-Fi / wired links in use changes.
+/// Reports when the set of Wi-Fi / wired links in use changes. Updates arrive on the main queue.
+@MainActor
 class NetworkMonitor {
     var onInput: (AlarmMachine.Msg) -> Void = { _ in }
 
@@ -18,7 +19,7 @@ class NetworkMonitor {
     private var baseline: Set<NetworkLink>?
 
     /// Loopback, VPN tunnels and cellular are not physical tampering signals.
-    static func links(of path: NWPath) -> Set<NetworkLink> {
+    nonisolated static func links(of path: NWPath) -> Set<NetworkLink> {
         guard path.status == .satisfied else { return [] }
         return Set(path.availableInterfaces.compactMap { interface in
             switch interface.type {
@@ -29,7 +30,7 @@ class NetworkMonitor {
         })
     }
 
-    static func isChange(from baseline: Set<NetworkLink>?, to current: Set<NetworkLink>) -> Bool {
+    nonisolated static func isChange(from baseline: Set<NetworkLink>?, to current: Set<NetworkLink>) -> Bool {
         guard let baseline else { return false }
         return baseline != current
     }
@@ -39,13 +40,15 @@ class NetworkMonitor {
         // NWPathMonitor cannot be restarted after cancel
         let monitor = NWPathMonitor()
         monitor.pathUpdateHandler = { [weak self] path in
-            guard let self else { return }
-            let current = Self.links(of: path)
-            if Self.isChange(from: self.baseline, to: current) {
-                logActivity(.system, "Network links changed")
-                self.onInput(.intrusion(.networkChanged))
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                let current = Self.links(of: path)
+                if Self.isChange(from: self.baseline, to: current) {
+                    logActivity(.system, "Network links changed")
+                    self.onInput(.intrusion(.networkChanged))
+                }
+                self.baseline = current
             }
-            self.baseline = current
         }
         monitor.start(queue: .main)
         self.monitor = monitor

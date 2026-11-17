@@ -1,7 +1,8 @@
 // IntruderCamera.swift
 // MacGuard - Anti-Theft Alarm for macOS
 
-import AVFoundation
+// AVFoundation's capture classes have no Sendable annotations; StillCapture confines them to its queue.
+@preconcurrency import AVFoundation
 import AppKit
 import SwiftUI
 

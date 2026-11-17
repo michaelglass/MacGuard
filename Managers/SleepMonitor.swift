@@ -7,7 +7,9 @@ import IOKit
 import IOKit.pwr_mgt
 
 /// Monitors lid close events via IOKit clamshell state and sleep notifications,
-/// and keeps the Mac awake for as long as it is monitoring.
+/// and keeps the Mac awake for as long as it is monitoring. Its timer and
+/// NSWorkspace notifications arrive on the main thread.
+@MainActor
 class SleepMonitor {
     var onInput: (AlarmMachine.Msg) -> Void = { _ in }
 
@@ -30,7 +32,7 @@ class SleepMonitor {
         // Polled via IOKit: works even with sleep disabled. Common modes: a
         // default-mode timer pauses while a menu is open.
         let lidTimer = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
-            self?.checkLidState()
+            MainActor.assumeIsolated { self?.checkLidState() }
         }
         RunLoop.main.add(lidTimer, forMode: .common)
 
@@ -119,7 +121,7 @@ class SleepMonitor {
         }
     }
 
-    deinit {
+    isolated deinit {
         stopMonitoring()
     }
 }

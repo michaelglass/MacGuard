@@ -8,6 +8,8 @@ import IOKit.hid
 /// Reads the accelerometer and lid-angle sensor of Apple Silicon MacBooks
 /// (AppleSPUHIDDevice; no root needed) and feeds the pure detectors.
 /// Sensor layout per github.com/olvvier/apple-silicon-accelerometer (MIT).
+/// Its HID callbacks and timer run on the main run loop.
+@MainActor
 final class MotionMonitor {
     var onInput: (AlarmMachine.Msg) -> Void = { _ in }
 
@@ -74,8 +76,10 @@ final class MotionMonitor {
         for device in devices {
             IOHIDDeviceRegisterInputReportCallback(device, buffer, 64, { context, _, _, _, _, report, length in
                 guard let context else { return }
-                Unmanaged<MotionMonitor>.fromOpaque(context).takeUnretainedValue()
-                    .received(UnsafeRawBufferPointer(start: report, count: length))
+                MainActor.assumeIsolated {
+                    Unmanaged<MotionMonitor>.fromOpaque(context).takeUnretainedValue()
+                        .received(UnsafeRawBufferPointer(start: report, count: length))
+                }
             }, context)
         }
         IOHIDManagerScheduleWithRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue)
@@ -126,7 +130,7 @@ final class MotionMonitor {
             logActivity(.system, "Lid angle trigger unavailable: no lid sensor")
             return
         }
-        let timer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in self?.pollLid() }
+        let timer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.pollLid() } }
         RunLoop.main.add(timer, forMode: .common)
         lid = Lid(manager: manager, device: device, timer: timer)
         pollLid()
