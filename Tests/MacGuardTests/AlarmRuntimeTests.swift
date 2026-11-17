@@ -59,7 +59,7 @@ private final class ManualScheduler: AlarmScheduler {
 
     func now() -> Date { current }
 
-    func schedule(after interval: TimeInterval, repeats: Bool, _ action: @escaping @MainActor () -> Void) -> AlarmTimer {
+    func schedule(after interval: TimeInterval, repeats: Bool, _ action: @escaping @MainActor @Sendable () -> Void) -> AlarmTimer {
         let entry = Entry(due: current.addingTimeInterval(interval), interval: interval, repeats: repeats, action: action)
         entries.append(entry)
         return entry

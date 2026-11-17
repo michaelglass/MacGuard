@@ -99,6 +99,7 @@ struct PINThrottle: Equatable, Codable {
 }
 
 /// Manages authentication for disarming the alarm (Touch ID / password + PIN fallback)
+@MainActor
 class AuthManager: ObservableObject {
     // MARK: - Published Properties
 
@@ -144,7 +145,7 @@ class AuthManager: ObservableObject {
     }
 
     /// `.deviceOwnerAuthentication` falls back to the password, so a Mac without Touch ID can disarm.
-    func authenticate(completion: @escaping (OwnerAuthentication?) -> Void) {
+    func authenticate(completion: @escaping @MainActor @Sendable (OwnerAuthentication?) -> Void) {
         pendingAuthentication?.invalidate()
         let context = LAContext()
         pendingAuthentication = context
@@ -229,7 +230,7 @@ class AuthManager: ObservableObject {
         throttle = PINThrottle()
     }
 
-    static func constantTimeEquals(_ a: Data, _ b: Data) -> Bool {
+    nonisolated static func constantTimeEquals(_ a: Data, _ b: Data) -> Bool {
         guard a.count == b.count else { return false }
         return zip(a, b).reduce(UInt8(0)) { $0 | ($1.0 ^ $1.1) } == 0
     }

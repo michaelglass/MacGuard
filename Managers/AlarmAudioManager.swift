@@ -154,6 +154,7 @@ struct AudioDevice: Equatable, CustomStringConvertible {
 }
 
 /// Performs AlarmPlayback's decisions: reads CoreAudio into messages and runs the effects.
+@MainActor
 class AlarmAudioManager {
     private typealias Playback = AlarmPlayback<AVAudioPlayer>
     private var model: Playback.Model = .idle(prepared: nil)
@@ -250,7 +251,7 @@ class AlarmAudioManager {
         }
     }
 
-    deinit {
+    isolated deinit {
         stopAlarm()
     }
 }
@@ -267,8 +268,9 @@ private final class OutputWatch {
     private let block: AudioObjectPropertyListenerBlock
     private var listeners: [(object: AudioObjectID, address: AudioObjectPropertyAddress)] = []
 
-    init(_ onChange: @escaping () -> Void) {
-        block = { _, _ in onChange() }
+    /// The listeners are registered on the main queue.
+    init(_ onChange: @escaping @MainActor @Sendable () -> Void) {
+        block = { _, _ in MainActor.assumeIsolated { onChange() } }
     }
 
     func watch(_ device: AudioDevice?) {

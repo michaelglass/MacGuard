@@ -33,7 +33,7 @@ protocol AlarmTimer: AnyObject {
 @MainActor
 protocol AlarmScheduler {
     func now() -> Date
-    func schedule(after interval: TimeInterval, repeats: Bool, _ action: @escaping @MainActor () -> Void) -> AlarmTimer
+    func schedule(after interval: TimeInterval, repeats: Bool, _ action: @escaping @MainActor @Sendable () -> Void) -> AlarmTimer
 }
 
 /// Updates `AlarmMachine` and runs its effects. Feedback effects (timers,
@@ -144,7 +144,7 @@ struct RunLoopScheduler: AlarmScheduler {
 
     func now() -> Date { Date() }
 
-    func schedule(after interval: TimeInterval, repeats: Bool, _ action: @escaping @MainActor () -> Void) -> AlarmTimer {
+    func schedule(after interval: TimeInterval, repeats: Bool, _ action: @escaping @MainActor @Sendable () -> Void) -> AlarmTimer {
         let timer = Timer(timeInterval: interval, repeats: repeats) { _ in
             MainActor.assumeIsolated { action() }
         }
