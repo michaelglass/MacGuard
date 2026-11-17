@@ -20,7 +20,7 @@ final class TamperMachineTests: XCTestCase {
         let standDowns: [(AlarmState, AlarmInput)] = [
             (.arming(manual, until: AlarmEnvironment.t0), .cancelArming),
             (.arming(manual, until: AlarmEnvironment.t0), .inputMonitoringStarted(false)),
-            (.armed(left), .trustedDeviceNearby(name: "Phone")),
+            (.armed(left), .trustedDeviceNearby(.phone)),
             (.alarming(left, .tamper), .systemWoke),
         ]
         let nearby = AlarmEnvironment.fixture(countdown: 0, proximity: .devices(nearby: .all))

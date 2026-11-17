@@ -118,25 +118,25 @@ final class AlarmMachineTests: XCTestCase {
     // MARK: Proximity disarm
 
     func testManualArmIsNotDisarmedByPresentDevice() {
-        let (state, effects) = step(.armed(manual), .trustedDeviceNearby(name: "Phone"), .fixture(proximity: .devices(nearby: .some)))
+        let (state, effects) = step(.armed(manual), .trustedDeviceNearby(.phone), .fixture(proximity: .devices(nearby: .some)))
         XCTAssertEqual(state, .armed(manual))
         XCTAssertTrue(effects.contains(.log(.bluetooth, "Device 'Phone' nearby but manual arm - not auto-disarming")))
     }
 
     func testDeviceThatLeftThenReturnedDisarms() {
-        let away = step(.armed(manual), .trustedDeviceAway(name: "Phone")).state
+        let away = step(.armed(manual), .trustedDeviceAway(.phone)).state
         XCTAssertEqual(away, .armed(left))
-        XCTAssertEqual(step(away, .trustedDeviceNearby(name: "Phone"), .fixture(proximity: .devices(nearby: .some))).state, .idle)
+        XCTAssertEqual(step(away, .trustedDeviceNearby(.phone), .fixture(proximity: .devices(nearby: .some))).state, .idle)
     }
 
     func testReturnDisarmsDuringAlarmToo() {
-        XCTAssertEqual(step(.alarming(left, key), .trustedDeviceNearby(name: "Phone"), .fixture(proximity: .devices(nearby: .some))).state, .idle)
+        XCTAssertEqual(step(.alarming(left, key), .trustedDeviceNearby(.phone), .fixture(proximity: .devices(nearby: .some))).state, .idle)
     }
 
     func testAnyDeviceAwayModeNeedsAllDevicesBack() {
         let partial = AlarmEnvironment.fixture(proximity: .devices(.anyDeviceAway, nearby: .some))
-        XCTAssertEqual(step(.armed(left), .trustedDeviceNearby(name: "Phone"), partial).state, .armed(left))
-        XCTAssertEqual(step(.armed(left), .trustedDeviceNearby(name: "Watch"), .fixture(proximity: .devices(.anyDeviceAway, nearby: .all))).state, .idle)
+        XCTAssertEqual(step(.armed(left), .trustedDeviceNearby(.phone), partial).state, .armed(left))
+        XCTAssertEqual(step(.armed(left), .trustedDeviceNearby(.watch), .fixture(proximity: .devices(.anyDeviceAway, nearby: .all))).state, .idle)
     }
 
     /// Including the manual-arm rule and "any device away" mode.
@@ -147,11 +147,11 @@ final class AlarmMachineTests: XCTestCase {
     }
 
     func testNoProximityDisarmWhileArming() {
-        XCTAssertEqual(step(arming(left), .trustedDeviceNearby(name: "Phone"), .fixture(proximity: .devices(nearby: .some))).state, arming(left))
+        XCTAssertEqual(step(arming(left), .trustedDeviceNearby(.phone), .fixture(proximity: .devices(nearby: .some))).state, arming(left))
     }
 
     func testNearbyAlwaysCancelsAutoArmTimer() {
-        XCTAssertEqual(step(.idle, .trustedDeviceNearby(name: "Phone")).effects,
+        XCTAssertEqual(step(.idle, .trustedDeviceNearby(.phone)).effects,
                        [.cancelAutoArmTimer(reason: "Auto-arm cancelled - 'Phone' detected nearby")])
     }
 
@@ -165,7 +165,7 @@ final class AlarmMachineTests: XCTestCase {
     }
 
     func testAnyAwayModeStartsGracePeriodOnSingleDeparture() {
-        let effects = step(.idle, .trustedDeviceAway(name: "Phone"), .fixture(proximity: .devices(.anyDeviceAway, autoArm: .onDeviceLeave(.stable)))).effects
+        let effects = step(.idle, .trustedDeviceAway(.phone), .fixture(proximity: .devices(.anyDeviceAway, autoArm: .onDeviceLeave(.stable)))).effects
         XCTAssertTrue(effects.contains(.startAutoArmTimer))
     }
 

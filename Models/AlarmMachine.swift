@@ -47,8 +47,8 @@ enum AlarmInput {
     /// Sounds immediately, even mid-countdown.
     case severeIntrusion(TriggerCause)
     case countdownTick
-    case trustedDeviceNearby(name: String)
-    case trustedDeviceAway(name: String)
+    case trustedDeviceNearby(TrustedDevice)
+    case trustedDeviceAway(TrustedDevice)
     case allTrustedDevicesAway
     case systemWoke
     case autoArmTimerFired
@@ -215,7 +215,8 @@ enum AlarmMachine {
             return (.triggered(session, next, cause), [])
 
         // MARK: ProximityEvidence
-        case (_, .trustedDeviceNearby(let name)):
+        case (_, .trustedDeviceNearby(let device)):
+            let name = device.name
             let cancel = AlarmEffect.cancelAutoArmTimer(reason: "Auto-arm cancelled - '\(name)' detected nearby")
             guard let session = state.session else { return (state, [cancel]) }
             if proximityMayDisarm(state, env) {
@@ -225,8 +226,8 @@ enum AlarmMachine {
             guard !session.trustedDeviceHasLeft else { return (state, [cancel]) }
             return (state, [cancel, .log(.bluetooth, "Device '\(name)' nearby but manual arm - not auto-disarming")])
 
-        case (_, .trustedDeviceAway(let name)):
-            var effects: [AlarmEffect] = [.log(.bluetooth, "Trusted device '\(name)' left proximity")]
+        case (_, .trustedDeviceAway(let device)):
+            var effects: [AlarmEffect] = [.log(.bluetooth, "Trusted device '\(device.name)' left proximity")]
             var next = state
             if state.session?.trustedDeviceHasLeft == false {
                 next = state.updatingSession { $0.trustedDeviceHasLeft = true }

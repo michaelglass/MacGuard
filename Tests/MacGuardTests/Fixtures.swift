@@ -39,3 +39,8 @@ extension ProximityEvidence {
 
     static let autoArmStable = devices(autoArm: .onDeviceLeave(.stable))
 }
+
+extension TrustedDevice {
+    static let phone = TrustedDevice(id: UUID(uuidString: "00000000-0000-0000-0000-00000000000A")!, name: "Phone", transport: .ble)
+    static let watch = TrustedDevice(id: UUID(uuidString: "00000000-0000-0000-0000-00000000000B")!, name: "Watch", transport: .ble)
+}

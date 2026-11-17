@@ -350,10 +350,10 @@ class BluetoothProximityManager: NSObject, ObservableObject {
         switch change {
         case .becameNearby:
             logActivity(.bluetooth, "\(device.name) nearby (RSSI: \(reading))")
-            onInput(.trustedDeviceNearby(name: device.name))
+            onInput(.trustedDeviceNearby(device))
         case .becameAway:
             logActivity(.bluetooth, "\(device.name) away (RSSI: \(reading))")
-            onInput(.trustedDeviceAway(name: device.name))
+            onInput(.trustedDeviceAway(device))
         case .awaySuppressedByCooldown:
             logActivity(.bluetooth, "\(device.name) away blocked (BT recovery cooldown)")
         case .awayDebounced(let since):

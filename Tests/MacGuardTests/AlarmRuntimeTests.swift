@@ -168,9 +168,9 @@ final class AlarmRuntimeTests: XCTestCase {
         runtime.send(.cancelArming)  // not allowed once armed
         XCTAssertEqual(runtime.state.phase, .triggered)
 
-        runtime.send(.trustedDeviceAway(name: "Phone"))
+        runtime.send(.trustedDeviceAway(.phone))
         env = .fixture(proximity: .devices(nearby: .some))
-        runtime.send(.trustedDeviceNearby(name: "Phone"))
+        runtime.send(.trustedDeviceNearby(.phone))
         XCTAssertEqual(runtime.state, .idle)
         XCTAssertEqual(scheduler.pending, 0)
         for call: FakeHardware.Call in [.stopMonitors, .stopAlarm, .hideOverlay, .clearArmedMarker, .endOwnerChallenge] {
@@ -184,7 +184,7 @@ final class AlarmRuntimeTests: XCTestCase {
         env = .fixture(proximity: .autoArmStable)
         runtime.send(.allTrustedDevicesAway)
         XCTAssertEqual(scheduler.pending, 1)
-        runtime.send(.trustedDeviceNearby(name: "Phone"))
+        runtime.send(.trustedDeviceNearby(.phone))
         XCTAssertEqual(scheduler.pending, 0)
         XCTAssertTrue(hardware.logs.contains("Auto-arm cancelled - 'Phone' detected nearby"))
 
