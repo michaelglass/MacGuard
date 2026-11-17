@@ -19,8 +19,8 @@ private func ad(_ name: String, _ peripheral: UUID, _ dBm: Int = -60) -> DeviceS
     .advertised(Advertisement(name: name, peripheral: peripheral, rawRSSI: dBm)!)
 }
 
-private func feed(_ msgs: [DeviceScan.Msg]) -> (DeviceScan, [DeviceScan.Effect]) {
-    msgs.reduce((DeviceScan(), [])) { acc, msg in
+private func feed(_ msgs: [DeviceScan.Msg]) -> (DeviceScan.Model, [DeviceScan.Effect]) {
+    msgs.reduce((DeviceScan.Model(), [])) { acc, msg in
         let (model, effects) = DeviceScan.update(acc.0, msg)
         return (model, acc.1 + effects)
     }

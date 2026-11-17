@@ -39,7 +39,7 @@ final class DeviceScannerWindowController {
 /// Shell around `DeviceScan`: parses IOBluetooth/CoreBluetooth callbacks into messages.
 class DeviceScannerViewModel: NSObject, ObservableObject {
     var bluetoothManager: BluetoothProximityManager
-    @Published private(set) var scan = DeviceScan()
+    @Published private(set) var scan = DeviceScan.Model()
     /// Exists exactly while scanning.
     @Published private var centralManager: CBCentralManager?
 
@@ -51,7 +51,7 @@ class DeviceScannerViewModel: NSObject, ObservableObject {
 
     func startScanning() {
         guard !isScanning else { return }
-        scan = DeviceScan()
+        scan = DeviceScan.Model()
         send(.pairedLoaded(loadPairedDevices()))
         // BLE scan supplies RSSI and binds BLE-capable devices
         centralManager = CBCentralManager(delegate: self, queue: nil)

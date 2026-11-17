@@ -76,9 +76,11 @@ struct Advertisement: Equatable {
 
 /// The scanner's list: paired devices, bound to a BLE peripheral only while that
 /// peripheral is the sole one advertising the (attacker-controlled) name.
-struct DeviceScan: Equatable {
-    private(set) var devices: [DiscoveredDevice] = []
-    private var peripheralsByName: [String: Set<UUID>] = [:]
+enum DeviceScan {
+    struct Model: Equatable {
+        fileprivate(set) var devices: [DiscoveredDevice] = []
+        fileprivate var peripheralsByName: [String: Set<UUID>] = [:]
+    }
 
     enum Msg: Equatable {
         case pairedLoaded([DiscoveredDevice])
@@ -89,7 +91,7 @@ struct DeviceScan: Equatable {
         case log(ActivityLogCategory, String)
     }
 
-    static func update(_ model: DeviceScan, _ msg: Msg) -> (DeviceScan, [Effect]) {
+    static func update(_ model: Model, _ msg: Msg) -> (Model, [Effect]) {
         var model = model
         var effects: [Effect] = []
         switch msg {
