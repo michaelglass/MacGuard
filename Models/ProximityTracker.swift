@@ -52,47 +52,71 @@ enum Proximity: Equatable {
     }
 }
 
+/// What the alarm knows of a device it has some state for. Only `seen` is
+/// evidence; `assumedNearby` is kept so a later "away" counts as leaving.
+enum Presence: Equatable {
+    case assumedNearby
+    case seen(Sighting)
+
+    /// Nearby, observed or assumed: going away from here is leaving.
+    var holdsNearby: Bool {
+        switch self {
+        case .assumedNearby, .seen(.nearby): return true
+        case .seen(.away): return false
+        }
+    }
+}
+
 extension Proximity {
-    /// Positive evidence only: what each trusted device was actually seen as.
-    static func sightings(
+    /// Unobserved devices are absent: not seen is neither here nor gone.
+    static func presence(
         of devices: [TrustedDevice],
         _ proximity: (TrustedDevice.ID) -> Proximity
-    ) -> [TrustedDevice: Sighting] {
+    ) -> [TrustedDevice: Presence] {
         devices.reduce(into: [:]) { result, device in
             switch proximity(device.id) {
-            case .seen(let sighting): result[device] = sighting
-            case .unobserved, .assumedNearby: break
+            case .seen(let sighting): result[device] = .seen(sighting)
+            case .assumedNearby: result[device] = .assumedNearby
+            case .unobserved: break
             }
         }
     }
 }
 
-/// A change in what a trusted device is seen as: the one way proximity reaches the
-/// alarm. Becoming nearby is a return, becoming away a departure; losing sight
-/// (scan stopped or reset, device removed, proximity only assumed) is neither.
-enum SightingChange: Equatable {
+/// A change in a trusted device's presence: the one way proximity reaches the
+/// alarm. Seen nearby is a return, seen away a departure. Assumed nearby and
+/// lost (scan stopped or reset, device removed) are neither.
+enum PresenceChange: Equatable {
     case seen(TrustedDevice, Sighting)
+    case assumedNearby(TrustedDevice)
     case lost(TrustedDevice)
 
-    /// One change per device whose sighting differs, in a stable order.
-    static func changes(from old: [TrustedDevice: Sighting], to new: [TrustedDevice: Sighting]) -> [SightingChange] {
+    /// One change per device whose presence differs, in a stable order.
+    static func changes(from old: [TrustedDevice: Presence], to new: [TrustedDevice: Presence]) -> [PresenceChange] {
         let devices = Set(old.keys).union(new.keys).sorted { $0.id.uuidString < $1.id.uuidString }
         return devices.compactMap { device in
             switch (old[device], new[device]) {
-            case let (before, now?) where before != now: return .seen(device, now)
+            case let (before, now?) where before != now: return change(device, to: now)
             case (_?, nil): return .lost(device)
             case (_, _?), (nil, nil): return nil
             }
         }
     }
 
-    func applied(to sightings: [TrustedDevice: Sighting]) -> [TrustedDevice: Sighting] {
-        var result = sightings
-        switch self {
-        case .seen(let device, let sighting): result[device] = sighting
-        case .lost(let device): result[device] = nil
+    private static func change(_ device: TrustedDevice, to presence: Presence) -> PresenceChange {
+        switch presence {
+        case .seen(let sighting): return .seen(device, sighting)
+        case .assumedNearby: return .assumedNearby(device)
         }
-        return result
+    }
+
+    /// The shell keys presence by device, the machine by device ID.
+    func apply<Key: Hashable>(to presence: inout [Key: Presence], by key: (TrustedDevice) -> Key) {
+        switch self {
+        case .seen(let device, let sighting): presence[key(device)] = .seen(sighting)
+        case .assumedNearby(let device): presence[key(device)] = .assumedNearby
+        case .lost(let device): presence.removeValue(forKey: key(device))
+        }
     }
 }
 

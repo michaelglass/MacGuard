@@ -48,7 +48,7 @@ extension AlarmMachine {
         /// Sounds immediately, even mid-countdown.
         case severeIntrusion(TriggerCause)
         case countdownTick
-        case proximity(SightingChange)
+        case proximity(PresenceChange)
         case systemWoke
         case autoArmTimerFired
         case screenLocked
@@ -125,34 +125,33 @@ extension AlarmMachine {
 enum AlarmMachine {
     struct Model: Equatable {
         var alarm: AlarmState
-        /// Proximity *evidence*, kept from `.proximity` messages. Unobserved and
-        /// assumed devices are absent: not seen is neither here nor gone.
-        var sightings: [TrustedDevice.ID: Sighting]
+        /// Kept from `.proximity` messages. Only `.seen` is evidence; unobserved
+        /// devices are absent: not seen is neither here nor gone.
+        var presence: [TrustedDevice.ID: Presence]
 
-        static let initial = Model(alarm: .idle, sightings: [:])
+        static let initial = Model(alarm: .idle, presence: [:])
     }
 
     static func update(_ model: Model, _ msg: Msg, _ env: AlarmEnvironment) -> (Model, [Effect]) {
-        var sightings = model.sightings
+        var presence = model.presence
         if case .proximity(let change) = msg {
-            switch change {
-            case .seen(let device, let sighting): sightings[device.id] = sighting
-            case .lost(let device): sightings[device.id] = nil
-            }
+            change.apply(to: &presence, by: \.id)
         }
-        let (alarm, effects) = decide(model.alarm, msg, sightings, env)
-        return (Model(alarm: alarm, sightings: sightings), effects)
+        let (alarm, effects) = decide(model.alarm, msg, before: model.presence, after: presence, env)
+        return (Model(alarm: alarm, presence: presence), effects)
     }
 
-    /// `sightings` already include this message's change.
+    /// `after` includes this message's change; `before` is only for telling a
+    /// departure (leaving from nearby) from a first sighting of away.
     private static func decide(
         _ state: AlarmState,
         _ msg: Msg,
-        _ sightings: [TrustedDevice.ID: Sighting],
+        before: [TrustedDevice.ID: Presence],
+        after: [TrustedDevice.ID: Presence],
         _ env: AlarmEnvironment
     ) -> (AlarmState, [Effect]) {
         func seen(_ sighting: Sighting) -> Set<TrustedDevice.ID> {
-            Set(sightings.filter { $0.value == sighting }.keys)
+            Set(after.filter { $0.value == .seen(sighting) }.keys)
         }
 
         switch (state, msg) {
@@ -224,9 +223,14 @@ enum AlarmMachine {
             }
             return standDown("Disarmed via trusted device '\(device.name)'", env)
 
-        // Away from anything, first sighting included: positively observed absent.
+        // Only leaving starts the grace period: a device first seen away was never here.
         case (.idle, .proximity(.seen(let device, .away))):
+            guard before[device.id]?.holdsNearby == true else {
+                return (state, [.log(.bluetooth, "'\(device.name)' seen away but was not nearby - no grace period")])
+            }
             return (state, autoArmGracePeriod("'\(device.name)' left - starting grace period", env.autoArm))
+
+        // A first sighting of away counts too: the device is missing from this session.
 
         case (_, .proximity(.seen(let device, .away))):
             var effects: [Effect] = [.log(.bluetooth, "Trusted device '\(device.name)' left proximity")]
@@ -235,8 +239,8 @@ enum AlarmMachine {
             }
             return (state.updatingSession { $0.departed.insert(device.id) }, effects)
 
-        // No longer seen is neither a return nor a departure.
-        case (_, .proximity(.lost)):
+        // An assumption or no longer seen is neither a return nor a departure.
+        case (_, .proximity(.assumedNearby)), (_, .proximity(.lost)):
             return (state, [])
 
         case (_, .systemWoke):
@@ -251,13 +255,13 @@ enum AlarmMachine {
             return (next, [.persistArmedMarker(session), .startSystemMonitors] + effects)
 
         case (.idle, .autoArmTimerFired):
-            let (next, effects) = decide(.idle, .armRequested(auto: true), sightings, env)
+            let (next, effects) = decide(.idle, .armRequested(auto: true), before: before, after: after, env)
             return (next, [.log(.armed, "Auto-arming - trusted device still away")] + effects)
 
         case (.idle, .screenLocked):
             guard env.autoArmOnScreenLock else { return (state, []) }
             // A manual arm: only devices already away (or leaving later) may disarm.
-            let (next, effects) = decide(.idle, .armRequested(auto: false), sightings, env)
+            let (next, effects) = decide(.idle, .armRequested(auto: false), before: before, after: after, env)
             return (next, [.log(.armed, "Screen locked - arming")] + effects)
 
         case (.idle, .settingsChanged):

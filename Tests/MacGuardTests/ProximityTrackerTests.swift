@@ -56,12 +56,12 @@ final class ProximityTrackerTests: XCTestCase {
     /// A phone on the desk at arming whose first reading is weak, then strong.
     func testDeskPhoneWithWeakFirstReadingCannotDisarm() {
         var tracker = ProximityTracker()
-        var published: [TrustedDevice: Sighting] = [:]
+        var published: [TrustedDevice: Presence] = [:]
         var model = AlarmMachine.Model.fixture(.armed(.noDepartures))
         for (dBm, at) in [(-75, 0.0), (-60, 1.0)] {
             _ = tracker.feed(signal(dBm), at: at)
-            let now = Proximity.sightings(of: [.phone]) { _ in tracker.proximity }
-            for change in SightingChange.changes(from: published, to: now) {
+            let now = Proximity.presence(of: [.phone]) { _ in tracker.proximity }
+            for change in PresenceChange.changes(from: published, to: now) {
                 model = AlarmMachine.update(model, .proximity(change), .fixture()).0
             }
             published = now
@@ -136,17 +136,18 @@ final class ProximityTrackerTests: XCTestCase {
         var tracker = ProximityTracker()
         _ = tracker.feed(signal(-90), at: 0)
         _ = tracker.assumeNearbyForRecovery()
-        // Long after any cooldown, with no new reading: still not evidence
-        XCTAssertEqual(Proximity.sightings(of: [.phone]) { _ in tracker.proximity }, [:])
+        // Long after any cooldown, with no new reading: still only an assumption
+        XCTAssertEqual(Proximity.presence(of: [.phone]) { _ in tracker.proximity }, [.phone: .assumedNearby])
         // The assumption still holds hysteresis: a band reading keeps it nearby
         XCTAssertEqual(tracker.feed(signal(-75), at: 100), .unchanged)
-        XCTAssertEqual(Proximity.sightings(of: [.phone]) { _ in tracker.proximity }, [.phone: .nearby])
+        XCTAssertEqual(Proximity.presence(of: [.phone]) { _ in tracker.proximity }, [.phone: .seen(.nearby)])
     }
 
-    func testSightingsSkipUnobservedAndAssumedDevices() {
+    func testPresenceSkipsUnobservedDevices() {
         let proximity: [TrustedDevice.ID: Proximity] = [TrustedDevice.phone.id: .seen(.away), TrustedDevice.watch.id: .assumedNearby]
-        XCTAssertEqual(Proximity.sightings(of: [.phone, .watch]) { proximity[$0] ?? .unobserved }, [.phone: .away])
-        XCTAssertEqual(Proximity.sightings(of: [.phone, .watch]) { _ in .unobserved }, [:])
+        XCTAssertEqual(Proximity.presence(of: [.phone, .watch]) { proximity[$0] ?? .unobserved },
+                       [.phone: .seen(.away), .watch: .assumedNearby])
+        XCTAssertEqual(Proximity.presence(of: [.phone, .watch]) { _ in .unobserved }, [:])
     }
 
     func testMarkDisconnectedReportsAwayOnlyWhenItWasNearby() {
@@ -220,33 +221,37 @@ final class ClassicLinkTrackerTests: XCTestCase {
     }
 }
 
-final class SightingChangeTests: XCTestCase {
-    private func changes(_ old: [TrustedDevice: Sighting], _ new: [TrustedDevice: Sighting]) -> [SightingChange] {
-        SightingChange.changes(from: old, to: new)
+final class PresenceChangeTests: XCTestCase {
+    private func changes(_ old: [TrustedDevice: Presence], _ new: [TrustedDevice: Presence]) -> [PresenceChange] {
+        PresenceChange.changes(from: old, to: new)
     }
 
-    func testOnlyDevicesWhoseSightingChangedAreReported() {
+    func testOnlyDevicesWhosePresenceChangedAreReported() {
         XCTAssertEqual(changes([:], [:]), [])
-        XCTAssertEqual(changes([.phone: .nearby, .watch: .away], [.phone: .nearby, .watch: .away]), [])
-        XCTAssertEqual(changes([.phone: .nearby, .watch: .away], [.phone: .away, .watch: .away]), [.seen(.phone, .away)])
+        XCTAssertEqual(changes([.phone: .seen(.nearby), .watch: .assumedNearby], [.phone: .seen(.nearby), .watch: .assumedNearby]), [])
+        XCTAssertEqual(changes([.phone: .seen(.nearby), .watch: .seen(.away)], [.phone: .seen(.away), .watch: .seen(.away)]),
+                       [.seen(.phone, .away)])
     }
 
-    func testNearbyIsAReturnAndAwayADepartureFromAnything() {
-        XCTAssertEqual(changes([:], [.phone: .nearby]), [.seen(.phone, .nearby)])
-        XCTAssertEqual(changes([.phone: .away], [.phone: .nearby]), [.seen(.phone, .nearby)])
-        XCTAssertEqual(changes([:], [.phone: .away]), [.seen(.phone, .away)])
-        XCTAssertEqual(changes([.phone: .nearby], [.phone: .away]), [.seen(.phone, .away)])
+    func testEachNewPresenceIsReported() {
+        XCTAssertEqual(changes([:], [.phone: .seen(.nearby)]), [.seen(.phone, .nearby)])
+        XCTAssertEqual(changes([.phone: .assumedNearby], [.phone: .seen(.nearby)]), [.seen(.phone, .nearby)])
+        XCTAssertEqual(changes([:], [.phone: .seen(.away)]), [.seen(.phone, .away)])
+        XCTAssertEqual(changes([.phone: .seen(.away)], [.phone: .assumedNearby]), [.assumedNearby(.phone)])
     }
 
-    func testNoLongerSeenIsLostNotAway() {
-        // Scan stopped or reset, device removed, or proximity only assumed
-        XCTAssertEqual(changes([.phone: .nearby, .watch: .away], [:]), [.lost(.phone), .lost(.watch)])
+    func testNoLongerKnownIsLost() {
+        // Scan stopped or reset, or device removed
+        XCTAssertEqual(changes([.phone: .seen(.nearby), .watch: .assumedNearby], [:]), [.lost(.phone), .lost(.watch)])
     }
 
     func testApplyingTheChangesReachesTheNewSnapshot() {
-        let old: [TrustedDevice: Sighting] = [.phone: .nearby, .watch: .away]
-        for new: [TrustedDevice: Sighting] in [[:], [.phone: .away], [.watch: .nearby], [.phone: .away, .watch: .nearby]] {
-            XCTAssertEqual(changes(old, new).reduce(old) { $1.applied(to: $0) }, new, "\(new)")
+        let old: [TrustedDevice: Presence] = [.phone: .seen(.nearby), .watch: .seen(.away)]
+        for new: [TrustedDevice: Presence] in [[:], [.phone: .seen(.away)], [.watch: .assumedNearby],
+                                               [.phone: .assumedNearby, .watch: .seen(.nearby)]] {
+            var applied = old
+            changes(old, new).forEach { $0.apply(to: &applied) { $0 } }
+            XCTAssertEqual(applied, new, "\(new)")
         }
     }
 }

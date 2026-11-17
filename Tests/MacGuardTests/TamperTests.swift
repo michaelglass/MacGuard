@@ -23,7 +23,7 @@ final class TamperMachineTests: XCTestCase {
             (.alarming(left, .tamper), .systemWoke),
         ]
         for (state, input) in standDowns {
-            let (next, effects) = AlarmMachine.update(.fixture(state, sightings: [.phone: .nearby]), input, .fixture(countdown: 0))
+            let (next, effects) = AlarmMachine.update(.fixture(state, presence: [.phone: .seen(.nearby)]), input, .fixture(countdown: 0))
             XCTAssertEqual(next.alarm, .idle, "\(state) + \(input)")
             for required: AlarmMachine.Effect in [.stopCountdownTimer, .stopMonitors, .stopAlarm, .hideOverlay,
                                           .clearArmedMarker, .endOwnerChallenge] {

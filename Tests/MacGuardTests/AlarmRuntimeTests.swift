@@ -182,6 +182,7 @@ final class AlarmRuntimeTests: XCTestCase {
     func testAutoArmTimerArmsAfterGracePeriodAndCanBeCancelled() {
         env = .fixture(autoArm: .onDeviceLeave(.stable))
         runtime.send(.proximity(.seen(.watch, .nearby)))
+        runtime.send(.proximity(.seen(.phone, .nearby)))
         runtime.send(.proximity(.seen(.phone, .away)))
         XCTAssertEqual(scheduler.pending, 1)
         runtime.send(.proximity(.seen(.phone, .nearby)))

@@ -72,23 +72,23 @@ class BluetoothProximityManager: NSObject, ObservableObject {
         btStateChangeCount < btStabilityThreshold && centralManager.state == .poweredOn
     }
 
-    /// Positive evidence only: nothing while not scanning. Proximity assumed during
-    /// the BT recovery cooldown is not a sighting, so needs no gate here.
-    private var currentSightings: [TrustedDevice: Sighting] {
+    /// Nothing while not scanning. Proximity assumed during the BT recovery cooldown
+    /// is its own presence, never a sighting, so needs no gate here.
+    private var currentPresence: [TrustedDevice: Presence] {
         guard isScanning else { return [:] }
-        return Proximity.sightings(of: trustedDevices) { tracking[$0]?.proximity.proximity ?? .unobserved }
+        return Proximity.presence(of: trustedDevices) { tracking[$0]?.proximity.proximity ?? .unobserved }
     }
 
     /// What the machine has been told, so only changes are sent.
-    private var publishedSightings: [TrustedDevice: Sighting] = [:]
+    private var publishedPresence: [TrustedDevice: Presence] = [:]
 
     /// The one place proximity becomes input for the machine. Called after every
-    /// mutation that can change a sighting; one change at a time, so an input
+    /// mutation that can change a presence; one change at a time, so an input
     /// whose effects re-enter here (e.g. a disarm stopping the scan) never
     /// leaves a stale change queued behind it.
     private func publishSightings() {
-        while let change = SightingChange.changes(from: publishedSightings, to: currentSightings).first {
-            publishedSightings = change.applied(to: publishedSightings)
+        while let change = PresenceChange.changes(from: publishedPresence, to: currentPresence).first {
+            change.apply(to: &publishedPresence) { $0 }
             onInput(.proximity(change))
         }
     }
@@ -442,7 +442,7 @@ extension BluetoothProximityManager: CBCentralManagerDelegate {
             recoveryCooldown.start(at: Date())
             logActivity(.bluetooth, "BT recovery cooldown started (\(Int(RecoveryCooldown.duration))s)")
             for id in tracking.keys {
-                // An assumption, not an observation: at most a lost sighting.
+                // An assumption, not an observation: never evidence.
                 _ = tracking[id]?.proximity.assumeNearbyForRecovery()
             }
             publishSightings()

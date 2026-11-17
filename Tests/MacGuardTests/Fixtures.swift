@@ -32,8 +32,8 @@ extension AlarmEnvironment {
 }
 
 extension AlarmMachine.Model {
-    static func fixture(_ alarm: AlarmState, sightings: [TrustedDevice: Sighting] = [:]) -> Self {
-        Self(alarm: alarm, sightings: Dictionary(uniqueKeysWithValues: sightings.map { ($0.key.id, $0.value) }))
+    static func fixture(_ alarm: AlarmState, presence: [TrustedDevice: Presence] = [:]) -> Self {
+        Self(alarm: alarm, presence: Dictionary(uniqueKeysWithValues: presence.map { ($0.key.id, $0.value) }))
     }
 }
 
