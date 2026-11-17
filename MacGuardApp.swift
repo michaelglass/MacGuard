@@ -22,8 +22,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         alarmManager.onEvent(NotificationDispatcher.shared.handle)
 
         let tamperGuard = TamperGuard.shared
-        if case .resumeAfterTamper(let session) = tamperGuard.launchDecision() {
-            alarmManager.resumeAfterTamper(session)
+        if case .resumeAfterTamper(let session, let audio) = tamperGuard.launchDecision() {
+            alarmManager.resumeAfterTamper(session, audio)
         }
         tamperGuard.syncAgent()
     }

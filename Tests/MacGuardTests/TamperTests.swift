@@ -52,25 +52,48 @@ final class TamperMachineTests: XCTestCase {
 final class LaunchDecisionTests: XCTestCase {
     private let phoneLeft = ArmSession(departed: [TrustedDevice.phone.id])
 
-    private func markerData(_ session: ArmSession, pid: Int32) throws -> Data {
-        try TamperGuard.encoder.encode(ArmedMarker(session: session, pid: pid))
+    private let recorded = MarkedAudio.recorded(SavedAudioRestore(displaced: AudioDeviceUID(rawValue: "usb-dac"), volume: 0.2))
+
+    private func markerData(_ session: ArmSession, pid: Int32, audio: MarkedAudio = .unrecorded) throws -> Data {
+        try TamperGuard.encoder.encode(ArmedMarker(session: session, pid: pid, audio: audio))
     }
 
     func testDecision() throws {
+        let failedClosed = LaunchDecision.resumeAfterTamper(.noDepartures, .unrecorded)
         let cases: [(String, Data?, Bool, LaunchDecision)] = [
             ("no marker", nil, false, .normal),
-            ("dead owner", try markerData(phoneLeft, pid: 4242), false, .resumeAfterTamper(phoneLeft)),
+            ("dead owner", try markerData(phoneLeft, pid: 4242), false, .resumeAfterTamper(phoneLeft, .unrecorded)),
+            ("dead owner mid-alarm", try markerData(phoneLeft, pid: 4242, audio: recorded), false,
+             .resumeAfterTamper(phoneLeft, recorded)),
             ("live owner", try markerData(.noDepartures, pid: 4242), true, .normal),
-            ("corrupt marker fails closed", Data("garbage".utf8), true,
-             .resumeAfterTamper(.noDepartures)),
+            ("corrupt marker fails closed", Data("garbage".utf8), true, failedClosed),
             ("pre-upgrade marker fails closed", Data(#"{"trustedDeviceHasLeft":true,"armedAt":0,"pid":4242}"#.utf8), false,
-             .resumeAfterTamper(.noDepartures)),
+             failedClosed),
             ("flat departed marker fails closed",
-             Data(#"{"departed":["\#(TrustedDevice.phone.id)"],"armedAt":0,"pid":4242}"#.utf8), false,
-             .resumeAfterTamper(.noDepartures)),
+             Data(#"{"departed":["\#(TrustedDevice.phone.id)"],"armedAt":0,"pid":4242}"#.utf8), false, failedClosed),
+            ("marker without audio fails closed",
+             Data(#"{"session":{"departed":["\#(TrustedDevice.phone.id)"]},"pid":4242}"#.utf8), false, failedClosed),
+            ("hand-written mid-alarm marker",
+             Data(#"{"session":{"departed":[]},"pid":4242,"audio":{"recorded":{"_0":{"displaced":"usb-dac","volume":0.2}}}}"#.utf8),
+             false, .resumeAfterTamper(.noDepartures, recorded)),
+            ("empty device UID fails closed",
+             Data(#"{"session":{"departed":[]},"pid":4242,"audio":{"recorded":{"_0":{"displaced":""}}}}"#.utf8), false,
+             failedClosed),
         ]
         for (name, data, alive, expected) in cases {
             XCTAssertEqual(LaunchDecision.decide(markerData: data) { _ in alive }, expected, name)
+        }
+    }
+
+    func testMarkerRoundTrips() throws {
+        let cases: [MarkedAudio] = [
+            .unrecorded,
+            recorded,
+            .recorded(SavedAudioRestore(displaced: nil, volume: nil)),
+        ]
+        for audio in cases {
+            let marker = ArmedMarker(session: phoneLeft, pid: 4242, audio: audio)
+            XCTAssertEqual(try TamperGuard.decoder.decode(ArmedMarker.self, from: TamperGuard.encoder.encode(marker)), marker)
         }
     }
 

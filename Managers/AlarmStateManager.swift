@@ -56,6 +56,10 @@ class AlarmStateManager: ObservableObject {
         motionMonitor.onInput = forward
         networkMonitor.onInput = forward
         bluetoothManager.onInput = forward
+        // Audio callbacks run on the main queue
+        audioManager.onRecordRestore = { restore in
+            MainActor.assumeIsolated { TamperGuard.shared.record(restore) }
+        }
         checkPermissions()
         startPermissionPolling()
 
@@ -171,7 +175,11 @@ class AlarmStateManager: ObservableObject {
         }
     }
 
-    func resumeAfterTamper(_ session: ArmSession) {
+    func resumeAfterTamper(_ session: ArmSession, _ audio: MarkedAudio) {
+        switch audio {
+        case .recorded(let restore): audioManager.inherit(restore)
+        case .unrecorded: break
+        }
         send(.resumeAfterTamper(session))
     }
 

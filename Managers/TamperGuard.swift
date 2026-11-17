@@ -11,19 +11,35 @@ import SwiftUI
 struct ArmedMarker: Codable, Equatable {
     let session: ArmSession
     let pid: Int32
+    let audio: MarkedAudio
+}
+
+/// `AudioRestore` as the marker stores it: devices by UID, which outlive their
+/// AudioDeviceID across a relaunch.
+struct SavedAudioRestore: Codable, Equatable {
+    /// nil when the alarm moved no output, or the moved one had no readable UID.
+    let displaced: AudioDeviceUID?
+    let volume: Float?
+}
+
+/// Whether a sounding alarm has recorded what to put back.
+enum MarkedAudio: Codable, Equatable {
+    /// Not sounded this session, or the marker was unreadable: the output now is the owner's.
+    case unrecorded
+    case recorded(SavedAudioRestore)
 }
 
 enum LaunchDecision: Equatable {
     case normal
-    case resumeAfterTamper(ArmSession)
+    case resumeAfterTamper(ArmSession, MarkedAudio)
 
     static func decide(markerData: Data?, isAlive: (Int32) -> Bool) -> LaunchDecision {
         guard let markerData else { return .normal }
         // Unreadable marker: fail closed, without proximity-disarm rights.
         guard let marker = try? TamperGuard.decoder.decode(ArmedMarker.self, from: markerData) else {
-            return .resumeAfterTamper(.noDepartures)
+            return .resumeAfterTamper(.noDepartures, .unrecorded)
         }
-        return isAlive(marker.pid) ? .normal : .resumeAfterTamper(marker.session)
+        return isAlive(marker.pid) ? .normal : .resumeAfterTamper(marker.session, marker.audio)
     }
 }
 
@@ -113,19 +129,24 @@ final class TamperGuard: ObservableObject {
         return appSupport.appendingPathComponent("MacGuard/armed-session", isDirectory: false)
     }
 
+    /// The marker as last written by this process; nil when there is none.
+    private var marker: ArmedMarker?
+
+    /// Keeps a recorded restore: on resume it was adopted from the killed instance.
     func persist(_ session: ArmSession) {
         guard isEnabled else { return }
-        let marker = ArmedMarker(session: session, pid: getpid())
-        do {
-            try FileManager.default.createDirectory(at: Self.markerURL.deletingLastPathComponent(),
-                                                    withIntermediateDirectories: true)
-            try Self.encoder.encode(marker).write(to: Self.markerURL, options: .atomic)
-        } catch {
-            logActivity(.system, "Failed to write armed marker: \(error.localizedDescription)")
-        }
+        write(ArmedMarker(session: session, pid: getpid(), audio: marker?.audio ?? .unrecorded))
+    }
+
+    /// The sounding alarm's restore, so a relaunch after a kill puts back the
+    /// owner's output rather than the alarm's. Nothing to do without a marker.
+    func record(_ restore: SavedAudioRestore) {
+        guard let marker else { return }
+        write(ArmedMarker(session: marker.session, pid: marker.pid, audio: .recorded(restore)))
     }
 
     func clear() {
+        marker = nil
         try? FileManager.default.removeItem(at: Self.markerURL)
     }
 
@@ -133,7 +154,26 @@ final class TamperGuard: ObservableObject {
         guard isEnabled else { clear(); return .normal }
         let data = try? Data(contentsOf: Self.markerURL)
         let me = getpid()
-        return LaunchDecision.decide(markerData: data) { $0 != me && Self.isMacGuardProcess($0) }
+        let decision = LaunchDecision.decide(markerData: data) { $0 != me && Self.isMacGuardProcess($0) }
+        switch decision {
+        case .normal:
+            break
+        // Adopted under this process at once, so the resume's rewrite keeps the record.
+        case .resumeAfterTamper(let session, let audio):
+            write(ArmedMarker(session: session, pid: me, audio: audio))
+        }
+        return decision
+    }
+
+    private func write(_ next: ArmedMarker) {
+        marker = next
+        do {
+            try FileManager.default.createDirectory(at: Self.markerURL.deletingLastPathComponent(),
+                                                    withIntermediateDirectories: true)
+            try Self.encoder.encode(next).write(to: Self.markerURL, options: .atomic)
+        } catch {
+            logActivity(.system, "Failed to write armed marker: \(error.localizedDescription)")
+        }
     }
 
     // MARK: Watchdog agent

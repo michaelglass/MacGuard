@@ -6,6 +6,29 @@ import AVFoundation
 import Cocoa
 import CoreAudio
 
+/// A CoreAudio device's UID: stable across relaunches, unlike its AudioDeviceID.
+struct AudioDeviceUID: Codable, Equatable, RawRepresentable {
+    let rawValue: String
+
+    init?(rawValue: String) {
+        guard !rawValue.isEmpty else { return nil }
+        self.rawValue = rawValue
+    }
+}
+
+extension SavedAudioRestore {
+    init(_ restore: AudioRestore) {
+        self.init(displaced: restore.displaced.flatMap(\.uid), volume: restore.volume)
+    }
+}
+
+extension AudioRestore {
+    /// A device that is no longer present is not restored.
+    init(_ saved: SavedAudioRestore) {
+        self.init(displaced: saved.displaced.flatMap(AudioDevice.init(uid:)), volume: saved.volume)
+    }
+}
+
 /// A CoreAudio device. The HAL's "unknown" id (0) never becomes one.
 struct AudioDevice: Equatable, CustomStringConvertible {
     let id: AudioDeviceID
@@ -34,6 +57,28 @@ struct AudioDevice: Equatable, CustomStringConvertible {
         var ids = [AudioDeviceID](repeating: 0, count: Int(size) / MemoryLayout<AudioDeviceID>.size)
         guard AudioObjectGetPropertyData(system, &address, 0, nil, &size, &ids) == noErr else { return [] }
         return ids.compactMap(AudioDevice.init)
+    }
+
+    /// nil when the HAL reports none.
+    var uid: AudioDeviceUID? {
+        var address = Self.address(kAudioDevicePropertyDeviceUID)
+        var uid: Unmanaged<CFString>?
+        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+        guard AudioObjectGetPropertyData(id, &address, 0, nil, &size, &uid) == noErr, let uid else { return nil }
+        return AudioDeviceUID(rawValue: uid.takeRetainedValue() as String)
+    }
+
+    /// nil when no present device has this UID.
+    init?(uid: AudioDeviceUID) {
+        var address = Self.address(kAudioHardwarePropertyTranslateUIDToDevice)
+        var cfUID = uid.rawValue as CFString
+        var id = AudioDeviceID(kAudioObjectUnknown)
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        let status = withUnsafePointer(to: &cfUID) { qualifier in
+            AudioObjectGetPropertyData(Self.system, &address, UInt32(MemoryLayout<CFString>.size), qualifier, &size, &id)
+        }
+        guard status == noErr else { return nil }
+        self.init(id)
     }
 
     var isBuiltInOutput: Bool {
@@ -115,6 +160,12 @@ class AlarmAudioManager {
     private lazy var outputWatch = OutputWatch { [weak self] in self?.send(.outputChanged(AudioDevice.defaultOutput)) }
     private let beeper = Beeper()
 
+    /// Makes the alarm's restore durable (the armed marker).
+    var onRecordRestore: (SavedAudioRestore) -> Void = { _ in }
+
+    /// After a kill mid-alarm: the next alarm restores the killed one's record.
+    func inherit(_ restore: SavedAudioRestore) { send(.inherit(AudioRestore(restore))) }
+
     /// Pre-load audio file so it's ready for instant playback
     func prepare() { send(.prepare) }
 
@@ -140,9 +191,8 @@ class AlarmAudioManager {
 
     private func perform(_ effect: Playback.Effect) {
         switch effect {
-        case .recordRestore:
-            // Not yet persisted.
-            break
+        case .recordRestore(let restore):
+            onRecordRestore(SavedAudioRestore(restore))
         case .preload:
             send(.preloaded(loadSound()))
         case .loadSound(let start):
