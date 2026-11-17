@@ -26,7 +26,8 @@ final class CountdownWindowController {
     private var shown: Shown?
 
     init(alarmManager: AlarmStateManager) {
-        window = Self.cover(KeyableWindow(contentRect: .zero, styleMask: [.borderless], backing: .buffered, defer: false))
+        window = KeyableWindow(contentRect: .zero, styleMask: [.borderless], backing: .buffered, defer: false)
+        Self.cover(window)
         window.contentViewController = NSHostingController(rootView: CountdownOverlayView(alarmManager: alarmManager))
         window.acceptsMouseMovedEvents = true
     }
@@ -63,8 +64,8 @@ final class CountdownWindowController {
         current.shields.forEach { $0.orderOut(nil) }
         window.setFrame(controls.frame, display: true)
         current.shields = NSScreen.screens.filter { $0 != controls }.map { screen in
-            let shield = Self.cover(NSWindow(contentRect: screen.frame, styleMask: [.borderless],
-                                             backing: .buffered, defer: false))
+            let shield = NSWindow(contentRect: screen.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+            Self.cover(shield)
             shield.orderFrontRegardless()
             return shield
         }
@@ -72,7 +73,7 @@ final class CountdownWindowController {
     }
 
     /// Shared by the controls window and the shields, so every display is covered alike.
-    private static func cover<W: NSWindow>(_ window: W) -> W {
+    private static func cover(_ window: NSWindow) {
         window.isReleasedWhenClosed = false
         window.level = .screenSaver
         // On every Space and over full-screen apps, and not moved by a Space switch
@@ -80,6 +81,5 @@ final class CountdownWindowController {
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         window.backgroundColor = NSColor.black.withAlphaComponent(Theme.Opacity.overlayHeavy)
         window.isOpaque = false
-        return window
     }
 }
