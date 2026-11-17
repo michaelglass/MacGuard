@@ -4,13 +4,14 @@
 import XCTest
 @testable import MacGuard
 
-private let address = BluetoothAddress("aa:bb:cc:dd:ee:ff")!
-private let p1 = UUID()
-private let p2 = UUID()
+private let address = BluetoothAddress.sample
+private let p1 = TrustedDevice.phone.id
+private let p2 = UUID(uuidString: "00000000-0000-0000-0000-00000000000C")!
+private let pairedID = UUID(uuidString: "00000000-0000-0000-0000-00000000000D")!
 
 private func paired(_ name: String, address: BluetoothAddress? = address,
                     connected: Bool = false, dBm: Int? = nil) -> DiscoveredDevice {
-    DiscoveredDevice(id: UUID(), name: name, classicAddress: address,
+    DiscoveredDevice(id: pairedID, name: name, classicAddress: address,
                      isConnected: connected, signal: dBm.flatMap(RSSI.init))
 }
 
@@ -80,7 +81,7 @@ final class DeviceScannerTests: XCTestCase {
         let cases: [(DiscoveredDevice, Refusal?, DiscoveredDevice.RowState)] = [
             (classic, nil, .selectable(TrustedDevice(id: classic.id, name: "Phone",
                                                      transport: .classic(address: address)))),
-            (bound.devices[0], nil, .selectable(TrustedDevice(id: p1, name: "Phone", transport: .ble))),
+            (bound.devices[0], nil, .selectable(.phone)),
             (classic, .alreadyTrusted, .alreadyAdded),
             (classic, .full, .unavailable),
             (paired("Phone", address: nil), nil, .unavailable),

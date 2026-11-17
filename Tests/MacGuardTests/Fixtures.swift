@@ -37,3 +37,7 @@ extension TrustedDevice {
     static let phone = TrustedDevice(id: UUID(uuidString: "00000000-0000-0000-0000-00000000000A")!, name: "Phone", transport: .ble)
     static let watch = TrustedDevice(id: UUID(uuidString: "00000000-0000-0000-0000-00000000000B")!, name: "Watch", transport: .ble)
 }
+
+extension BluetoothAddress {
+    static let sample = BluetoothAddress("aa:bb:cc:dd:ee:ff")!
+}
