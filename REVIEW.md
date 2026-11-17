@@ -146,13 +146,20 @@ Now there is one rule and no mode:
 ## Round 6: one proximity channel, owned by the machine
 
 - **Assumed is a type.** Proximity held nearby by the Bluetooth recovery cooldown is `Proximity.assumedNearby`. The tracker treats it as nearby for hysteresis and debounce, but it is never a `Sighting`. Only a real reading replaces it. This replaces the time gate on the sightings snapshot, which let an assumed "nearby" count as evidence once the cooldown ended without a new reading.
-- **One channel.** The Bluetooth manager diffs the sightings snapshot after every change and sends one `.proximity(SightingChange)` per device whose sighting changed. Becoming nearby is a return. Becoming away, from anything (a first sighting included), is a departure. Losing sight (scan stopped or reset, device removed, proximity only assumed) is neither.
-- **The machine owns sightings.** `AlarmMachine.Model` holds the alarm state and the sightings. Arming, wake and the idle auto-arm cancel read them from the model, not from an environment snapshot.
+- **A first reading must be decisive.** From unobserved, a reading counts as nearby only at the present threshold. It counts as away only below the away threshold, or when it is a disconnect. A first reading inside the hysteresis band leaves the device unobserved. Before, a phone on the desk whose first reading was weak was "seen away", and could then disarm a session it was present for. Hysteresis for devices already seen is unchanged.
+- **One channel.** The Bluetooth manager diffs a per-device presence snapshot after every change. `Presence` is `.assumedNearby` or `.seen(Sighting)`; unobserved devices are absent. It sends one `.proximity(PresenceChange)` per device whose presence changed: `.seen`, `.assumedNearby` or `.lost`.
+- **The machine owns presence.** `AlarmMachine.Model` holds the alarm state and each device's presence. Only `.seen` is evidence:
+  - Seen nearby is a return. It disarms only a session the device was seen away in. While idle, it cancels the auto-arm grace period once no device is seen away.
+  - Seen away while armed adds the device to the session's departed set, even on a first sighting: a device missing during the session may disarm when it returns.
+  - Seen away while idle starts the grace period only when the device **leaves**, that is, when it was nearby before, seen or assumed. A first sighting of away does not start it. So a Classic device left disconnected (AirPods in their case) does not re-arm the Mac after every disarm, and a device that was assumed nearby after Bluetooth recovery and then reads away still starts it.
+  - Assumed nearby and lost are neither a return nor a departure. Arming and wake read only `.seen` presence.
 - **One TEA vocabulary.** `AlarmMachine`, `AlarmPlayback` and `DeviceScan` each have `Model`, `Msg`, `Effect` and `update(model, msg) -> (Model, [Effect])`. Round 2's `step`, `AlarmInput` and `AlarmEffect` are now `update`, `AlarmMachine.Msg` and `AlarmMachine.Effect`.
 
 Behaviour changes:
-- A device first seen away is a departure. While armed, it may then disarm on return. While idle with auto-arm on, it starts the grace period. One case: a Classic device that is disconnected (for example AirPods in their case) is seen away again when scanning restarts after a disarm, so auto-arm re-arms after the grace period.
-- During the recovery cooldown, real readings now count as evidence. Before, the gate hid every device for 15 s.
+- A first reading inside the hysteresis band no longer counts as seen away.
+- While armed, a device first seen away during the session may now disarm when it returns. Before, only a device that went from nearby to away during the session could.
+- During the recovery cooldown, real readings now count as evidence. Before, the time gate hid every device for 15 s.
+- An assumed "nearby" is never evidence. Before, it counted once the cooldown ended, even without a new reading.
 
 ## Open (not fixed)
 
