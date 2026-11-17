@@ -122,10 +122,24 @@ struct ProximityTracker: Equatable {
 
 /// IOBluetooth connection state machine for one Classic device.
 struct ClassicLinkTracker: Equatable {
-    /// `nil` before the first poll since scanning started
-    private(set) var connected: Bool?
-    private var lastStateChange: Date?
-    private var lastValidSignal: Date?
+    enum Link: Equatable {
+        /// No poll since scanning started.
+        case unpolled
+        /// `since` is the last accepted state change, the disconnect-debounce clock.
+        case polled(connected: Bool, since: Date)
+    }
+
+    private(set) var link: Link = .unpolled
+    /// Last RSSI since scanning started; inquiry results can land in any link state.
+    private var lastSignal: Date?
+
+    /// `nil` before the first poll since scanning started.
+    var connected: Bool? {
+        switch link {
+        case .unpolled: return nil
+        case .polled(let connected, _): return connected
+        }
+    }
 
     enum LinkEvent: Equatable {
         case initiallyConnected, initiallyDisconnected, connected, disconnected
@@ -140,59 +154,65 @@ struct ClassicLinkTracker: Equatable {
     mutating func poll(isConnected: Bool, rssi: RSSI?, at now: Date, lowPower: Bool) -> PollResult {
         let connectedObservation = rssi.map(Observation.signal) ?? .connectedWithoutSignal
 
-        guard let wasConnected = connected else {
-            connected = isConnected
-            lastStateChange = now
+        switch link {
+        case .unpolled:
+            link = .polled(connected: isConnected, since: now)
             return isConnected
                 ? .observe(connectedObservation, .initiallyConnected)
                 : .observe(.disconnected, .initiallyDisconnected)
-        }
 
-        if isConnected != wasConnected {
+        case .polled(let wasConnected, let since) where isConnected != wasConnected:
             // AirPods and similar flap; ignore a disconnect right after a change
-            let sinceChange = now.timeIntervalSince(lastStateChange ?? .distantPast)
-            if !isConnected && sinceChange < ProximityTiming.disconnectDebounce(lowPower: lowPower) {
+            if !isConnected && now.timeIntervalSince(since) < ProximityTiming.disconnectDebounce(lowPower: lowPower) {
                 return .disconnectDebounced
             }
-            connected = isConnected
-            lastStateChange = now
+            link = .polled(connected: isConnected, since: now)
             return isConnected
                 ? .observe(connectedObservation, .connected)
                 : .observe(.disconnected, .disconnected)
-        }
 
-        guard isConnected else { return .none }
-        if let rssi {
-            lastValidSignal = now
-            return .observe(.signal(rssi), nil)
+        case .polled:
+            guard isConnected else { return .none }
+            if let rssi {
+                lastSignal = now
+                return .observe(.signal(rssi), nil)
+            }
+            return signalIsStale(at: now) ? .observe(.connectedWithoutSignal, nil) : .none
         }
-        if now.timeIntervalSince(lastValidSignal ?? .distantPast) > ProximityTiming.classicSignalTimeout {
-            return .observe(.connectedWithoutSignal, nil)
-        }
-        return .none
+    }
+
+    private func signalIsStale(at now: Date) -> Bool {
+        guard let lastSignal else { return true }
+        return now.timeIntervalSince(lastSignal) > ProximityTiming.classicSignalTimeout
     }
 
     mutating func noteSignal(at now: Date) {
-        lastValidSignal = now
+        lastSignal = now
     }
 
-    /// Re-initialises on the next poll, keeps the debounce clock.
+    /// Re-initialises on the next poll, which restarts the debounce clock.
     mutating func resetForScan() {
-        connected = nil
-        lastValidSignal = nil
+        link = .unpolled
+        lastSignal = nil
     }
 }
 
 /// The window after Bluetooth powers on during which proximity is assumed, not observed.
-struct RecoveryCooldown: Equatable {
+enum RecoveryCooldown: Equatable {
     static let duration: TimeInterval = 15
-    private(set) var startedAt: Date?
 
-    mutating func start(at now: Date) { startedAt = now }
+    case inactive
+    case started(Date)
+
+    init() { self = .inactive }
+
+    mutating func start(at now: Date) { self = .started(now) }
 
     func isActive(at now: Date) -> Bool {
-        guard let startedAt else { return false }
-        return now.timeIntervalSince(startedAt) < Self.duration
+        switch self {
+        case .inactive: return false
+        case .started(let startedAt): return now.timeIntervalSince(startedAt) < Self.duration
+        }
     }
 
     /// Assumed proximity vouches for nobody: presence counts only outside the cooldown.

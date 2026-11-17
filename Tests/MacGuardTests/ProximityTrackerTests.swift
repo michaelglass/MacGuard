@@ -128,6 +128,30 @@ final class ClassicLinkTrackerTests: XCTestCase {
         XCTAssertEqual(link.poll(isConnected: true, rssi: nil, at: t0 + 2.5, lowPower: false),
                        .observe(.connectedWithoutSignal, nil))
     }
+
+    func testResetForScanReinitialisesAndForgetsSignal() {
+        var link = ClassicLinkTracker()
+        _ = link.poll(isConnected: true, rssi: nil, at: t0, lowPower: false)
+        _ = link.poll(isConnected: true, rssi: RSSI(-65), at: t0 + 10, lowPower: false)
+        link.resetForScan()
+        XCTAssertNil(link.connected)
+        // Same connection state, but reported afresh
+        XCTAssertEqual(link.poll(isConnected: true, rssi: nil, at: t0 + 10.2, lowPower: false),
+                       .observe(.connectedWithoutSignal, .initiallyConnected))
+        // The pre-reset signal no longer counts as fresh
+        XCTAssertEqual(link.poll(isConnected: true, rssi: nil, at: t0 + 10.4, lowPower: false),
+                       .observe(.connectedWithoutSignal, nil))
+        // The re-initialising poll restarted the debounce clock
+        XCTAssertEqual(link.poll(isConnected: false, rssi: nil, at: t0 + 12, lowPower: false), .disconnectDebounced)
+    }
+
+    func testSignalNotedBeforeFirstPollCountsAsFresh() {
+        var link = ClassicLinkTracker()
+        link.noteSignal(at: t0)
+        _ = link.poll(isConnected: true, rssi: nil, at: t0 + 0.2, lowPower: false)
+        XCTAssertEqual(link.poll(isConnected: true, rssi: nil, at: t0 + 0.5, lowPower: false),
+                       ClassicLinkTracker.PollResult.none)
+    }
 }
 
 final class RecoveryCooldownTests: XCTestCase {
