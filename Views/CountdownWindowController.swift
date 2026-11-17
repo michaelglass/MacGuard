@@ -13,14 +13,24 @@ class KeyableWindow: NSWindow {
 
 /// The fullscreen overlay, kept and reshown (closing it crashed during cleanup).
 /// The controls sit on the display under the mouse; every other display gets a
-/// blank shield, so nothing behind the alarm is visible or clickable.
+/// blank shield, so nothing behind the alarm is visible or clickable. While it is
+/// up the app is in kiosk mode, so it cannot be switched away from or force quit.
 @MainActor
 final class CountdownWindowController {
     /// Exists only while the overlay is up.
     private struct Shown {
         let screenObserver: NSObjectProtocol
+        /// Put back on hide.
+        let previousPresentation: NSApplication.PresentationOptions
         var shields: [NSWindow]
     }
+
+    /// Hiding the Dock is what AppKit requires for hiding the menu bar and disabling
+    /// process switching; an invalid combination raises, so keep these together.
+    static let kiosk: NSApplication.PresentationOptions = [
+        .hideDock, .hideMenuBar, .disableProcessSwitching,
+        .disableForceQuit, .disableSessionTermination, .disableHideApplication,
+    ]
 
     private let window: KeyableWindow
     private var shown: Shown?
@@ -33,6 +43,8 @@ final class CountdownWindowController {
     }
 
     func show() {
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
         if shown == nil {
             // Displays can be plugged in, removed or rearranged while the alarm is up.
             let observer = NotificationCenter.default.addObserver(
@@ -40,11 +52,10 @@ final class CountdownWindowController {
             ) { [weak self] _ in
                 MainActor.assumeIsolated { self?.coverAllScreens() }
             }
-            shown = Shown(screenObserver: observer, shields: [])
+            shown = Shown(screenObserver: observer, previousPresentation: NSApp.presentationOptions, shields: [])
+            NSApp.presentationOptions = Self.kiosk
         }
         coverAllScreens()
-        NSApp.setActivationPolicy(.regular)
-        NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
         logActivity(.system, "Countdown overlay shown")
     }
@@ -53,6 +64,7 @@ final class CountdownWindowController {
         if let shown {
             NotificationCenter.default.removeObserver(shown.screenObserver)
             shown.shields.forEach { $0.orderOut(nil) }
+            NSApp.presentationOptions = shown.previousPresentation
         }
         shown = nil
         window.orderOut(nil)
