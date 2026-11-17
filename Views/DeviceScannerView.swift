@@ -97,7 +97,7 @@ class DeviceScannerViewModel: NSObject, ObservableObject {
     }
 
     func rowState(for device: DiscoveredDevice) -> DiscoveredDevice.RowState {
-        device.rowState(admission: bluetoothManager.admission)
+        device.rowState(trusted: bluetoothManager.trustedDevices)
     }
 }
 

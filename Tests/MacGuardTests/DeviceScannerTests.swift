@@ -76,26 +76,44 @@ final class DeviceScannerTests: XCTestCase {
 
     func testRowState() {
         let classic = paired("Phone")
-        let (bound, _) = feed([.pairedLoaded([classic]), ad("Phone", p1)])
-        typealias Refusal = BluetoothProximityManager.Refusal
-        let cases: [(DiscoveredDevice, Refusal?, DiscoveredDevice.RowState)] = [
-            (classic, nil, .selectable(TrustedDevice(id: classic.id, name: "Phone",
-                                                     transport: .classic(address: address)))),
-            (bound.devices[0], nil, .selectable(.phone)),
-            (classic, .alreadyTrusted, .alreadyAdded),
-            (classic, .full, .unavailable),
-            (paired("Phone", address: nil), nil, .unavailable),
+        let (scan, _) = feed([.pairedLoaded([classic]), ad("Phone", p1)])
+        let bound = scan.devices[0]
+        let cases: [(DiscoveredDevice, [TrustedDevice], DiscoveredDevice.RowState)] = [
+            (classic, [], .selectable(trustedClassic)),
+            (bound, [], .selectable(.phone)),
+            (classic, [trustedClassic], .alreadyAdded),
+            (classic, full, .unavailable),
+            (paired("Phone", address: nil), [], .unavailable),
+            // A bound device is admitted by peripheral id and by its paired Classic address
+            (bound, [.phone], .alreadyAdded),
+            (bound, [trustedClassic], .alreadyAdded),
         ]
-        for (device, refusal, expected) in cases {
-            XCTAssertEqual(device.rowState { _, _ in refusal }, expected)
+        for (device, trusted, expected) in cases {
+            XCTAssertEqual(device.rowState(trusted: trusted), expected)
         }
     }
+}
 
-    func testBoundDeviceIsAdmittedByPeripheralIDAndPairedAddress() {
-        let (scan, _) = feed([.pairedLoaded([paired("Phone")]), ad("Phone", p1)])
-        var asked: (UUID, BluetoothAddress?)?
-        _ = scan.devices[0].rowState { id, addr in asked = (id, addr); return nil }
-        XCTAssertEqual(asked?.0, p1)
-        XCTAssertEqual(asked?.1, address)
+private let trustedClassic = TrustedDevice(id: pairedID, name: "Phone", transport: .classic(address: address))
+private let full = (0..<TrustAdmission.maxTrustedDevices).map {
+    TrustedDevice(id: UUID(uuidString: String(format: "00000000-0000-0000-0001-%012d", $0))!,
+                  name: "d\($0)", transport: .ble)
+}
+
+final class TrustAdmissionTests: XCTestCase {
+    func testAdmission() {
+        let other = p2
+        let cases: [(UUID, BluetoothAddress?, [TrustedDevice], TrustAdmission.Refusal?)] = [
+            (other, nil, [], nil),
+            (p1, nil, [.phone], .alreadyTrusted),
+            (other, address, [trustedClassic], .alreadyTrusted),
+            // No address never matches a BLE device's missing address
+            (other, nil, [.phone], nil),
+            (other, nil, full, .full),
+            (full[0].id, nil, full, .alreadyTrusted),
+        ]
+        for (id, classicAddress, trusted, expected) in cases {
+            XCTAssertEqual(TrustAdmission.admission(of: id, classicAddress: classicAddress, in: trusted), expected)
+        }
     }
 }

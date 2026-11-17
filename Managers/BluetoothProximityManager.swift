@@ -21,10 +21,6 @@ struct DeviceTracking: Equatable {
 class BluetoothProximityManager: NSObject, ObservableObject {
     var onInput: (AlarmInput) -> Void = { _ in }
 
-    enum Refusal { case alreadyTrusted, full }
-
-    static let maxTrustedDevices = 10
-
     // MARK: - Published Properties
 
     @Published var isBluetoothEnabled = false
@@ -139,23 +135,14 @@ class BluetoothProximityManager: NSObject, ObservableObject {
 
     // MARK: - Trusted Device Management
 
-    /// Why a device can't be trusted, if it can't: already trusted (same id or
-    /// Classic address) or the list is full.
-    func admission(of id: UUID, classicAddress: BluetoothAddress?) -> Refusal? {
-        if trustedDevices.contains(where: { $0.id == id || (classicAddress != nil && $0.classicAddress == classicAddress) }) {
-            return .alreadyTrusted
-        }
-        return trustedDevices.count >= Self.maxTrustedDevices ? .full : nil
-    }
-
     @discardableResult
     func addTrustedDevice(_ device: TrustedDevice) -> Bool {
-        switch admission(of: device.id, classicAddress: device.classicAddress) {
+        switch TrustAdmission.admission(of: device.id, classicAddress: device.classicAddress, in: trustedDevices) {
         case .alreadyTrusted?:
             logActivity(.bluetooth, "Device already trusted: \(device.name)")
             return false
         case .full?:
-            logActivity(.bluetooth, "Max devices reached (\(Self.maxTrustedDevices))")
+            logActivity(.bluetooth, "Max devices reached (\(TrustAdmission.maxTrustedDevices))")
             return false
         case nil:
             break

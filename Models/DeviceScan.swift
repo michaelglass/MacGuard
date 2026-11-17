@@ -41,8 +41,7 @@ struct DiscoveredDevice: Identifiable, Equatable {
         case unavailable
     }
 
-    /// `admission` is the manager's rule (id, paired Classic address).
-    func rowState(admission: (UUID, BluetoothAddress?) -> BluetoothProximityManager.Refusal?) -> RowState {
+    func rowState(trusted devices: [TrustedDevice]) -> RowState {
         let trusted: TrustedDevice
         switch tracking {
         case .ble(let peripheral):
@@ -52,7 +51,8 @@ struct DiscoveredDevice: Identifiable, Equatable {
         case .untrackable:
             return .unavailable
         }
-        switch admission(trusted.id, classicAddress) {
+        // The paired Classic address also counts when tracked via BLE
+        switch TrustAdmission.admission(of: trusted.id, classicAddress: classicAddress, in: devices) {
         case .alreadyTrusted?: return .alreadyAdded
         case .full?: return .unavailable
         case nil: return .selectable(trusted)
