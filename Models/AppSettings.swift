@@ -370,6 +370,7 @@ enum SettingsMigration {
 }
 
 /// App settings manager with UserDefaults persistence
+@MainActor
 class AppSettings: ObservableObject {
     static let shared = AppSettings()
 

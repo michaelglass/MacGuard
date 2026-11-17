@@ -163,6 +163,7 @@ final class SettingsMigrationTests: XCTestCase {
 final class SettingsPublishingTests: XCTestCase {
     /// AlarmStateManager re-plans idle scanning on AppSettings.objectWillChange,
     /// which relies on @AppStorage publishing from inside an ObservableObject.
+    @MainActor
     func testEnumSettingChangePublishes() {
         let settings = AppSettings.shared
         let original = settings.exitDelay
