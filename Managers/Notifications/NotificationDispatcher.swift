@@ -15,22 +15,23 @@ enum DeliveryResult: Equatable {
 }
 
 /// Delivers off the main actor, every notifier concurrently; one failure never affects another.
-final class NotificationDispatcher {
+final class NotificationDispatcher: Sendable {
     static let shared = NotificationDispatcher(attachments: { await IntruderCamera.shared.latestPhotos(for: $0) })
 
-    private let notifiers: () -> [any Notifier]
-    private let policy: () -> AlertPolicy
-    private let attachments: (AlarmEvent) async -> [URL]
-    private let log: (String) -> Void
-    private let now: () -> Date
+    /// Configuration lives in main-actor settings, so it is read there.
+    private let notifiers: @MainActor @Sendable () -> [any Notifier]
+    private let policy: @MainActor @Sendable () -> AlertPolicy
+    private let attachments: @Sendable (AlarmEvent) async -> [URL]
+    private let log: @Sendable (String) -> Void
+    private let now: @Sendable () -> Date
     private let host: String
 
     init(
-        notifiers: @escaping () -> [any Notifier] = { NotificationSettings.shared.enabledNotifiers() },
-        policy: @escaping () -> AlertPolicy = { NotificationSettings.shared.policy },
-        attachments: @escaping (AlarmEvent) async -> [URL] = { _ in [] },
-        log: @escaping (String) -> Void = { logActivity(.system, $0) },
-        now: @escaping () -> Date = Date.init,
+        notifiers: @escaping @MainActor @Sendable () -> [any Notifier] = { NotificationSettings.shared.enabledNotifiers() },
+        policy: @escaping @MainActor @Sendable () -> AlertPolicy = { NotificationSettings.shared.policy },
+        attachments: @escaping @Sendable (AlarmEvent) async -> [URL] = { _ in [] },
+        log: @escaping @Sendable (String) -> Void = { logActivity(.system, $0) },
+        now: @escaping @Sendable () -> Date = { Date() },
         host: String = Host.current().localizedName ?? "Mac"
     ) {
         self.notifiers = notifiers
@@ -42,6 +43,7 @@ final class NotificationDispatcher {
     }
 
     /// Reads the configuration synchronously, then delivers in a detached task.
+    @MainActor
     func handle(_ event: AlarmEvent) {
         let targets = notifiers()
         guard !targets.isEmpty,
@@ -52,9 +54,10 @@ final class NotificationDispatcher {
     }
 
     func dispatch(_ event: AlarmEvent) async -> [DeliveryResult] {
-        let targets = notifiers()
+        let targets = await notifiers()
+        let policy = await policy()
         guard !targets.isEmpty,
-              let alert = Alert.make(from: event, at: now(), host: host, policy: policy()) else { return [] }
+              let alert = Alert.make(from: event, at: now(), host: host, policy: policy) else { return [] }
         return await deliver(alert, for: event, to: targets)
     }
 

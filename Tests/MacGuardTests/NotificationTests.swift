@@ -2,6 +2,7 @@
 // MacGuard - Anti-Theft Alarm for macOS
 
 import XCTest
+import os
 @testable import MacGuard
 
 final class NotifierValueTests: XCTestCase {
@@ -99,9 +100,8 @@ final class NotificationDispatcherTests: XCTestCase {
     private final class Recorder: Notifier {
         let id: NotifierID
         let fails: Bool
-        private let lock = NSLock()
-        private var _sent: [Alert] = []
-        var sent: [Alert] { lock.withLock { _sent } }
+        private let _sent = OSAllocatedUnfairLock(initialState: [Alert]())
+        var sent: [Alert] { _sent.withLock { $0 } }
 
         init(_ id: NotifierID, fails: Bool = false) {
             self.id = id
@@ -110,12 +110,12 @@ final class NotificationDispatcherTests: XCTestCase {
 
         func send(_ alert: Alert) async throws {
             if fails { throw NotifierError(message: "boom") }
-            lock.withLock { _sent.append(alert) }
+            _sent.withLock { $0.append(alert) }
         }
     }
 
     private func dispatcher(_ notifiers: [any Notifier], policy: AlertPolicy = AlertPolicy(),
-                            attachments: [URL] = [], logged: @escaping (String) -> Void = { _ in }) -> NotificationDispatcher {
+                            attachments: [URL] = [], logged: @escaping @Sendable (String) -> Void = { _ in }) -> NotificationDispatcher {
         NotificationDispatcher(notifiers: { notifiers }, policy: { policy },
                                attachments: { _ in attachments }, log: logged,
                                now: { Date(timeIntervalSince1970: 0) }, host: "TestMac")
@@ -123,15 +123,14 @@ final class NotificationDispatcherTests: XCTestCase {
 
     func testFansOutToEveryNotifierAndIsolatesFailures() async {
         let mail = Recorder(.mail), broken = Recorder(.webhook, fails: true), shortcut = Recorder(.shortcuts)
-        var logs: [String] = []
-        let lock = NSLock()
-        let results = await dispatcher([mail, broken, shortcut], logged: { line in lock.withLock { logs.append(line) } })
+        let logs = OSAllocatedUnfairLock(initialState: [String]())
+        let results = await dispatcher([mail, broken, shortcut], logged: { line in logs.withLock { $0.append(line) } })
             .dispatch(.alarmSounding(.powerDisconnected))
 
         XCTAssertEqual(results, [.delivered(.mail), .delivered(.shortcuts), .failed(.webhook, "boom")])
         XCTAssertEqual(mail.sent.count, 1)
         XCTAssertEqual(shortcut.sent.first?.kind, .alarm)
-        XCTAssertTrue(logs.contains("Notification via Webhook failed: boom"))
+        XCTAssertTrue(logs.withLock { $0 }.contains("Notification via Webhook failed: boom"))
     }
 
     func testPolicyFilteredEventSendsNothing() async {

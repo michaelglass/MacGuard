@@ -29,6 +29,7 @@ struct NotifierDrafts: Equatable {
 }
 
 /// Everything is off by default.
+@MainActor
 final class NotificationSettings: ObservableObject {
     static let shared = NotificationSettings()
 

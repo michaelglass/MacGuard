@@ -24,8 +24,8 @@ enum NotifierID: String, CaseIterable, Identifiable, Comparable {
     }
 }
 
-/// Exists only with a complete, parsed configuration.
-protocol Notifier {
+/// Exists only with a complete, parsed configuration. Sent concurrently, off the main actor.
+protocol Notifier: Sendable {
     var id: NotifierID { get }
     func send(_ alert: Alert) async throws
 }
