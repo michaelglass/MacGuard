@@ -110,8 +110,8 @@ struct AudioDevice: Equatable, CustomStringConvertible {
 
 /// Performs AlarmPlayback's decisions: reads CoreAudio into messages and runs the commands.
 class AlarmAudioManager {
-    private typealias Playback = AlarmPlayback
-    private var state: Playback.State<AVAudioPlayer> = .idle(prepared: nil)
+    private typealias Playback = AlarmPlayback<AVAudioPlayer>
+    private var state: Playback.State = .idle(prepared: nil)
     private lazy var outputWatch = OutputWatch { [weak self] in self?.send(.outputChanged(AudioDevice.defaultOutput)) }
     private let beeper = Beeper()
 
@@ -132,13 +132,13 @@ class AlarmAudioManager {
     /// Stop the alarm and restore what it changed
     func stopAlarm() { send(.stop) }
 
-    private func send(_ msg: Playback.Msg<AVAudioPlayer>) {
+    private func send(_ msg: Playback.Msg) {
         let (next, cmds) = Playback.update(state, msg)
         state = next
         cmds.forEach(perform)
     }
 
-    private func perform(_ cmd: Playback.Cmd<AVAudioPlayer>) {
+    private func perform(_ cmd: Playback.Cmd) {
         switch cmd {
         case .preload:
             send(.preloaded(loadSound()))

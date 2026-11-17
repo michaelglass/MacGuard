@@ -5,7 +5,7 @@ import Foundation
 
 /// Alarm audio decisions as a pure function. `Sound` is the loaded player
 /// (AVAudioPlayer in the app), generic so tests need no audio file.
-enum AlarmPlayback {
+enum AlarmPlayback<Sound: Equatable> {
     /// An output device's levels, read when a message is built.
     struct Reading: Equatable {
         let device: AudioDevice
@@ -30,28 +30,28 @@ enum AlarmPlayback {
         case followOutput
     }
 
-    enum Output<Sound: Equatable>: Equatable {
+    enum Output: Equatable {
         case sound(Sound)
         /// No playable sound: system beeps.
         case beeping
     }
 
-    struct Playing<Sound: Equatable>: Equatable {
+    struct Playing: Equatable {
         let targetVolume: Float
         var route: Route
         /// The output's volume before the alarm; nil when it had none to read.
         let savedVolume: Float?
         /// The device whose volume and mute are watched.
         var watched: AudioDevice?
-        let output: Output<Sound>
+        let output: Output
     }
 
-    enum State<Sound: Equatable>: Equatable {
+    enum State: Equatable {
         case idle(prepared: Sound?)
-        case playing(Playing<Sound>)
+        case playing(Playing)
     }
 
-    enum Msg<Sound: Equatable>: Equatable {
+    enum Msg: Equatable {
         case prepare
         case preloaded(Sound?)
         case unprepare
@@ -65,7 +65,7 @@ enum AlarmPlayback {
 
     /// Side effects the shell performs, in order. Volume and mute act on the
     /// default output as it is when the command runs.
-    enum Cmd<Sound: Equatable>: Equatable {
+    enum Cmd: Equatable {
         case preload
         case loadSound(then: Start)
         case setDefaultOutput(AudioDevice)
@@ -84,7 +84,7 @@ enum AlarmPlayback {
         case log(String)
     }
 
-    static func update<Sound>(_ state: State<Sound>, _ msg: Msg<Sound>) -> (State<Sound>, [Cmd<Sound>]) {
+    static func update(_ state: State, _ msg: Msg) -> (State, [Cmd]) {
         switch (state, msg) {
         case (.idle(.none), .prepare):
             return (state, [.preload])
@@ -121,8 +121,8 @@ enum AlarmPlayback {
         }
     }
 
-    private static func begin<Sound>(_ start: Start, _ output: Output<Sound>, playLog: String) -> (State<Sound>, [Cmd<Sound>]) {
-        var cmds: [Cmd<Sound>] = []
+    private static func begin(_ start: Start, _ output: Output, playLog: String) -> (State, [Cmd]) {
+        var cmds: [Cmd] = []
         let route: Route
         /// Where the alarm will sound, once any move is done.
         let alarmOutput: Reading?
@@ -160,9 +160,9 @@ enum AlarmPlayback {
         return (.playing(playing), cmds)
     }
 
-    private static func outputChanged<Sound>(_ playing: Playing<Sound>, _ output: AudioDevice?) -> (State<Sound>, [Cmd<Sound>]) {
+    private static func outputChanged(_ playing: Playing, _ output: AudioDevice?) -> (State, [Cmd]) {
         var playing = playing
-        var cmds: [Cmd<Sound>] = []
+        var cmds: [Cmd] = []
         switch playing.route {
         // Connecting headphones moves the default output, and the alarm with it.
         case .speaker(let speaker, _):
@@ -182,9 +182,9 @@ enum AlarmPlayback {
         return (.playing(playing), cmds)
     }
 
-    private static func enforce<Sound>(_ playing: Playing<Sound>, _ reading: Reading?) -> (State<Sound>, [Cmd<Sound>]) {
+    private static func enforce(_ playing: Playing, _ reading: Reading?) -> (State, [Cmd]) {
         var playing = playing
-        var cmds: [Cmd<Sound>] = []
+        var cmds: [Cmd] = []
         // No built-in speaker to return to: follow the new device instead.
         if reading?.device != playing.watched {
             playing.watched = reading?.device
@@ -203,8 +203,8 @@ enum AlarmPlayback {
     }
 
     /// Restores only what the alarm changed.
-    private static func stop<Sound>(_ playing: Playing<Sound>) -> [Cmd<Sound>] {
-        var cmds: [Cmd<Sound>] = [.unwatch]
+    private static func stop(_ playing: Playing) -> [Cmd] {
+        var cmds: [Cmd] = [.unwatch]
         switch playing.output {
         case .sound(let sound): cmds.append(.stopSound(sound))
         case .beeping: cmds.append(.stopBeeping)

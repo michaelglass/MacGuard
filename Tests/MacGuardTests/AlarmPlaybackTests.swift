@@ -5,9 +5,9 @@ import XCTest
 @testable import MacGuard
 
 final class AlarmPlaybackTests: XCTestCase {
-    private typealias P = AlarmPlayback
-    private typealias State = P.State<String>
-    private typealias Cmd = P.Cmd<String>
+    private typealias P = AlarmPlayback<String>
+    private typealias State = P.State
+    private typealias Cmd = P.Cmd
 
     private let speaker = AudioDevice(1)!
     private let usb = AudioDevice(2)!
@@ -21,7 +21,7 @@ final class AlarmPlaybackTests: XCTestCase {
         P.Start(targetVolume: 1.0, speaker: speaker, output: output)
     }
 
-    private func update(_ state: State, _ msg: P.Msg<String>) -> (State, [Cmd]) {
+    private func update(_ state: State, _ msg: P.Msg) -> (State, [Cmd]) {
         P.update(state, msg)
     }
 
