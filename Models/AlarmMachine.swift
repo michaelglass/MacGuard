@@ -154,122 +154,186 @@ enum AlarmMachine {
             Set(after.filter { $0.value == .seen(sighting) }.keys)
         }
 
-        switch (state, msg) {
+        // Message first, then state, with every pairing spelled out: a new state or
+        // message does not compile until each of its combinations is decided.
+        switch msg {
 
         // MARK: Arming
-        case (.idle, .armRequested(let auto)):
-            var effects: [Effect] = [.closeConfigWindows, .prepareAudio]
-            if env.autoLockOnArm { effects.append(.lockScreen) }
-            effects.append(.scheduleArmingDelay(env.exitDelay))
-            let until = env.now.addingTimeInterval(env.exitDelay.seconds)
-            let session = ArmSession(departed: seen(.away))
-            return (.arming(session, until: until, origin: auto ? .deviceLeft : .manual), effects)
+        case .armRequested(let auto):
+            switch state {
+            case .idle:
+                var effects: [Effect] = [.closeConfigWindows, .prepareAudio]
+                if env.autoLockOnArm { effects.append(.lockScreen) }
+                effects.append(.scheduleArmingDelay(env.exitDelay))
+                let until = env.now.addingTimeInterval(env.exitDelay.seconds)
+                let session = ArmSession(departed: seen(.away))
+                return (.arming(session, until: until, origin: auto ? .deviceLeft : .manual), effects)
+            case .arming, .armed, .triggered, .alarming:
+                return (state, [])
+            }
 
-        case (.arming, .armingDelayElapsed):
-            return (state, [.startInputMonitoring])
+        case .armingDelayElapsed:
+            switch state {
+            case .arming:
+                return (state, [.startInputMonitoring])
+            case .idle, .armed, .triggered, .alarming:  // a delay outliving its session
+                return (state, [])
+            }
 
-        case (.arming(let session, _, let origin), .inputMonitoringStarted(true)):
-            return (.armed(session), [
-                .persistArmedMarker(session),
-                .startSystemMonitors,
-                .log(.armed, "System armed - monitoring active"),
-                .emit(.armed(auto: origin == .deviceLeft)),
-            ])
+        case .inputMonitoringStarted(let granted):
+            switch state {
+            case .arming(let session, _, let origin):
+                guard granted else { return standDown("Failed to arm - accessibility permission denied", env) }
+                return (.armed(session), [
+                    .persistArmedMarker(session),
+                    .startSystemMonitors,
+                    .log(.armed, "System armed - monitoring active"),
+                    .emit(.armed(auto: origin == .deviceLeft)),
+                ])
+            case .idle, .armed, .triggered, .alarming:
+                return (state, [])
+            }
 
-        case (.arming, .inputMonitoringStarted(false)):
-            return standDown("Failed to arm - accessibility permission denied", env)
-
-        case (.arming, .cancelArming):
-            return standDown("Arming cancelled", env)
+        case .cancelArming:
+            switch state {
+            case .arming:
+                return standDown("Arming cancelled", env)
+            case .idle, .armed, .triggered, .alarming:  // once armed, only the owner disarms
+                return (state, [])
+            }
 
         // MARK: Disarming
-        case (_, .authenticated(let proof)) where state != .idle:
-            return standDown("Disarmed via \(proof.method.rawValue)", env)
+        case .authenticated(let proof):
+            switch state {
+            case .arming, .armed, .triggered, .alarming:
+                return standDown("Disarmed via \(proof.method.rawValue)", env)
+            case .idle:
+                return (state, [])
+            }
 
         // MARK: Triggering
-        case (.armed(let session), .intrusion(let cause)):
-            guard isEnabled(cause, env) else {
-                return (state, [.log(.system, "Ignored \(cause.label) - trigger disabled")])
+        case .intrusion(let cause):
+            switch state {
+            case .armed(let session):
+                guard isEnabled(cause, env) else {
+                    return (state, [.log(.system, "Ignored \(cause.label) - trigger disabled")])
+                }
+                guard let countdown = env.countdown else {
+                    return soundAlarm(session, cause, "Immediate alarm triggered (no countdown)", overlay: true)
+                }
+                return (.triggered(session, countdown, cause), [
+                    .showOverlay,
+                    .startCountdownTimer,
+                    .log(.trigger, "Countdown started (\(countdown.total)s) - \(cause.label)"),
+                    .emit(.countdownStarted(cause, seconds: countdown.total)),
+                ])
+            case .idle, .arming, .triggered, .alarming:  // not monitoring, or already raised
+                return (state, [])
             }
-            guard let countdown = env.countdown else {
-                return soundAlarm(session, cause, "Immediate alarm triggered (no countdown)", overlay: true)
-            }
-            return (.triggered(session, countdown, cause), [
-                .showOverlay,
-                .startCountdownTimer,
-                .log(.trigger, "Countdown started (\(countdown.total)s) - \(cause.label)"),
-                .emit(.countdownStarted(cause, seconds: countdown.total)),
-            ])
 
-        case (.armed(let session), .severeIntrusion(let cause)),
-             (.triggered(let session, _, _), .severeIntrusion(let cause)):
-            return soundAlarm(session, cause, "ALARM ACTIVE - \(cause.label)", overlay: true)
-
-        case (.triggered(let session, let countdown, let cause), .countdownTick):
-            guard let next = countdown.ticked() else {
-                return soundAlarm(session, cause, "Countdown expired - ALARM ACTIVE", overlay: false)
+        case .severeIntrusion(let cause):
+            switch state {
+            case .armed(let session), .triggered(let session, _, _):
+                return soundAlarm(session, cause, "ALARM ACTIVE - \(cause.label)", overlay: true)
+            case .idle, .arming, .alarming:
+                return (state, [])
             }
-            return (.triggered(session, next, cause), [])
+
+        case .countdownTick:
+            switch state {
+            case .triggered(let session, let countdown, let cause):
+                guard let next = countdown.ticked() else {
+                    return soundAlarm(session, cause, "Countdown expired - ALARM ACTIVE", overlay: false)
+                }
+                return (.triggered(session, next, cause), [])
+            case .idle, .arming, .armed, .alarming:  // a tick outliving its countdown
+                return (state, [])
+            }
 
         // MARK: Proximity
-        // The grace period runs while any device is still away.
-        case (.idle, .proximity(.seen(let device, .nearby))):
-            guard seen(.away).isEmpty else { return (state, []) }
-            return (state, [.cancelAutoArmTimer(reason: "Auto-arm cancelled - '\(device.name)' back nearby")])
-
-        case (_, .proximity(.seen(let device, .nearby))):
-            guard state.session?.departed.contains(device.id) == true else {
-                return (state, [.log(.bluetooth, "'\(device.name)' nearby but was here at arming - not disarming")])
+        case .proximity(.seen(let device, .nearby)):
+            switch state {
+            // The grace period runs while any device is still away.
+            case .idle:
+                guard seen(.away).isEmpty else { return (state, []) }
+                return (state, [.cancelAutoArmTimer(reason: "Auto-arm cancelled - '\(device.name)' back nearby")])
+            case .arming(let session, _, _), .armed(let session), .triggered(let session, _, _), .alarming(let session, _):
+                guard session.departed.contains(device.id) else {
+                    return (state, [.log(.bluetooth, "'\(device.name)' nearby but was here at arming - not disarming")])
+                }
+                return standDown("Disarmed via trusted device '\(device.name)'", env)
             }
-            return standDown("Disarmed via trusted device '\(device.name)'", env)
 
-        // Only leaving starts the grace period: a device first seen away was never here.
-        case (.idle, .proximity(.seen(let device, .away))):
-            guard before[device.id]?.holdsNearby == true else {
-                return (state, [.log(.bluetooth, "'\(device.name)' seen away but was not nearby - no grace period")])
+        case .proximity(.seen(let device, .away)):
+            switch state {
+            // Only leaving starts the grace period: a device first seen away was never here.
+            case .idle:
+                guard before[device.id]?.holdsNearby == true else {
+                    return (state, [.log(.bluetooth, "'\(device.name)' seen away but was not nearby - no grace period")])
+                }
+                return (state, autoArmGracePeriod("'\(device.name)' left - starting grace period", env.autoArm))
+            // A first sighting of away counts too: the device is missing from this session.
+            case .arming(let session, _, _), .armed(let session), .triggered(let session, _, _), .alarming(let session, _):
+                var effects: [Effect] = [.log(.bluetooth, "Trusted device '\(device.name)' left proximity")]
+                if !session.departed.contains(device.id) {
+                    effects.append(.log(.bluetooth, "'\(device.name)' may now disarm on return"))
+                }
+                return (state.updatingSession { $0.departed.insert(device.id) }, effects)
             }
-            return (state, autoArmGracePeriod("'\(device.name)' left - starting grace period", env.autoArm))
-
-        // A first sighting of away counts too: the device is missing from this session.
-
-        case (_, .proximity(.seen(let device, .away))):
-            var effects: [Effect] = [.log(.bluetooth, "Trusted device '\(device.name)' left proximity")]
-            if state.session?.departed.contains(device.id) == false {
-                effects.append(.log(.bluetooth, "'\(device.name)' may now disarm on return"))
-            }
-            return (state.updatingSession { $0.departed.insert(device.id) }, effects)
 
         // An assumption or no longer seen is neither a return nor a departure.
-        case (_, .proximity(.assumedNearby)), (_, .proximity(.lost)):
+        case .proximity(.assumedNearby), .proximity(.lost):
             return (state, [])
 
-        case (_, .systemWoke):
-            if let session = state.session, !session.departed.isDisjoint(with: seen(.nearby)) {
-                return standDown("Disarmed on wake - trusted device back nearby", env)
+        case .systemWoke:
+            switch state {
+            case .arming(let session, _, _), .armed(let session), .triggered(let session, _, _), .alarming(let session, _):
+                if !session.departed.isDisjoint(with: seen(.nearby)) {
+                    return standDown("Disarmed on wake - trusted device back nearby", env)
+                }
+                return (state, [.log(.system, "System woke from sleep")])
+            case .idle:
+                return (state, [.log(.system, "System woke from sleep")])
             }
-            return (state, [.log(.system, "System woke from sleep")])
 
-        // The marker is rewritten so a second kill is caught too.
-        case (.idle, .resumeAfterTamper(let session)):
-            let (next, effects) = soundAlarm(session, .tamper, "Restarted after being terminated while armed - ALARM ACTIVE", overlay: true)
-            return (next, [.persistArmedMarker(session), .startSystemMonitors] + effects)
+        // MARK: Idle-only
+        case .resumeAfterTamper(let session):
+            switch state {
+            // The marker is rewritten so a second kill is caught too.
+            case .idle:
+                let (next, effects) = soundAlarm(session, .tamper, "Restarted after being terminated while armed - ALARM ACTIVE", overlay: true)
+                return (next, [.persistArmedMarker(session), .startSystemMonitors] + effects)
+            case .arming, .armed, .triggered, .alarming:
+                return (state, [])
+            }
 
-        case (.idle, .autoArmTimerFired):
-            let (next, effects) = decide(.idle, .armRequested(auto: true), before: before, after: after, env)
-            return (next, [.log(.armed, "Auto-arming - trusted device still away")] + effects)
+        case .autoArmTimerFired:
+            switch state {
+            case .idle:
+                let (next, effects) = decide(.idle, .armRequested(auto: true), before: before, after: after, env)
+                return (next, [.log(.armed, "Auto-arming - trusted device still away")] + effects)
+            case .arming, .armed, .triggered, .alarming:
+                return (state, [])
+            }
 
-        case (.idle, .screenLocked):
-            guard env.autoArmOnScreenLock else { return (state, []) }
-            // A manual arm: only devices already away (or leaving later) may disarm.
-            let (next, effects) = decide(.idle, .armRequested(auto: false), before: before, after: after, env)
-            return (next, [.log(.armed, "Screen locked - arming")] + effects)
+        case .screenLocked:
+            switch state {
+            case .idle:
+                guard env.autoArmOnScreenLock else { return (state, []) }
+                // A manual arm: only devices already away (or leaving later) may disarm.
+                let (next, effects) = decide(.idle, .armRequested(auto: false), before: before, after: after, env)
+                return (next, [.log(.armed, "Screen locked - arming")] + effects)
+            case .arming, .armed, .triggered, .alarming:
+                return (state, [])
+            }
 
-        case (.idle, .settingsChanged):
-            return (state, [wantsIdleScanning(env.autoArm) ? .resumeIdleScanning : .stopIdleScanning])
-
-        // Anything else is a no-op here (e.g. a stale tick after disarm).
-        default:
-            return (state, [])
+        case .settingsChanged:
+            switch state {
+            case .idle:
+                return (state, [wantsIdleScanning(env.autoArm) ? .resumeIdleScanning : .stopIdleScanning])
+            case .arming, .armed, .triggered, .alarming:  // scanning is already on while armed
+                return (state, [])
+            }
         }
     }
 
