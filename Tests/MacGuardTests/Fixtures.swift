@@ -13,7 +13,8 @@ extension AlarmEnvironment {
         now: Date = t0,
         countdown: Int = 3,
         autoLock: Bool = false,
-        proximity: ProximityEvidence = .devices(),
+        sightings: [TrustedDevice: Sighting] = [:],
+        autoArm: AutoArm = .off,
         usb: Bool = true,
         network: Bool = false,
         motion: Bool = true,
@@ -23,23 +24,13 @@ extension AlarmEnvironment {
     ) -> AlarmEnvironment {
         AlarmEnvironment(
             now: now, countdown: Countdown(seconds: countdown), autoLockOnArm: autoLock,
-            proximity: proximity,
+            sightings: Dictionary(uniqueKeysWithValues: sightings.map { ($0.key.id, $0.value) }),
+            autoArm: autoArm,
             usbTriggerEnabled: usb, networkTriggerEnabled: network,
             motionTriggerEnabled: motion, lidAngleTriggerEnabled: lidAngle,
             autoArmOnScreenLock: lockArms, exitDelay: exitDelay
         )
     }
-}
-
-extension ProximityEvidence {
-    static func devices(_ sightings: [TrustedDevice: Sighting] = [:], autoArm: AutoArm = .off) -> ProximityEvidence {
-        .trusted(TrustedDeviceEvidence(
-            sightings: Dictionary(uniqueKeysWithValues: sightings.map { ($0.key.id, $0.value) }),
-            autoArm: autoArm
-        ))
-    }
-
-    static let autoArmStable = devices(autoArm: .onDeviceLeave(.stable))
 }
 
 extension TrustedDevice {

@@ -169,7 +169,7 @@ final class AlarmRuntimeTests: XCTestCase {
         XCTAssertEqual(runtime.state.phase, .triggered)
 
         runtime.send(.trustedDeviceAway(.phone))
-        env = .fixture(proximity: .devices([.phone: .nearby]))
+        env = .fixture(sightings: [.phone: .nearby])
         runtime.send(.trustedDeviceNearby(.phone))
         XCTAssertEqual(runtime.state, .idle)
         XCTAssertEqual(scheduler.pending, 0)
@@ -181,16 +181,16 @@ final class AlarmRuntimeTests: XCTestCase {
     }
 
     func testAutoArmTimerArmsAfterGracePeriodAndCanBeCancelled() {
-        let away = ProximityEvidence.devices([.phone: .away, .watch: .nearby], autoArm: .onDeviceLeave(.stable))
-        env = .fixture(proximity: away)
+        let away = AlarmEnvironment.fixture(sightings: [.phone: .away, .watch: .nearby], autoArm: .onDeviceLeave(.stable))
+        env = away
         runtime.send(.trustedDeviceAway(.phone))
         XCTAssertEqual(scheduler.pending, 1)
-        env = .fixture(proximity: .devices([.phone: .nearby, .watch: .nearby], autoArm: .onDeviceLeave(.stable)))
+        env = .fixture(sightings: [.phone: .nearby, .watch: .nearby], autoArm: .onDeviceLeave(.stable))
         runtime.send(.trustedDeviceNearby(.phone))
         XCTAssertEqual(scheduler.pending, 0)
         XCTAssertTrue(hardware.logs.contains("Auto-arm cancelled - 'Phone' back nearby"))
 
-        env = .fixture(proximity: away)
+        env = away
         runtime.send(.trustedDeviceAway(.phone))
         scheduler.advance(by: 15)
         XCTAssertEqual(runtime.state, .arming(ArmSession(departed: [TrustedDevice.phone.id]),

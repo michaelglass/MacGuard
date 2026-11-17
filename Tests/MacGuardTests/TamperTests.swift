@@ -22,7 +22,7 @@ final class TamperMachineTests: XCTestCase {
             (.armed(left), .trustedDeviceNearby(.phone)),
             (.alarming(left, .tamper), .systemWoke),
         ]
-        let nearby = AlarmEnvironment.fixture(countdown: 0, proximity: .devices([.phone: .nearby]))
+        let nearby = AlarmEnvironment.fixture(countdown: 0, sightings: [.phone: .nearby])
         for (state, input) in standDowns {
             let (next, effects) = AlarmMachine.step(state, input, nearby)
             XCTAssertEqual(next, .idle, "\(state) + \(input)")
