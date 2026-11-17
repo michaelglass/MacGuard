@@ -10,74 +10,78 @@ import IOBluetooth
 final class DeviceScannerWindowController {
     static let shared = DeviceScannerWindowController()
 
-    private let viewModel = DeviceScannerViewModel()
-    private var window: UtilityWindow?
+    private var presented: (viewModel: DeviceScannerViewModel, window: UtilityWindow)?
 
     func show(bluetoothManager: BluetoothProximityManager) {
-        viewModel.bluetoothManager = bluetoothManager
-        window = window ?? UtilityWindow(
+        let presented = self.presented ?? Self.present(bluetoothManager: bluetoothManager)
+        self.presented = presented
+        presented.viewModel.bluetoothManager = bluetoothManager
+        presented.window.show()
+        presented.viewModel.startScanning()
+    }
+
+    private static func present(bluetoothManager: BluetoothProximityManager)
+        -> (viewModel: DeviceScannerViewModel, window: UtilityWindow) {
+        let viewModel = DeviceScannerViewModel(bluetoothManager: bluetoothManager)
+        let window = UtilityWindow(
             title: "Scan for Devices", size: NSSize(width: 350, height: 400), transparent: true,
             onClose: { [viewModel] in viewModel.stopScanning() },
             content: DeviceScannerContainerView(viewModel: viewModel,
                                                 onDismiss: { DeviceScannerWindowController.shared.close() }))
-        window?.show()
-        viewModel.startScanning()
+        return (viewModel, window)
     }
 
     func close() {
-        window?.close()
+        presented?.window.close()
     }
 }
 
-/// View model for device scanner
+/// Shell around `DeviceScan`: parses IOBluetooth/CoreBluetooth callbacks into messages.
 class DeviceScannerViewModel: NSObject, ObservableObject {
-    var bluetoothManager: BluetoothProximityManager?
-    @Published var discoveredDevices: [DiscoveredDevice] = []
+    var bluetoothManager: BluetoothProximityManager
+    @Published private(set) var scan = DeviceScan()
     @Published var isScanning = false
 
     private var centralManager: CBCentralManager?
-    /// Names are attacker-controlled: one seen from several peripherals never binds a device.
-    private var blePeripheralsByName: [String: Set<UUID>] = [:]
+
+    init(bluetoothManager: BluetoothProximityManager) {
+        self.bluetoothManager = bluetoothManager
+    }
 
     func startScanning() {
         guard !isScanning else { return }
         isScanning = true
-        discoveredDevices = []
-        blePeripheralsByName = [:]
-
-        // First, load all paired devices from IOBluetooth (Classic + BLE)
-        loadPairedDevices()
-
-        // Then start BLE scan to get RSSI and detect BLE-capable devices
+        scan = DeviceScan()
+        send(.pairedLoaded(loadPairedDevices()))
+        // BLE scan supplies RSSI and binds BLE-capable devices
         centralManager = CBCentralManager(delegate: self, queue: nil)
     }
 
-    /// Load all paired devices from IOBluetooth
-    private func loadPairedDevices() {
-        guard let paired = IOBluetoothDevice.pairedDevices() as? [IOBluetoothDevice] else {
-            return
+    private func send(_ msg: DeviceScan.Msg) {
+        let (next, effects) = DeviceScan.update(scan, msg)
+        scan = next
+        for effect in effects {
+            switch effect {
+            case .bound(let name, let peripheral):
+                logActivity(.bluetooth, "Device \(name) found via BLE, UUID: \(peripheral)")
+            case .unboundAmbiguous(let name):
+                logActivity(.bluetooth, "Multiple BLE peripherals named \(name) - keeping Classic tracking")
+            }
         }
+    }
 
-        for ioDevice in paired {
-            guard let name = ioDevice.name, !name.isEmpty else { continue }
-
-            // Create discovered device with IOBluetooth data
-            let device = DiscoveredDevice(
-                id: UUID(),
-                name: name,
-                // Display/sort estimate only; -80 when no real reading is available
-                rssi: (ioDevice.isConnected() ? RSSI(Int(ioDevice.rawRSSI()))?.dBm : nil) ?? -80,
-                isPaired: true,
+    private func loadPairedDevices() -> [DiscoveredDevice] {
+        guard let paired = IOBluetoothDevice.pairedDevices() as? [IOBluetoothDevice] else { return [] }
+        return paired.compactMap { ioDevice in
+            guard let name = ioDevice.name, !name.isEmpty else { return nil }
+            let connected = ioDevice.isConnected()
+            logActivity(.bluetooth, "Paired device: \(name) (addr: \(ioDevice.addressString ?? "?"), connected: \(connected))")
+            return DiscoveredDevice(
+                id: UUID(), name: name,
                 classicAddress: ioDevice.addressString.flatMap(BluetoothAddress.init),
-                isConnected: ioDevice.isConnected()
-            )
-
-            discoveredDevices.append(device)
-            logActivity(.bluetooth, "Paired device: \(name) (addr: \(ioDevice.addressString ?? "?"), connected: \(ioDevice.isConnected()))")
+                isConnected: connected,
+                signal: connected ? RSSI(Int(ioDevice.rawRSSI())) : nil)
         }
-
-        // Sort by connection status, then by signal strength
-        sortDevices()
     }
 
     func stopScanning() {
@@ -86,44 +90,20 @@ class DeviceScannerViewModel: NSObject, ObservableObject {
         isScanning = false
     }
 
-    func selectDevice(_ device: DiscoveredDevice) {
-        guard let bluetoothManager = bluetoothManager else { return }
-
-        // A Classic device without an address could never be detected
-        guard let transport = device.transport else {
-            logActivity(.bluetooth, "Cannot trust \(device.name): no BLE match and no Bluetooth address")
-            return
-        }
-        let trustedDevice = TrustedDevice(id: device.trustedID, name: device.name, transport: transport)
-
-        // Add device via BluetoothProximityManager
-        let added = bluetoothManager.addTrustedDevice(trustedDevice)
-        if added {
+    func select(_ device: TrustedDevice) {
+        if bluetoothManager.addTrustedDevice(device) {
             logActivity(.bluetooth, "Added device: \(device.name) (classic: \(device.isClassicBluetooth))")
         }
     }
 
-    /// Why `device` can't be added, if it can't (the manager's one rule).
-    func refusal(for device: DiscoveredDevice) -> BluetoothProximityManager.Refusal? {
-        bluetoothManager?.admission(of: device.trustedID, classicAddress: device.classicAddress)
-    }
-
-    private func sortDevices() {
-        discoveredDevices.sort { a, b in
-            // Connected devices first
-            if a.isConnected != b.isConnected {
-                return a.isConnected
-            }
-            // Then by signal strength
-            return a.rssi > b.rssi
-        }
+    func rowState(for device: DiscoveredDevice) -> DiscoveredDevice.RowState {
+        device.rowState(admission: bluetoothManager.admission)
     }
 }
 
 extension DeviceScannerViewModel: CBCentralManagerDelegate {
     func centralManagerDidUpdateState(_ central: CBCentralManager) {
         if central.state == .poweredOn {
-            // Scan for BLE peripherals to identify BLE-capable devices
             central.scanForPeripherals(
                 withServices: nil,
                 options: [CBCentralManagerScanOptionAllowDuplicatesKey: false]
@@ -138,57 +118,9 @@ extension DeviceScannerViewModel: CBCentralManagerDelegate {
         advertisementData: [String: Any],
         rssi RSSI: NSNumber
     ) {
-        guard let name = peripheral.name, !name.isEmpty else { return }
-        guard RSSI.intValue > -90 else { return }
-
-        let key = name.lowercased()
-        let peripherals = blePeripheralsByName[key, default: []].union([peripheral.identifier])
-        blePeripheralsByName[key] = peripherals
-
-        // Find matching device in our paired list by name
-        // Only update existing paired devices - ignore unpaired BLE devices
-        if let index = discoveredDevices.firstIndex(where: { $0.name.lowercased() == key }) {
-            var device = discoveredDevices[index]
-
-            if peripherals.count == 1 {
-                // Exactly one peripheral advertises this name: track it via BLE RSSI
-                device.blePeripheralID = peripheral.identifier
-                device.rssi = RSSI.intValue
-                logActivity(.bluetooth, "Device \(name) found via BLE, UUID: \(peripheral.identifier)")
-            } else if device.blePeripheralID != nil {
-                // Another peripheral claims the same name: refuse to guess
-                device.blePeripheralID = nil
-                logActivity(.bluetooth, "Multiple BLE peripherals named \(name) - keeping Classic tracking")
-            }
-            discoveredDevices[index] = device
-        }
-        // Note: Unpaired BLE devices are intentionally ignored - only paired devices shown
-
-        DispatchQueue.main.async {
-            self.sortDevices()
-        }
-    }
-}
-
-/// Discovered device model
-struct DiscoveredDevice: Identifiable {
-    let id: UUID
-    let name: String
-    var rssi: Int
-    let isPaired: Bool
-    let classicAddress: BluetoothAddress?
-    /// Set only while exactly one BLE peripheral advertises this name
-    var blePeripheralID: UUID? = nil
-    var isConnected: Bool
-
-    var isClassicBluetooth: Bool { blePeripheralID == nil }
-
-    var trustedID: UUID { blePeripheralID ?? id }
-
-    /// `nil` when the device cannot be tracked at all
-    var transport: TrustedDevice.Transport? {
-        if blePeripheralID != nil { return .ble }
-        return classicAddress.map { .classic(address: $0) }
+        guard let ad = Advertisement(name: peripheral.name, peripheral: peripheral.identifier,
+                                     rawRSSI: RSSI.intValue) else { return }
+        send(.advertised(ad))
     }
 }
 
@@ -225,7 +157,7 @@ struct DeviceScannerContainerView: View {
             }
 
             // Device list
-            if viewModel.discoveredDevices.isEmpty {
+            if viewModel.scan.devices.isEmpty {
                 emptyStateView
             } else {
                 deviceListView
@@ -305,14 +237,9 @@ struct DeviceScannerContainerView: View {
     private var deviceListView: some View {
         ScrollView {
             LazyVStack(spacing: Theme.Spacing.sm) {
-                ForEach(viewModel.discoveredDevices) { device in
-                    let refusal = viewModel.refusal(for: device)
-                    DeviceRowButton(
-                        device: device,
-                        isAlreadyAdded: refusal == .alreadyTrusted,
-                        isDisabled: refusal != nil
-                    ) {
-                        viewModel.selectDevice(device)
+                ForEach(viewModel.scan.devices) { device in
+                    DeviceRowButton(device: device, state: viewModel.rowState(for: device)) { trusted in
+                        viewModel.select(trusted)
                         onDismiss()
                     }
                 }
@@ -327,127 +254,129 @@ struct DeviceScannerContainerView: View {
 
 struct DeviceRowButton: View {
     let device: DiscoveredDevice
-    var isAlreadyAdded: Bool = false
-    var isDisabled: Bool = false
-    let action: () -> Void
+    let state: DiscoveredDevice.RowState
+    let action: (TrustedDevice) -> Void
 
     @State private var isHovered = false
 
+    private var isAlreadyAdded: Bool { state == .alreadyAdded }
+
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: Theme.Spacing.md) {
-                // Device icon with glass background
-                ZStack {
-                    GlassIconCircle(size: 40, material: .selection)
-                    Image(systemName: TrustedDevice.icon(for: device.name))
-                        .font(.system(size: 18))
-                        .foregroundStyle(isAlreadyAdded ? .secondary : Theme.Accent.primary)
-                }
-
-                VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
-                    HStack(spacing: Theme.Spacing.sm) {
-                        Text(device.name)
-                            .font(.body.weight(.medium))
-                            .foregroundStyle(isAlreadyAdded ? .secondary : .primary)
-
-                        // Added badge for already-added devices
-                        if isAlreadyAdded {
-                            Text("Added")
-                                .font(.caption2)
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(Theme.StateColor.armed)
-                                .clipShape(Capsule())
-                        } else if device.isConnected {
-                            // Connected badge
-                            Text("Connected")
-                                .font(.caption2)
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(Theme.StateColor.armed)
-                                .clipShape(Capsule())
-                        } else if device.isPaired {
-                            // Paired badge
-                            Text("Paired")
-                                .font(.caption2)
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(Color.orange)
-                                .clipShape(Capsule())
-                        }
-                    }
-
-                    // Device type and signal info
-                    HStack(spacing: Theme.Spacing.xs) {
-                        if device.isConnected {
-                            SignalStrengthView(rssi: device.rssi)
-                            Text(signalStrengthText)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        } else {
-                            Text(device.isClassicBluetooth ? "Classic" : "BLE")
-                                .font(.system(size: 9, weight: .medium))
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 4)
-                                .padding(.vertical, 1)
-                                .background(device.isClassicBluetooth ? Color.orange : Color.blue)
-                                .clipShape(Capsule())
-                        }
+        switch state {
+        case .selectable(let trusted):
+            Button { action(trusted) } label: { row(enabled: true) }
+                .buttonStyle(.plain)
+                .onHover { hovering in
+                    withAnimation(.easeInOut(duration: Theme.Animation.hoverDuration)) {
+                        isHovered = hovering
                     }
                 }
-
-                Spacer()
-
-                if !isAlreadyAdded {
-                    Image(systemName: "chevron.right")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                }
-            }
-            .padding(Theme.Spacing.md)
-            .background {
-                RoundedRectangle(cornerRadius: Theme.CornerRadius.md)
-                    .fill(.clear)
-                    .background(
-                        VisualEffectView(
-                            material: .selection,
-                            blendingMode: .withinWindow
-                        )
-                        .opacity(isHovered && !isDisabled ? 1 : 0)
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: Theme.CornerRadius.md))
-            }
-            .glassBorder(cornerRadius: Theme.CornerRadius.md)
-            .opacity(isDisabled ? 0.6 : 1.0)
+        case .alreadyAdded, .unavailable:
+            row(enabled: false)
         }
-        .buttonStyle(.plain)
-        .disabled(isDisabled)
-        .onHover { hovering in
-            withAnimation(.easeInOut(duration: Theme.Animation.hoverDuration)) {
-                isHovered = hovering
+    }
+
+    private func row(enabled: Bool) -> some View {
+        HStack(spacing: Theme.Spacing.md) {
+            ZStack {
+                GlassIconCircle(size: 40, material: .selection)
+                Image(systemName: TrustedDevice.icon(for: device.name))
+                    .font(.system(size: 18))
+                    .foregroundStyle(isAlreadyAdded ? .secondary : Theme.Accent.primary)
             }
+
+            VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+                HStack(spacing: Theme.Spacing.sm) {
+                    Text(device.name)
+                        .font(.body.weight(.medium))
+                        .foregroundStyle(isAlreadyAdded ? .secondary : .primary)
+
+                    if isAlreadyAdded {
+                        badge("Added", Theme.StateColor.armed)
+                    } else if device.isConnected {
+                        badge("Connected", Theme.StateColor.armed)
+                    } else {
+                        badge("Paired", Color.orange)
+                    }
+                }
+
+                HStack(spacing: Theme.Spacing.xs) {
+                    if device.isConnected {
+                        SignalStrengthView(signal: device.signal)
+                        Text(signalStrengthText)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        let (label, color) = transportLabel
+                        Text(label)
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(color)
+                            .clipShape(Capsule())
+                    }
+                }
+            }
+
+            Spacer()
+
+            if !isAlreadyAdded {
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .padding(Theme.Spacing.md)
+        .background {
+            RoundedRectangle(cornerRadius: Theme.CornerRadius.md)
+                .fill(.clear)
+                .background(
+                    VisualEffectView(material: .selection, blendingMode: .withinWindow)
+                        .opacity(isHovered && enabled ? 1 : 0)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: Theme.CornerRadius.md))
+        }
+        .glassBorder(cornerRadius: Theme.CornerRadius.md)
+        .opacity(enabled ? 1.0 : 0.6)
+    }
+
+    private func badge(_ text: String, _ color: Color) -> some View {
+        Text(text)
+            .font(.caption2)
+            .foregroundStyle(.white)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(color)
+            .clipShape(Capsule())
+    }
+
+    private var transportLabel: (String, Color) {
+        switch device.tracking {
+        case .ble: return ("BLE", .blue)
+        case .classic: return ("Classic", .orange)
+        case .untrackable: return ("No address", .gray)
         }
     }
 
     private var signalStrengthText: String {
-        if device.rssi >= -50 { return "Excellent" }
-        if device.rssi >= -60 { return "Good" }
-        if device.rssi >= -70 { return "Fair" }
+        guard let dBm = device.signal?.dBm else { return "—" }
+        if dBm >= -50 { return "Excellent" }
+        if dBm >= -60 { return "Good" }
+        if dBm >= -70 { return "Fair" }
         return "Weak"
     }
 }
 
 /// Visual signal strength indicator
 struct SignalStrengthView: View {
-    let rssi: Int
+    let signal: RSSI?
 
     private var bars: Int {
-        if rssi >= -50 { return 4 }
-        if rssi >= -60 { return 3 }
-        if rssi >= -70 { return 2 }
+        guard let dBm = signal?.dBm else { return 0 }
+        if dBm >= -50 { return 4 }
+        if dBm >= -60 { return 3 }
+        if dBm >= -70 { return 2 }
         return 1
     }
 
