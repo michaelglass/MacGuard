@@ -5,7 +5,8 @@ import SwiftUI
 import Sparkle
 
 /// Manages Sparkle auto-update functionality
-final class UpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate, SPUStandardUserDriverDelegate {
+@MainActor
+final class UpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate, @MainActor SPUStandardUserDriverDelegate {
     /// Shared instance for app-wide access
     static let shared = UpdateManager()
 
