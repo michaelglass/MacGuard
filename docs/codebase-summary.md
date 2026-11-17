@@ -90,10 +90,10 @@ MacGuard/
   - Scans for paired Bluetooth devices
   - Manages up to 10 trusted devices with add/remove
   - Monitors RSSI signal strength per device
-  - Auto-disarms when ANY trusted device is nearby (RSSI > threshold)
-  - Auto-arms when ALL trusted devices leave proximity
-  - Stores trusted devices array in UserDefaults (JSON encoded)
-  - Migrates legacy single-device data to new format
+  - Auto-disarms only when a device that was away during the arm session comes back (a device present at arming, such as a phone left on the desk, never disarms)
+  - Auto-arms (after a grace period) when any trusted device that was nearby leaves
+  - Reports each device's presence (seen nearby, seen away, assumed nearby after a Bluetooth reset, or unobserved) to the alarm machine as changes; only real sightings count as evidence
+  - Stores trusted devices array in UserDefaults (JSON encoded); legacy single-device data is migrated by `SettingsMigration` at launch
 - **Frameworks:** CoreBluetooth
 - **Permissions:** Bluetooth
 
@@ -385,7 +385,7 @@ swift build -c release
 ## Security Model
 
 ### Authentication Hierarchy
-1. **Bluetooth Proximity** - Auto-disarm when ANY trusted device is nearby; auto-arm when ALL devices away
+1. **Bluetooth Proximity** - Auto-disarm only when a device that was away during the session returns; auto-arm when any trusted device leaves. A nearby device never silences a trigger.
 2. **Touch ID** - Primary authentication method
 3. **PIN** - Fallback authentication (4-8 digits, Keychain-stored)
 

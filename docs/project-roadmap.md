@@ -125,7 +125,7 @@
 - Force alarm audio to Mac built-in speaker (bypasses headphones)
 - Activity log viewer with filtering
 - Improved UI/UX with glass morphism theme
-- Auto-arm mode: trigger when ALL or ANY devices leave
+- Auto-arm mode: trigger when ALL or ANY devices leave (later replaced: any departure arms, and only a device that was away may disarm; see REVIEW.md round 5)
 - Configurable detection distance (Close/Medium/Far)
 - Grace period for auto-arm (10-60 seconds)
 
@@ -158,8 +158,8 @@
 
 **Features Delivered:**
 - Support for up to 10 trusted Bluetooth devices
-- Auto-disarm when ANY trusted device enters proximity
-- Auto-arm when ALL trusted devices leave proximity
+- Auto-disarm when ANY trusted device enters proximity (later narrowed to devices that were away during the session)
+- Auto-arm when ALL trusted devices leave proximity (later: any device leaving)
 - Device list UI with add/remove functionality
 - Legacy single-device data auto-migration
 - Updated delegate protocol with `allTrustedDevicesAway()`

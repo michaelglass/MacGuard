@@ -176,38 +176,29 @@ Power Disconnect → IOKit Callback → PowerMonitor → Delegate → AlarmState
 **Responsibilities:**
 - Manage multiple trusted Bluetooth devices (up to 10)
 - Scan and monitor RSSI signal strength per device
-- Auto-disarm when ANY device is nearby (RSSI > threshold)
-- Auto-arm when ALL devices leave proximity
+- Auto-disarms only when a device that was away during the arm session comes back (a device present at arming, such as a phone left on the desk, never disarms)
+- Auto-arms (after a grace period) when any trusted device that was nearby leaves
 - Device selection, addition, and removal
-- Legacy single-device data migration
 
 **Key Technologies:**
 - CoreBluetooth framework
 - CBCentralManager for scanning
 - RSSI-based proximity detection with hysteresis
 
-**Proximity Logic:**
-```swift
-// ANY device nearby = nearby (for auto-disarm)
-var isDeviceNearby: Bool {
-    deviceProximityStates.values.contains(true)
-}
-
-// ALL devices away = away (for auto-arm)
-var areAllDevicesAway: Bool {
-    guard !trustedDevices.isEmpty else { return false }
-    return deviceProximityStates.values.allSatisfy { !$0 }
-}
-```
+**Proximity Logic** (see REVIEW.md rounds 5-6):
+- Each device's tracker is `unobserved`, `assumedNearby` (after a Bluetooth reset) or `seen(.nearby / .away)`. A first reading inside the hysteresis band leaves a device unobserved.
+- The manager diffs per-device presence after every change and sends `.proximity(PresenceChange)` to `AlarmMachine`, which owns the presence map.
+- Each `ArmSession` records the devices seen away during it (at arming, or leaving later). Only those may disarm: on return, on wake, or during the exit delay.
+- While idle, a device that was nearby (or assumed nearby) and is now seen away starts the auto-arm grace period; a return cancels it only when no device is still away.
 
 **Auto-Disarm Flow:**
 ```
-Bluetooth Scan → ANY device RSSI > threshold → ProximityManager → Delegate → AlarmStateManager → disarm()
+Device seen nearby → PresenceChange → AlarmMachine: in session.departed? → stand down
 ```
 
 **Auto-Arm Flow:**
 ```
-ALL devices RSSI < threshold → ProximityManager.allTrustedDevicesAway() → Delegate → AlarmStateManager → arm()
+Device leaves (nearby → away) → PresenceChange → AlarmMachine (idle) → grace period → arm
 ```
 
 ### 3. Authentication Layer
@@ -495,11 +486,11 @@ UI updates: Menu bar icon changes, button label → "Arm MacGuard"
 ```
 BluetoothProximityManager scans (when armed)
     ↓
-Detect ANY trusted device with RSSI > threshold
+A trusted device is seen nearby
     ↓
-Delegate calls AlarmStateManager.handleProximityChange(inProximity: true)
+BluetoothProximityManager sends .proximity(.seen(device, .nearby))
     ↓
-AlarmStateManager transitions: armed → idle
+AlarmMachine: was this device away during the session? If so, armed → idle (otherwise ignored)
     ↓
 Stop all monitors
     ↓
@@ -508,15 +499,15 @@ UI updates: Status → "Auto-disarmed (Bluetooth proximity)"
 
 ### Bluetooth Auto-Arm
 ```
-BluetoothProximityManager detects ALL trusted devices away
+A trusted device that was nearby is seen away
     ↓
-Delegate calls AlarmStateManager via allTrustedDevicesAway()
+BluetoothProximityManager sends .proximity(.seen(device, .away)) for the device that left
     ↓
-AlarmStateManager transitions: idle → armed (if auto-arm enabled)
+AlarmMachine starts the grace period, then arms (if auto-arm is enabled)
     ↓
 Start all monitors
     ↓
-UI updates: Status → "Auto-armed (all devices away)"
+UI updates: Status → "Auto-armed (trusted device left)"
 ```
 
 ## Security Architecture

@@ -120,16 +120,17 @@ MacGuard is an anti-theft alarm application for macOS that protects laptops in p
 **Requirements:**
 - Scan for trusted Bluetooth devices (iPhone, AirPods, Apple Watch)
 - Support up to 10 trusted devices
-- Auto-disarm when ANY device is nearby (RSSI > threshold)
-- Auto-arm when ALL devices leave proximity
+- Auto-disarm only when a device that was away during the arm session returns
+- Auto-arm when any trusted device leaves (after a grace period)
 - User selects trusted devices from paired devices only
 - Proximity detection runs only when armed
 - Legacy single-device data auto-migrates to new array format
 
 **Acceptance Criteria:**
 - RSSI threshold configurable (default -60 dB, ~5-10 meter range)
-- Auto-disarm latency <3 seconds after any device enters proximity
-- Auto-arm triggers when all trusted devices leave proximity
+- Auto-disarm latency <3 seconds after a departed device returns
+- Auto-arm triggers when any trusted device leaves proximity
+- A device present at arming never disarms or silences a trigger
 - No false disarms from non-trusted devices
 - Graceful handling of Bluetooth permission denial
 - Device list UI with add/remove functionality
