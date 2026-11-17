@@ -134,7 +134,7 @@ final class ClassicLinkTrackerTests: XCTestCase {
         _ = link.poll(isConnected: true, rssi: nil, at: t0, lowPower: false)
         _ = link.poll(isConnected: true, rssi: RSSI(-65), at: t0 + 10, lowPower: false)
         link.resetForScan()
-        XCTAssertNil(link.connected)
+        XCTAssertEqual(link.link, .unpolled)
         // Same connection state, but reported afresh
         XCTAssertEqual(link.poll(isConnected: true, rssi: nil, at: t0 + 10.2, lowPower: false),
                        .observe(.connectedWithoutSignal, .initiallyConnected))
@@ -156,7 +156,7 @@ final class ClassicLinkTrackerTests: XCTestCase {
 
 final class RecoveryCooldownTests: XCTestCase {
     func testCooldownLastsFifteenSeconds() {
-        var cooldown = RecoveryCooldown()
+        var cooldown = RecoveryCooldown.inactive
         XCTAssertFalse(cooldown.isActive(at: t0))
         cooldown.start(at: t0)
         XCTAssertTrue(cooldown.isActive(at: t0 + 14))

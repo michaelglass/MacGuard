@@ -133,10 +133,9 @@ struct ClassicLinkTracker: Equatable {
     /// Last RSSI since scanning started; inquiry results can land in any link state.
     private var lastSignal: Date?
 
-    /// `nil` before the first poll since scanning started.
-    var connected: Bool? {
+    var isConnected: Bool {
         switch link {
-        case .unpolled: return nil
+        case .unpolled: return false
         case .polled(let connected, _): return connected
         }
     }
@@ -203,8 +202,6 @@ enum RecoveryCooldown: Equatable {
 
     case inactive
     case started(Date)
-
-    init() { self = .inactive }
 
     mutating func start(at now: Date) { self = .started(now) }
 

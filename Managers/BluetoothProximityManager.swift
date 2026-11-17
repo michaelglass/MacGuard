@@ -49,7 +49,7 @@ class BluetoothProximityManager: NSObject, ObservableObject {
     private let armedPollingInterval: TimeInterval = 0.5
 
     // BT state recovery cooldown (prevents false "away" after BT powers on)
-    private var recoveryCooldown = RecoveryCooldown()
+    private var recoveryCooldown = RecoveryCooldown.inactive
 
     // BT stability tracking (prevents auto-arm during BT instability)
     private var btStateChangeCount: Int = 0
@@ -375,7 +375,7 @@ class BluetoothProximityManager: NSObject, ObservableObject {
     func connectionStatus(for device: TrustedDevice) -> DeviceConnectionStatus {
         let unconnected: DeviceConnectionStatus = isScanning ? .searching : .disconnected
         if device.isClassicBluetooth {
-            return tracking[device.id]?.classicLink.connected == true ? .connected : unconnected
+            return tracking[device.id]?.classicLink.isConnected ?? false ? .connected : unconnected
         }
         switch connectedPeripherals[device.id]?.state {
         case .connected?: return .connected
