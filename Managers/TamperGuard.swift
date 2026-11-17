@@ -66,11 +66,6 @@ enum WatchdogSync: Equatable {
     }
 }
 
-enum WatchdogSyncOutcome: Equatable {
-    case synced
-    case failed(reason: String)
-}
-
 enum WatchdogStatus: Equatable {
     case off
     case active
@@ -78,18 +73,15 @@ enum WatchdogStatus: Equatable {
     case needsApproval
     case unavailable(String)
 
-    init(enabled: Bool, outcome: WatchdogSyncOutcome, service: SMAppService.Status) {
+    /// After a successful sync.
+    init(enabled: Bool, service: SMAppService.Status) {
         guard enabled else { self = .off; return }
-        switch outcome {
-        case .failed(let reason): self = .unavailable(reason)
-        case .synced:
-            switch service {
-            case .enabled: self = .active
-            case .requiresApproval: self = .needsApproval
-            case .notRegistered: self = .unavailable("Not registered")
-            case .notFound: self = .unavailable("Launch agent missing from app bundle")
-            @unknown default: self = .unavailable("Unknown status")
-            }
+        switch service {
+        case .enabled: self = .active
+        case .requiresApproval: self = .needsApproval
+        case .notRegistered: self = .unavailable("Not registered")
+        case .notFound: self = .unavailable("Launch agent missing from app bundle")
+        @unknown default: self = .unavailable("Unknown status")
         }
     }
 }
@@ -159,15 +151,13 @@ final class TamperGuard: ObservableObject {
         let enabled = isEnabled
         let plan = WatchdogSync.plan(enabled: enabled, service: agent.status,
                                      registered: CodeHash(rawValue: registeredCodeRaw), own: Self.ownCodeHash)
-        let outcome: WatchdogSyncOutcome
         do {
             try apply(plan)
-            outcome = .synced
+            status = WatchdogStatus(enabled: enabled, service: agent.status)
         } catch {
-            outcome = .failed(reason: error.localizedDescription)
             logActivity(.system, "Tamper watchdog \(enabled ? "registration" : "removal") failed: \(error.localizedDescription)")
+            status = enabled ? .unavailable(error.localizedDescription) : .off
         }
-        status = WatchdogStatus(enabled: enabled, outcome: outcome, service: agent.status)
     }
 
     private func apply(_ plan: WatchdogSync) throws {

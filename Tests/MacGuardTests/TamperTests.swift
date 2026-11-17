@@ -107,17 +107,14 @@ final class WatchdogSyncTests: XCTestCase {
     }
 
     func testStatus() {
-        let failed = WatchdogSyncOutcome.failed(reason: "boom")
-        let cases: [(Bool, WatchdogSyncOutcome, SMAppService.Status, WatchdogStatus)] = [
-            (false, failed, .enabled, .off),
-            (true, failed, .enabled, .unavailable("boom")),
-            (true, .synced, .enabled, .active),
-            (true, .synced, .requiresApproval, .needsApproval),
-            (true, .synced, .notRegistered, .unavailable("Not registered")),
+        let cases: [(Bool, SMAppService.Status, WatchdogStatus)] = [
+            (false, .enabled, .off),
+            (true, .enabled, .active),
+            (true, .requiresApproval, .needsApproval),
+            (true, .notRegistered, .unavailable("Not registered")),
         ]
-        for (enabled, outcome, service, expected) in cases {
-            XCTAssertEqual(WatchdogStatus(enabled: enabled, outcome: outcome, service: service), expected,
-                           "\(enabled) \(outcome) \(service)")
+        for (enabled, service, expected) in cases {
+            XCTAssertEqual(WatchdogStatus(enabled: enabled, service: service), expected, "\(enabled) \(service)")
         }
     }
 }
