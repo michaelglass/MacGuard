@@ -3,6 +3,9 @@
 
 import PackageDescription
 
+/// Complete concurrency checking, so data-race diagnostics surface now rather than in Swift 6 mode.
+let strict: [SwiftSetting] = [.enableExperimentalFeature("StrictConcurrency")]
+
 let package = Package(
     name: "MacGuard",
     platforms: [
@@ -52,12 +55,14 @@ let package = Package(
             ],
             resources: [
                 .copy("Resources")
-            ]
+            ],
+            swiftSettings: strict
         ),
         .testTarget(
             name: "MacGuardTests",
             dependencies: ["MacGuard"],
-            path: "Tests/MacGuardTests"
+            path: "Tests/MacGuardTests",
+            swiftSettings: strict
         )
     ]
 )
