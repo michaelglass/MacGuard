@@ -120,6 +120,41 @@ final class AlarmPlaybackTests: XCTestCase {
         XCTAssertEqual(effects, [.log(.alarm, "Alarm stopped")])
     }
 
+    // MARK: Relaunched after a kill mid-alarm
+
+    /// The killed alarm left the speaker at full volume; stop puts back what it recorded.
+    func testInheritedRestoreWinsOverTheCurrentReading() {
+        let recorded = AudioRestore(displaced: usb, volume: 0.2)
+        let inherited = update(.idle(prepared: nil), .inherit(recorded)).0
+        XCTAssertEqual(inherited, .inherited(recorded))
+        let s = start(speaker: read(speaker, 1.0), output: read(speaker, 1.0))
+        XCTAssertEqual(update(inherited, .start(s)).1, [.loadSound(then: s)])
+        let (state, effects) = update(inherited, .soundLoaded("siren", then: s))
+        XCTAssertEqual(effects.first, .recordRestore(recorded), "a second kill keeps the originals")
+        XCTAssertEqual(restores(update(state, .stop).1), [.setOutputVolume(0.2), .setDefaultOutput(usb)])
+    }
+
+    func testInheritedRouteTableDriven() {
+        let cases: [(String, AudioRestore, P.Start, AudioRestore)] = [
+            ("output moved since the kill, alarm had moved none", AudioRestore(displaced: nil, volume: 0.2),
+             start(speaker: read(speaker, 1.0), output: read(headphones)), AudioRestore(displaced: headphones, volume: 0.2)),
+            ("recorded output wins over one moved since", AudioRestore(displaced: usb, volume: nil),
+             start(speaker: read(speaker, 1.0), output: read(headphones)), AudioRestore(displaced: usb, volume: nil)),
+            ("no speaker: nothing to route back through", AudioRestore(displaced: usb, volume: 0.2),
+             start(speaker: nil, output: read(usb, 1.0)), AudioRestore(displaced: nil, volume: 0.2)),
+        ]
+        for (name, recorded, s, expected) in cases {
+            let effects = update(.inherited(recorded), .soundLoaded("siren", then: s)).1
+            XCTAssertEqual(effects.first, .recordRestore(expected), name)
+        }
+    }
+
+    func testStopBeforeSoundingAgainUndoesTheKilledAlarm() {
+        let (state, effects) = update(.inherited(AudioRestore(displaced: usb, volume: 0.2)), .stop)
+        XCTAssertEqual(state, .idle(prepared: nil))
+        XCTAssertEqual(restores(effects), [.setOutputVolume(0.2), .setDefaultOutput(usb)])
+    }
+
     // MARK: While playing
 
     func testHeadphonesMidAlarmKeepTheSpeaker() {

@@ -67,13 +67,25 @@ enum AlarmPlayback<Sound: Equatable> {
 
     enum Model: Equatable {
         case idle(prepared: Sound?)
+        /// Relaunched after being killed mid-alarm: the output and volume now are
+        /// that alarm's, so the next start restores what it recorded instead.
+        case inherited(AudioRestore)
         case playing(Playing)
+    }
+
+    /// Whose audio state stop puts back.
+    private enum Baseline {
+        /// The output as read at start.
+        case current
+        case inherited(AudioRestore)
     }
 
     enum Msg: Equatable {
         case prepare
         case preloaded(Sound?)
         case unprepare
+        /// A killed instance's alarm recorded this restore.
+        case inherit(AudioRestore)
         case start(Start)
         case soundLoaded(Sound?, then: Start)
         /// The default output, or its volume or mute, changed.
@@ -117,11 +129,13 @@ enum AlarmPlayback<Sound: Equatable> {
         case (.idle(.none), .start(let start)):
             return (model, [.loadSound(then: start)])
         case (.idle(.some(let sound)), .start(let start)):
-            return begin(start, .sound(sound), playLog: "Playing alarm sound (pre-loaded)")
+            return begin(start, .sound(sound), .current, playLog: "Playing alarm sound (pre-loaded)")
         case (.idle(.none), .soundLoaded(.some(let sound), let start)):
-            return begin(start, .sound(sound), playLog: "Playing alarm sound")
+            return begin(start, .sound(sound), .current, playLog: "Playing alarm sound")
         case (.idle(.none), .soundLoaded(.none, let start)):
-            return begin(start, .beeping, playLog: "Alarm sound not found, using system beep")
+            return begin(start, .beeping, .current, playLog: "Alarm sound not found, using system beep")
+        case (.idle, .inherit(let restore)):
+            return (.inherited(restore), [.log(.alarm, "Restarted mid-alarm - keeping the audio settings recorded before it")])
         // stop runs on every disarm, played or not: nothing to restore.
         case (.idle, .stop):
             return (.idle(prepared: nil), [.log(.alarm, "Alarm stopped")])
@@ -131,21 +145,34 @@ enum AlarmPlayback<Sound: Equatable> {
         case (.idle(.some), .prepare), (.idle(.some), .preloaded), (.idle(.some), .soundLoaded):
             return (model, [])
 
+        case (.inherited, .start(let start)):
+            return (model, [.loadSound(then: start)])
+        case (.inherited(let restore), .soundLoaded(.some(let sound), let start)):
+            return begin(start, .sound(sound), .inherited(restore), playLog: "Playing alarm sound")
+        case (.inherited(let restore), .soundLoaded(.none, let start)):
+            return begin(start, .beeping, .inherited(restore), playLog: "Alarm sound not found, using system beep")
+        // Stopped before sounding again: the killed alarm's changes still need undoing.
+        case (.inherited(let restore), .stop):
+            return (.idle(prepared: nil), self.restore(restore) + [.log(.alarm, "Alarm stopped")])
+        case (.inherited, .prepare), (.inherited, .preloaded), (.inherited, .unprepare), (.inherited, .inherit),
+             (.inherited, .outputChanged), (.inherited, .outputRead):
+            return (model, [])
+
         case (.playing(let playing), .outputChanged(let output)):
             return outputChanged(playing, output)
         case (.playing(let playing), .outputRead(let reading)):
             return enforce(playing, reading)
         case (.playing(let playing), .stop):
             return (.idle(prepared: nil), stop(playing))
-        case (.playing, .prepare), (.playing, .preloaded), (.playing, .unprepare),
+        case (.playing, .prepare), (.playing, .preloaded), (.playing, .unprepare), (.playing, .inherit),
              (.playing, .start), (.playing, .soundLoaded):
             return (model, [])
         }
     }
 
-    private static func begin(_ start: Start, _ output: Output, playLog: String) -> (Model, [Effect]) {
+    private static func begin(_ start: Start, _ output: Output, _ baseline: Baseline, playLog: String) -> (Model, [Effect]) {
         var effects: [Effect] = []
-        let route: Route
+        var route: Route
         /// Where the alarm will sound, once any move is done.
         let alarmOutput: Reading?
         if let speaker = start.speaker {
@@ -166,7 +193,22 @@ enum AlarmPlayback<Sound: Equatable> {
             effects.append(.log(.alarm, "Could not find built-in speaker, using current device"))
         }
 
-        let savedVolume = alarmOutput?.volume
+        let savedVolume: Float?
+        switch baseline {
+        case .current:
+            savedVolume = alarmOutput?.volume
+        // What is read now is the killed alarm's: its record wins. An output moved
+        // since the kill is put back only when the alarm had not moved one.
+        // Without a built-in speaker there is no route to restore through.
+        case .inherited(let restore):
+            savedVolume = restore.volume
+            switch route {
+            case .speaker(let speaker, let displacedNow):
+                route = .speaker(speaker, displaced: restore.displaced ?? displacedNow)
+            case .followOutput:
+                break
+            }
+        }
         let playing = Playing(targetVolume: start.targetVolume, route: route, savedVolume: savedVolume,
                               watched: alarmOutput?.device, output: output)
         effects.insert(.recordRestore(playing.restore), at: 0)
@@ -234,14 +276,17 @@ enum AlarmPlayback<Sound: Equatable> {
         case .sound(let sound): effects.append(.stopSound(sound))
         case .beeping: effects.append(.stopBeeping)
         }
-        if let volume = playing.savedVolume { effects.append(.setOutputVolume(volume)) }
-        switch playing.route {
-        case .speaker(_, displaced: .some(let device)):
-            effects += [.setDefaultOutput(device), .log(.alarm, "Restored output device to \(device)")]
-        case .speaker(_, displaced: .none), .followOutput:
-            break
-        }
+        effects += restore(playing.restore)
         effects.append(.log(.alarm, "Alarm stopped"))
+        return effects
+    }
+
+    private static func restore(_ restore: AudioRestore) -> [Effect] {
+        var effects: [Effect] = []
+        if let volume = restore.volume { effects.append(.setOutputVolume(volume)) }
+        if let device = restore.displaced {
+            effects += [.setDefaultOutput(device), .log(.alarm, "Restored output device to \(device)")]
+        }
         return effects
     }
 }
