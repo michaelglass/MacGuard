@@ -12,8 +12,10 @@ final class AlarmMachineTests: XCTestCase {
         .arming(session, until: AlarmEnvironment.t0.addingTimeInterval(delay.seconds), origin: origin)
     }
 
-    private func step(_ s: AlarmState, _ i: AlarmInput, _ e: AlarmEnvironment = .fixture()) -> AlarmMachine.Transition {
-        AlarmMachine.step(s, i, e)
+    private func step(_ s: AlarmState, _ i: AlarmInput, _ e: AlarmEnvironment = .fixture(),
+                      seen sightings: [TrustedDevice: Sighting] = [:]) -> (state: AlarmState, effects: [AlarmEffect]) {
+        let (model, effects) = AlarmMachine.step(.fixture(s, sightings: sightings), i, e)
+        return (model.alarm, effects)
     }
 
     // MARK: Arming
@@ -112,22 +114,21 @@ final class AlarmMachineTests: XCTestCase {
 
     /// A phone left on the desk must not silence the alarm.
     func testNearbyDeviceDoesNotSuppressIntrusions() {
-        let phoneHere = AlarmEnvironment.fixture(sightings: [.phone: .nearby])
-        XCTAssertEqual(step(.armed(.noDepartures), .intrusion(key), phoneHere).state.phase, .triggered)
-        XCTAssertEqual(step(.armed(.noDepartures), .severeIntrusion(.lidClosed), phoneHere).state.phase, .alarming)
+        let phoneHere: [TrustedDevice: Sighting] = [.phone: .nearby]
+        XCTAssertEqual(step(.armed(.noDepartures), .intrusion(key), seen: phoneHere).state.phase, .triggered)
+        XCTAssertEqual(step(.armed(.noDepartures), .severeIntrusion(.lidClosed), seen: phoneHere).state.phase, .alarming)
     }
 
     // MARK: Proximity disarm
 
     func testArmRecordsOnlyDevicesSeenAway() {
-        let env = AlarmEnvironment.fixture(sightings: [.phone: .away, .watch: .nearby])
-        XCTAssertEqual(step(.idle, .armRequested(auto: false), env).state, arming(phoneLeft))
+        XCTAssertEqual(step(.idle, .armRequested(auto: false), seen: [.phone: .away, .watch: .nearby]).state, arming(phoneLeft))
         XCTAssertEqual(step(.idle, .armRequested(auto: false), .fixture()).state, arming(.noDepartures),
                        "unobserved devices have not been seen away")
     }
 
     func testDeviceHereAtArmingDoesNotDisarm() {
-        let (state, effects) = step(.armed(.noDepartures), .proximity(.seen(.phone, .nearby)), .fixture(sightings: [.phone: .nearby]))
+        let (state, effects) = step(.armed(.noDepartures), .proximity(.seen(.phone, .nearby)))
         XCTAssertEqual(state, .armed(.noDepartures))
         XCTAssertTrue(effects.contains(.log(.bluetooth, "'Phone' nearby but was here at arming - not disarming")))
     }
@@ -135,7 +136,7 @@ final class AlarmMachineTests: XCTestCase {
     func testDeviceThatLeftThenReturnedDisarms() {
         let away = step(.armed(.noDepartures), .proximity(.seen(.phone, .away))).state
         XCTAssertEqual(away, .armed(phoneLeft))
-        XCTAssertEqual(step(away, .proximity(.seen(.phone, .nearby)), .fixture(sightings: [.phone: .nearby])).state, .idle)
+        XCTAssertEqual(step(away, .proximity(.seen(.phone, .nearby))).state, .idle)
     }
 
     func testOnlyADepartedDeviceDisarms() {
@@ -149,9 +150,9 @@ final class AlarmMachineTests: XCTestCase {
     }
 
     func testWakeDisarmsOnlyWithADepartedDeviceNearby() {
-        XCTAssertEqual(step(.armed(.noDepartures), .systemWoke, .fixture(sightings: [.phone: .nearby])).state, .armed(.noDepartures))
-        XCTAssertEqual(step(.armed(phoneLeft), .systemWoke, .fixture(sightings: [.watch: .nearby])).state, .armed(phoneLeft))
-        XCTAssertEqual(step(.armed(phoneLeft), .systemWoke, .fixture(sightings: [.phone: .nearby])).state, .idle)
+        XCTAssertEqual(step(.armed(.noDepartures), .systemWoke, seen: [.phone: .nearby]).state, .armed(.noDepartures))
+        XCTAssertEqual(step(.armed(phoneLeft), .systemWoke, seen: [.watch: .nearby]).state, .armed(phoneLeft))
+        XCTAssertEqual(step(.armed(phoneLeft), .systemWoke, seen: [.phone: .nearby]).state, .idle)
     }
 
     // MARK: Auto-arm
@@ -163,9 +164,9 @@ final class AlarmMachineTests: XCTestCase {
     }
 
     func testReturnCancelsGracePeriodOnlyWhenNoDeviceIsStillAway() {
-        XCTAssertEqual(step(.idle, .proximity(.seen(.phone, .nearby)), .fixture(sightings: [.phone: .nearby])).effects,
+        XCTAssertEqual(step(.idle, .proximity(.seen(.phone, .nearby))).effects,
                        [.cancelAutoArmTimer(reason: "Auto-arm cancelled - 'Phone' back nearby")])
-        XCTAssertEqual(step(.idle, .proximity(.seen(.phone, .nearby)), .fixture(sightings: [.phone: .nearby, .watch: .away])).effects, [])
+        XCTAssertEqual(step(.idle, .proximity(.seen(.phone, .nearby)), seen: [.watch: .away]).effects, [])
     }
 
     func testLosingSightIsNeitherReturnNorDeparture() {
@@ -176,9 +177,9 @@ final class AlarmMachineTests: XCTestCase {
     }
 
     func testAutoArmTimerArmsWithTheDevicesThatLeft() {
-        let env = AlarmEnvironment.fixture(sightings: [.phone: .away, .watch: .nearby])
-        XCTAssertEqual(step(.idle, .autoArmTimerFired, env).state, arming(phoneLeft, origin: .deviceLeft))
-        XCTAssertEqual(step(.armed(.noDepartures), .autoArmTimerFired, env).state, .armed(.noDepartures))
+        let seen: [TrustedDevice: Sighting] = [.phone: .away, .watch: .nearby]
+        XCTAssertEqual(step(.idle, .autoArmTimerFired, seen: seen).state, arming(phoneLeft, origin: .deviceLeft))
+        XCTAssertEqual(step(.armed(.noDepartures), .autoArmTimerFired, seen: seen).state, .armed(.noDepartures))
     }
 
     // MARK: Stand down
@@ -247,10 +248,23 @@ final class AlarmMachineTests: XCTestCase {
                        "stability only matters to auto-arm")
     }
 
-    func testSeenSplitsSightings() {
-        let env = AlarmEnvironment.fixture(sightings: [.phone: .away, .watch: .nearby])
-        XCTAssertEqual(env.seen(.away), [TrustedDevice.phone.id])
-        XCTAssertEqual(env.seen(.nearby), [TrustedDevice.watch.id])
-        XCTAssertEqual(AlarmEnvironment.fixture().seen(.away), [])
+    // MARK: Sightings
+
+    func testModelKeepsSightingsFromProximityInputs() {
+        let inputs: [AlarmInput] = [.proximity(.seen(.phone, .away)), .proximity(.seen(.watch, .nearby)),
+                                    .proximity(.seen(.phone, .nearby)), .proximity(.lost(.watch))]
+        let model = inputs.reduce(AlarmMachine.Model.initial) { AlarmMachine.step($0, $1, .fixture()).model }
+        XCTAssertEqual(model, .fixture(.idle, sightings: [.phone: .nearby]))
+        XCTAssertEqual(AlarmMachine.step(model, .settingsChanged, .fixture()).model.sightings, model.sightings,
+                       "only proximity inputs change sightings")
+    }
+
+    /// Recovery assumption or a stopped scan: lost sight is no longer evidence.
+    func testLostSightingIsNotEvidenceAtArmingOrWake() {
+        let lost = AlarmMachine.step(.fixture(.idle, sightings: [.phone: .away]), .proximity(.lost(.phone)), .fixture()).model
+        XCTAssertEqual(AlarmMachine.step(lost, .armRequested(auto: false), .fixture()).model.alarm, arming(.noDepartures))
+
+        let lostNearby = AlarmMachine.step(.fixture(.armed(phoneLeft), sightings: [.phone: .nearby]), .proximity(.lost(.phone)), .fixture()).model
+        XCTAssertEqual(AlarmMachine.step(lostNearby, .systemWoke, .fixture()).model.alarm, .armed(phoneLeft))
     }
 }

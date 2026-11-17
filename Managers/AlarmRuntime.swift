@@ -40,9 +40,11 @@ protocol AlarmScheduler {
 /// `startInputMonitoring`) re-enter as inputs.
 @MainActor
 final class AlarmRuntime {
-    private(set) var state: AlarmState = .idle {
-        didSet { if state != oldValue { onStateChange(state) } }
+    private(set) var model = AlarmMachine.Model.initial {
+        didSet { if model.alarm != oldValue.alarm { onStateChange(model.alarm) } }
     }
+
+    var state: AlarmState { model.alarm }
 
     var onStateChange: (AlarmState) -> Void = { _ in }
 
@@ -67,8 +69,8 @@ final class AlarmRuntime {
     }
 
     func send(_ input: AlarmInput) {
-        let (next, effects) = AlarmMachine.step(state, input, environment(scheduler.now()))
-        state = next
+        let (next, effects) = AlarmMachine.step(model, input, environment(scheduler.now()))
+        model = next
         effects.forEach(perform)
     }
 

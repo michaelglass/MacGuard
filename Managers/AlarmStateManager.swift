@@ -125,7 +125,6 @@ class AlarmStateManager: ObservableObject {
             now: now,
             countdown: settings.countdownDuration.countdown,
             autoLockOnArm: settings.autoLockOnArm,
-            sightings: bluetoothManager.sightings,
             autoArm: AutoArm(
                 enabled: settings.autoArmOnDeviceLeave,
                 hasTrustedDevices: !bluetoothManager.trustedDevices.isEmpty,

@@ -11,7 +11,7 @@ final class TamperMachineTests: XCTestCase {
     private let env = AlarmEnvironment.fixture()
 
     func testArmingPersistsTheMarker() {
-        let effects = AlarmMachine.step(.arming(left, until: AlarmEnvironment.t0, origin: .deviceLeft), .inputMonitoringStarted(true), env).effects
+        let effects = AlarmMachine.step(.fixture(.arming(left, until: AlarmEnvironment.t0, origin: .deviceLeft)), .inputMonitoringStarted(true), env).effects
         XCTAssertEqual(effects.first, .persistArmedMarker(left))
     }
 
@@ -22,10 +22,9 @@ final class TamperMachineTests: XCTestCase {
             (.armed(left), .proximity(.seen(.phone, .nearby))),
             (.alarming(left, .tamper), .systemWoke),
         ]
-        let nearby = AlarmEnvironment.fixture(countdown: 0, sightings: [.phone: .nearby])
         for (state, input) in standDowns {
-            let (next, effects) = AlarmMachine.step(state, input, nearby)
-            XCTAssertEqual(next, .idle, "\(state) + \(input)")
+            let (next, effects) = AlarmMachine.step(.fixture(state, sightings: [.phone: .nearby]), input, .fixture(countdown: 0))
+            XCTAssertEqual(next.alarm, .idle, "\(state) + \(input)")
             for required: AlarmEffect in [.stopCountdownTimer, .stopMonitors, .stopAlarm, .hideOverlay,
                                           .clearArmedMarker, .endOwnerChallenge] {
                 XCTAssertTrue(effects.contains(required), "\(state) + \(input): \(required)")
@@ -36,8 +35,8 @@ final class TamperMachineTests: XCTestCase {
     /// Sounds at once with the stored session: a killed manual arm gains no proximity-disarm rights.
     func testResumeAfterTamperSoundsWithTheStoredSession() {
         for session in [left, .noDepartures] {
-            let (state, effects) = AlarmMachine.step(.idle, .resumeAfterTamper(session), env)
-            XCTAssertEqual(state, .alarming(session, .tamper))
+            let (model, effects) = AlarmMachine.step(.initial, .resumeAfterTamper(session), env)
+            XCTAssertEqual(model.alarm, .alarming(session, .tamper))
             for required: AlarmEffect in [.persistArmedMarker(session), .startSystemMonitors, .showOverlay,
                                           .playAlarm, .emit(.alarmSounding(.tamper))] {
                 XCTAssertTrue(effects.contains(required), "\(session): \(required)")
@@ -46,7 +45,7 @@ final class TamperMachineTests: XCTestCase {
     }
 
     func testResumeIgnoredWhenAlreadyActive() {
-        XCTAssertEqual(AlarmMachine.step(.armed(.noDepartures), .resumeAfterTamper(left), env).state, .armed(.noDepartures))
+        XCTAssertEqual(AlarmMachine.step(.fixture(.armed(.noDepartures)), .resumeAfterTamper(left), env).model.alarm, .armed(.noDepartures))
     }
 }
 

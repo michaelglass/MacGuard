@@ -74,14 +74,12 @@ enum AutoArm: Equatable {
     }
 }
 
-/// Snapshot of parsed settings and proximity *evidence* the machine decides on.
+/// Snapshot of parsed settings the machine decides on.
 struct AlarmEnvironment {
     /// The runtime's clock at this step.
     var now: Date
     var countdown: Countdown?
     var autoLockOnArm: Bool
-    /// Unobserved devices are absent: not seen is neither here nor gone.
-    var sightings: [TrustedDevice.ID: Sighting]
     var autoArm: AutoArm
     var usbTriggerEnabled: Bool
     var networkTriggerEnabled: Bool
@@ -89,10 +87,6 @@ struct AlarmEnvironment {
     var lidAngleTriggerEnabled: Bool
     var autoArmOnScreenLock: Bool
     var exitDelay: ExitDelay
-
-    func seen(_ sighting: Sighting) -> Set<TrustedDevice.ID> {
-        Set(sightings.filter { $0.value == sighting }.keys)
-    }
 }
 
 /// Side effects the shell performs, in order.
@@ -125,9 +119,42 @@ enum AlarmEffect: Equatable {
 
 /// The alarm's decisions as a pure function: no timers, singletons or I/O.
 enum AlarmMachine {
-    typealias Transition = (state: AlarmState, effects: [AlarmEffect])
+    struct Model: Equatable {
+        var alarm: AlarmState
+        /// Proximity *evidence*, kept from `.proximity` inputs. Unobserved and
+        /// assumed devices are absent: not seen is neither here nor gone.
+        var sightings: [TrustedDevice.ID: Sighting]
 
-    static func step(_ state: AlarmState, _ input: AlarmInput, _ env: AlarmEnvironment) -> Transition {
+        static let initial = Model(alarm: .idle, sightings: [:])
+    }
+
+    typealias Transition = (model: Model, effects: [AlarmEffect])
+
+    static func step(_ model: Model, _ input: AlarmInput, _ env: AlarmEnvironment) -> Transition {
+        var sightings = model.sightings
+        if case .proximity(let change) = input {
+            switch change {
+            case .seen(let device, let sighting): sightings[device.id] = sighting
+            case .lost(let device): sightings[device.id] = nil
+            }
+        }
+        let (alarm, effects) = decide(model.alarm, input, sightings, env)
+        return (Model(alarm: alarm, sightings: sightings), effects)
+    }
+
+    private typealias AlarmTransition = (state: AlarmState, effects: [AlarmEffect])
+
+    /// `sightings` already include this input's change.
+    private static func decide(
+        _ state: AlarmState,
+        _ input: AlarmInput,
+        _ sightings: [TrustedDevice.ID: Sighting],
+        _ env: AlarmEnvironment
+    ) -> AlarmTransition {
+        func seen(_ sighting: Sighting) -> Set<TrustedDevice.ID> {
+            Set(sightings.filter { $0.value == sighting }.keys)
+        }
+
         switch (state, input) {
 
         // MARK: Arming
@@ -136,7 +163,7 @@ enum AlarmMachine {
             if env.autoLockOnArm { effects.append(.lockScreen) }
             effects.append(.scheduleArmingDelay(env.exitDelay))
             let until = env.now.addingTimeInterval(env.exitDelay.seconds)
-            let session = ArmSession(departed: env.seen(.away))
+            let session = ArmSession(departed: seen(.away))
             return (.arming(session, until: until, origin: auto ? .deviceLeft : .manual), effects)
 
         case (.arming, .armingDelayElapsed):
@@ -188,7 +215,7 @@ enum AlarmMachine {
         // MARK: Proximity
         // The grace period runs while any device is still away.
         case (.idle, .proximity(.seen(let device, .nearby))):
-            guard env.seen(.away).isEmpty else { return (state, []) }
+            guard seen(.away).isEmpty else { return (state, []) }
             return (state, [.cancelAutoArmTimer(reason: "Auto-arm cancelled - '\(device.name)' back nearby")])
 
         case (_, .proximity(.seen(let device, .nearby))):
@@ -213,7 +240,7 @@ enum AlarmMachine {
             return (state, [])
 
         case (_, .systemWoke):
-            if let session = state.session, !session.departed.isDisjoint(with: env.seen(.nearby)) {
+            if let session = state.session, !session.departed.isDisjoint(with: seen(.nearby)) {
                 return standDown("Disarmed on wake - trusted device back nearby", env)
             }
             return (state, [.log(.system, "System woke from sleep")])
@@ -224,13 +251,13 @@ enum AlarmMachine {
             return (next, [.persistArmedMarker(session), .startSystemMonitors] + effects)
 
         case (.idle, .autoArmTimerFired):
-            let (next, effects) = step(.idle, .armRequested(auto: true), env)
+            let (next, effects) = decide(.idle, .armRequested(auto: true), sightings, env)
             return (next, [.log(.armed, "Auto-arming - trusted device still away")] + effects)
 
         case (.idle, .screenLocked):
             guard env.autoArmOnScreenLock else { return (state, []) }
             // A manual arm: only devices already away (or leaving later) may disarm.
-            let (next, effects) = step(.idle, .armRequested(auto: false), env)
+            let (next, effects) = decide(.idle, .armRequested(auto: false), sightings, env)
             return (next, [.log(.armed, "Screen locked - arming")] + effects)
 
         case (.idle, .settingsChanged):
@@ -263,7 +290,7 @@ enum AlarmMachine {
         }
     }
 
-    private static func soundAlarm(_ session: ArmSession, _ cause: TriggerCause, _ message: String, overlay: Bool) -> Transition {
+    private static func soundAlarm(_ session: ArmSession, _ cause: TriggerCause, _ message: String, overlay: Bool) -> AlarmTransition {
         let effects: [AlarmEffect] = (overlay ? [.showOverlay] : []) + [
             .stopCountdownTimer,
             .playAlarm,
@@ -273,7 +300,7 @@ enum AlarmMachine {
         return (.alarming(session, cause), effects)
     }
 
-    private static func standDown(_ reason: String, _ env: AlarmEnvironment) -> Transition {
+    private static func standDown(_ reason: String, _ env: AlarmEnvironment) -> AlarmTransition {
         var effects: [AlarmEffect] = [
             .stopCountdownTimer,
             .cancelAutoArmTimer(reason: nil),
