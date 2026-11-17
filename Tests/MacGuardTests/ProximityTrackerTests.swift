@@ -24,11 +24,49 @@ final class ProximityTrackerTests: XCTestCase {
         var tracker = ProximityTracker()
         // Inside the band (-80...-70) is not enough to become nearby
         XCTAssertEqual(tracker.feed(signal(-75), at: 0), .unchanged)
-        XCTAssertEqual(tracker.proximity, .seen(.away))
+        XCTAssertEqual(tracker.proximity, .unobserved, "a first in-band reading decides nothing")
         XCTAssertEqual(tracker.feed(signal(-70), at: 1), .becameNearby)
         // ...but is enough to stay nearby
         XCTAssertEqual(tracker.feed(signal(-79), at: 2), .unchanged)
         XCTAssertTrue(tracker.isNearby)
+    }
+
+    func testFirstReadingIsAwayOnlyWhenDecisive() {
+        var weak = ProximityTracker()
+        XCTAssertEqual(weak.feed(signal(-81), at: 0), .unchanged)
+        XCTAssertEqual(weak.proximity, .seen(.away), "below the away threshold")
+
+        var away = ProximityTracker()
+        _ = away.feed(signal(-90), at: 0)
+        _ = away.feed(signal(-75), at: 1)
+        XCTAssertEqual(away.proximity, .seen(.away), "in-band keeps an already-away device away")
+    }
+
+    /// A Classic device that is not connected at the first poll is decisively away.
+    func testDisconnectedClassicFirstPollIsAway() {
+        var link = ClassicLinkTracker()
+        guard case .observe(let observation, _) = link.poll(isConnected: false, rssi: nil, at: t0, lowPower: false) else {
+            return XCTFail("first poll observes")
+        }
+        var tracker = ProximityTracker()
+        _ = tracker.feed(observation, at: 0)
+        XCTAssertEqual(tracker.proximity, .seen(.away))
+    }
+
+    /// A phone on the desk at arming whose first reading is weak, then strong.
+    func testDeskPhoneWithWeakFirstReadingCannotDisarm() {
+        var tracker = ProximityTracker()
+        var published: [TrustedDevice: Sighting] = [:]
+        var model = AlarmMachine.Model.fixture(.armed(.noDepartures))
+        for (dBm, at) in [(-75, 0.0), (-60, 1.0)] {
+            _ = tracker.feed(signal(dBm), at: at)
+            let now = Proximity.sightings(of: [.phone]) { _ in tracker.proximity }
+            for change in SightingChange.changes(from: published, to: now) {
+                model = AlarmMachine.update(model, .proximity(change), .fixture()).0
+            }
+            published = now
+        }
+        XCTAssertEqual(model.alarm, .armed(.noDepartures))
     }
 
     func testAwayRequiresSustainedWeakSignal() {

@@ -148,8 +148,7 @@ struct ProximityTracker: Equatable {
         if observation.meets(thresholds.away) {
             lastNearbySignal = now
         }
-        // Held nearby only by the cooldown: an assumption, not a sighting
-        proximity = change == .awaySuppressedByCooldown ? .assumedNearby : .seen(nearby ? .nearby : .away)
+        proximity = Self.next(after: proximity, observation, nearby: nearby, change: change, thresholds: thresholds)
         lastObservation = observation
         if nearby {
             lastNearby = now
@@ -158,6 +157,24 @@ struct ProximityTracker: Equatable {
         if !wasNearby && nearby { return .becameNearby }
         if wasNearby && !nearby { return .becameAway }
         return change
+    }
+
+    private static func next(
+        after previous: Proximity,
+        _ observation: Observation,
+        nearby: Bool,
+        change: ProximityChange,
+        thresholds: ProximityThresholds
+    ) -> Proximity {
+        // Held nearby only by the cooldown: an assumption, not a sighting
+        if change == .awaySuppressedByCooldown { return .assumedNearby }
+        if nearby { return .seen(.nearby) }
+        switch previous {
+        // A first reading inside the hysteresis band decides nothing: a phone on
+        // the desk must not be "seen away" by one weak reading.
+        case .unobserved where observation.meets(thresholds.away): return .unobserved
+        case .unobserved, .assumedNearby, .seen: return .seen(.away)
+        }
     }
 
     func shouldDebounceDisconnect(at now: Date, lowPower: Bool) -> Bool {
