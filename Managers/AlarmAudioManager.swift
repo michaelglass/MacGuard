@@ -51,9 +51,9 @@ struct AudioDevice: Equatable, CustomStringConvertible {
         return values.isEmpty ? nil : values.reduce(0, +) / Float(values.count)
     }
 
-    var isMuted: Bool? {
-        let values = outputElements(kAudioDevicePropertyMute).compactMap { Self.get(id, Self.output(kAudioDevicePropertyMute, $0), as: UInt32(0)) }
-        return values.isEmpty ? nil : values.contains { $0 != 0 }
+    /// False when the device exposes no mute control.
+    var isMuted: Bool {
+        outputElements(kAudioDevicePropertyMute).contains { Self.get(id, Self.output(kAudioDevicePropertyMute, $0), as: UInt32(0)).map { $0 != 0 } ?? false }
     }
 
     func setVolume(_ volume: Float) {
@@ -200,7 +200,7 @@ class AlarmAudioManager {
 
 private extension AlarmPlayback.Reading {
     init(_ device: AudioDevice) {
-        self.init(device: device, volume: device.volume, isMuted: device.isMuted == true)
+        self.init(device: device, volume: device.volume, isMuted: device.isMuted)
     }
 }
 
