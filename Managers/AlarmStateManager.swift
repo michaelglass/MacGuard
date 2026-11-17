@@ -127,10 +127,8 @@ class AlarmStateManager: ObservableObject {
             autoLockOnArm: settings.autoLockOnArm,
             proximity: ProximityEvidence(
                 hasTrustedDevices: !bluetoothManager.trustedDevices.isEmpty,
-                mode: settings.autoArmMode,
+                sightings: bluetoothManager.sightings,
                 autoArmEnabled: settings.autoArmOnDeviceLeave,
-                anyNearby: bluetoothManager.isTrustedDeviceNearby(),
-                allNearby: bluetoothManager.areAllDevicesNearby,
                 bluetoothStable: bluetoothManager.isBluetoothStable
             ),
             usbTriggerEnabled: settings.usbTriggerEnabled,

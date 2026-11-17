@@ -72,22 +72,22 @@ class BluetoothProximityManager: NSObject, ObservableObject {
 
     // MARK: - Computed Properties
 
-    /// Devices not observed since scanning started are ignored.
-    var areAllDevicesAway: Bool {
-        guard !trustedDevices.isEmpty else { return false }
-        return tracking.values
-            .map(\.proximity.proximity)
-            .filter { $0 != .unobserved }
-            .allSatisfy { $0 == .away }
-    }
-
     /// Check if Bluetooth is stable (few state changes, powered on)
     var isBluetoothStable: Bool {
         btStateChangeCount < btStabilityThreshold && centralManager.state == .poweredOn
     }
 
-    private var anyDeviceNearby: Bool {
-        isScanning && tracking.values.contains { $0.proximity.isNearby }
+    /// Positive evidence only: nothing while not scanning, and nothing during the
+    /// BT recovery cooldown, when proximity is assumed rather than observed.
+    var sightings: [TrustedDevice.ID: Sighting] {
+        guard isScanning, !recoveryCooldown.isActive(at: Date()) else { return [:] }
+        return trustedDevices.reduce(into: [:]) { result, device in
+            switch tracking[device.id]?.proximity.proximity ?? .unobserved {
+            case .unobserved: break
+            case .nearby: result[device.id] = .nearby
+            case .away: result[device.id] = .away
+            }
+        }
     }
 
     private func device(_ id: UUID) -> TrustedDevice? {
@@ -337,7 +337,6 @@ class BluetoothProximityManager: NSObject, ObservableObject {
     private func observe(_ observation: Observation, for deviceID: UUID, at now: Date) {
         guard let device = device(deviceID) else { return }
 
-        let wasOverallNearby = anyDeviceNearby
         let change = tracking[deviceID, default: DeviceTracking()].proximity.observe(
             observation,
             at: now,
@@ -361,21 +360,6 @@ class BluetoothProximityManager: NSObject, ObservableObject {
         case .unchanged:
             break
         }
-
-        // Check if all devices now away (for auto-arm)
-        if wasOverallNearby && !anyDeviceNearby && areAllDevicesAway {
-            onInput(.allTrustedDevicesAway)
-        }
-    }
-
-    /// Proximity assumed during the BT recovery cooldown vouches for nobody.
-    func isTrustedDeviceNearby() -> Bool {
-        recoveryCooldown.vouchesForPresence(anyDeviceNearby, at: Date())
-    }
-
-    var areAllDevicesNearby: Bool {
-        !trustedDevices.isEmpty
-            && recoveryCooldown.vouchesForPresence(trustedDevices.allSatisfy(isNearby), at: Date())
     }
 
     /// Check if a specific device is nearby
@@ -524,10 +508,6 @@ extension BluetoothProximityManager: CBCentralManagerDelegate {
             scanForBLE()
             centralManager.connect(peripheral, options: nil)
             logActivity(.bluetooth, "Attempting reconnect to: \(peripheral.name ?? "Unknown")")
-        }
-
-        if areAllDevicesAway {
-            onInput(.allTrustedDevicesAway)
         }
     }
 

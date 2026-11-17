@@ -6,24 +6,24 @@ import XCTest
 @testable import MacGuard
 
 final class TamperMachineTests: XCTestCase {
-    private let manual = ArmSession(trustedDeviceHasLeft: false)
-    private let left = ArmSession(trustedDeviceHasLeft: true)
+    private let manual = ArmSession(departed: [])
+    private let left = ArmSession(departed: [TrustedDevice.phone.id])
 
     private let env = AlarmEnvironment.fixture()
 
     func testArmingPersistsTheMarker() {
-        let effects = AlarmMachine.step(.arming(left, until: AlarmEnvironment.t0), .inputMonitoringStarted(true), env).effects
+        let effects = AlarmMachine.step(.arming(left, until: AlarmEnvironment.t0, origin: .deviceLeft), .inputMonitoringStarted(true), env).effects
         XCTAssertEqual(effects.first, .persistArmedMarker(left))
     }
 
     func testEveryStandDownClearsTheMarker() {
         let standDowns: [(AlarmState, AlarmInput)] = [
-            (.arming(manual, until: AlarmEnvironment.t0), .cancelArming),
-            (.arming(manual, until: AlarmEnvironment.t0), .inputMonitoringStarted(false)),
+            (.arming(manual, until: AlarmEnvironment.t0, origin: .manual), .cancelArming),
+            (.arming(manual, until: AlarmEnvironment.t0, origin: .manual), .inputMonitoringStarted(false)),
             (.armed(left), .trustedDeviceNearby(.phone)),
             (.alarming(left, .tamper), .systemWoke),
         ]
-        let nearby = AlarmEnvironment.fixture(countdown: 0, proximity: .devices(nearby: .all))
+        let nearby = AlarmEnvironment.fixture(countdown: 0, proximity: .devices([.phone: .nearby]))
         for (state, input) in standDowns {
             let (next, effects) = AlarmMachine.step(state, input, nearby)
             XCTAssertEqual(next, .idle, "\(state) + \(input)")
@@ -52,18 +52,21 @@ final class TamperMachineTests: XCTestCase {
 }
 
 final class LaunchDecisionTests: XCTestCase {
-    private func markerData(left: Bool, pid: Int32) throws -> Data {
-        try TamperGuard.encoder.encode(ArmedMarker(ArmSession(trustedDeviceHasLeft: left), armedAt: Date(), pid: pid))
+    private let phoneLeft = ArmSession(departed: [TrustedDevice.phone.id])
+
+    private func markerData(_ session: ArmSession, pid: Int32) throws -> Data {
+        try TamperGuard.encoder.encode(ArmedMarker(session, armedAt: Date(), pid: pid))
     }
 
     func testDecision() throws {
         let cases: [(String, Data?, Bool, LaunchDecision)] = [
             ("no marker", nil, false, .normal),
-            ("dead owner", try markerData(left: true, pid: 4242), false,
-             .resumeAfterTamper(ArmSession(trustedDeviceHasLeft: true))),
-            ("live owner", try markerData(left: false, pid: 4242), true, .normal),
+            ("dead owner", try markerData(phoneLeft, pid: 4242), false, .resumeAfterTamper(phoneLeft)),
+            ("live owner", try markerData(ArmSession(departed: []), pid: 4242), true, .normal),
             ("corrupt marker fails closed", Data("garbage".utf8), true,
-             .resumeAfterTamper(ArmSession(trustedDeviceHasLeft: false))),
+             .resumeAfterTamper(ArmSession(departed: []))),
+            ("pre-upgrade marker fails closed", Data(#"{"trustedDeviceHasLeft":true,"armedAt":0,"pid":4242}"#.utf8), false,
+             .resumeAfterTamper(ArmSession(departed: []))),
         ]
         for (name, data, alive, expected) in cases {
             XCTAssertEqual(LaunchDecision.decide(markerData: data) { _ in alive }, expected, name)

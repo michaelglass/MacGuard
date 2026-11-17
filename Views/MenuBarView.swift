@@ -205,7 +205,7 @@ struct MenuBarView: View {
             HStack {
                 ProgressView().controlSize(.small)
                 TimelineView(.periodic(from: .now, by: 1)) { context in
-                    if case .arming(_, let deadline) = alarmManager.state, deadline > context.date {
+                    if case .arming(_, let deadline, _) = alarmManager.state, deadline > context.date {
                         Text("Arming in \(deadline.secondsLeft(from: context.date))s… (Cancel)")
                     } else {
                         Text("Arming… (Cancel)")

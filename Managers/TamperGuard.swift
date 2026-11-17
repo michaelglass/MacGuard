@@ -9,17 +9,17 @@ import SwiftUI
 
 /// Exists from `.armed` until stand down: one whose process is gone means MacGuard was killed.
 struct ArmedMarker: Codable, Equatable {
-    let trustedDeviceHasLeft: Bool
+    let departed: Set<TrustedDevice.ID>
     let armedAt: Date
     let pid: Int32
 
     init(_ session: ArmSession, armedAt: Date, pid: Int32) {
-        trustedDeviceHasLeft = session.trustedDeviceHasLeft
+        departed = session.departed
         self.armedAt = armedAt
         self.pid = pid
     }
 
-    var session: ArmSession { ArmSession(trustedDeviceHasLeft: trustedDeviceHasLeft) }
+    var session: ArmSession { ArmSession(departed: departed) }
 }
 
 enum LaunchDecision: Equatable {
@@ -30,7 +30,7 @@ enum LaunchDecision: Equatable {
         guard let markerData else { return .normal }
         // Unreadable marker: fail closed, without proximity-disarm rights.
         guard let marker = try? TamperGuard.decoder.decode(ArmedMarker.self, from: markerData) else {
-            return .resumeAfterTamper(ArmSession(trustedDeviceHasLeft: false))
+            return .resumeAfterTamper(ArmSession(departed: []))
         }
         return isAlive(marker.pid) ? .normal : .resumeAfterTamper(marker.session)
     }

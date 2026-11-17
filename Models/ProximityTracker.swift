@@ -214,9 +214,4 @@ enum RecoveryCooldown: Equatable {
         case .started(let startedAt): return now.timeIntervalSince(startedAt) < Self.duration
         }
     }
-
-    /// Assumed proximity vouches for nobody: presence counts only outside the cooldown.
-    func vouchesForPresence(_ nearby: Bool, at now: Date) -> Bool {
-        nearby && !isActive(at: now)
-    }
 }

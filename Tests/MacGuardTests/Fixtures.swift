@@ -32,9 +32,11 @@ extension AlarmEnvironment {
 }
 
 extension ProximityEvidence {
-    static func devices(_ mode: AutoArmMode = .allDevicesAway, nearby: Presence = .none,
-                        autoArm: AutoArm = .off) -> ProximityEvidence {
-        .trusted(TrustedDeviceEvidence(mode: mode, presence: nearby, autoArm: autoArm))
+    static func devices(_ sightings: [TrustedDevice: Sighting] = [:], autoArm: AutoArm = .off) -> ProximityEvidence {
+        .trusted(TrustedDeviceEvidence(
+            sightings: Dictionary(uniqueKeysWithValues: sightings.map { ($0.key.id, $0.value) }),
+            autoArm: autoArm
+        ))
     }
 
     static let autoArmStable = devices(autoArm: .onDeviceLeave(.stable))

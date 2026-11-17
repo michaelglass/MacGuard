@@ -5,9 +5,14 @@
 import Foundation
 
 struct ArmSession: Equatable {
-    /// Only then may a device's return disarm: a phone in your pocket at a
-    /// manual arm must not disarm a moment later.
-    var trustedDeviceHasLeft: Bool
+    /// Trusted devices seen away during this session (at arming or since).
+    /// Only these may disarm: a phone left on the desk never vouches for the owner.
+    var departed: Set<TrustedDevice.ID>
+}
+
+/// Why arming started; reported once armed.
+enum ArmOrigin: Equatable {
+    case manual, deviceLeft
 }
 
 /// `remaining` is always in `1...total`; an expired countdown is `.alarming`.
@@ -38,7 +43,7 @@ enum AlarmState: Equatable {
     case idle
     /// Monitors start after the exit delay, so the arming keystroke is not an intrusion.
     /// `until` is when that delay ends.
-    case arming(ArmSession, until: Date)
+    case arming(ArmSession, until: Date, origin: ArmOrigin)
     /// Theft mode ON, monitoring for unauthorized input
     case armed(ArmSession)
     /// Intrusion detected, countdown active before alarm
@@ -49,14 +54,14 @@ enum AlarmState: Equatable {
     var session: ArmSession? {
         switch self {
         case .idle: return nil
-        case .arming(let s, _), .armed(let s), .triggered(let s, _, _), .alarming(let s, _): return s
+        case .arming(let s, _, _), .armed(let s), .triggered(let s, _, _), .alarming(let s, _): return s
         }
     }
 
     func updatingSession(_ update: (inout ArmSession) -> Void) -> AlarmState {
         switch self {
         case .idle: return self
-        case .arming(var s, let until): update(&s); return .arming(s, until: until)
+        case .arming(var s, let until, let origin): update(&s); return .arming(s, until: until, origin: origin)
         case .armed(var s): update(&s); return .armed(s)
         case .triggered(var s, let c, let cause): update(&s); return .triggered(s, c, cause)
         case .alarming(var s, let cause): update(&s); return .alarming(s, cause)

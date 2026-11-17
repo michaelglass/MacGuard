@@ -34,17 +34,17 @@ final class PINTests: XCTestCase {
 }
 
 final class AlarmStateTests: XCTestCase {
-    private let manual = ArmSession(trustedDeviceHasLeft: false)
+    private let manual = ArmSession(departed: [])
 
     func testIdleHasNoSession() {
         XCTAssertNil(AlarmState.idle.session)
-        XCTAssertEqual(AlarmState.idle.updatingSession { $0.trustedDeviceHasLeft = true }, .idle)
+        XCTAssertEqual(AlarmState.idle.updatingSession { $0.departed.insert(TrustedDevice.phone.id) }, .idle)
     }
 
     func testUpdatingSessionKeepsCaseAndCountdown() throws {
         let countdown = try XCTUnwrap(Countdown(seconds: 5))
         let updated = AlarmState.triggered(manual, countdown, .lidClosed)
-            .updatingSession { $0.trustedDeviceHasLeft = true }
-        XCTAssertEqual(updated, .triggered(ArmSession(trustedDeviceHasLeft: true), countdown, .lidClosed))
+            .updatingSession { $0.departed.insert(TrustedDevice.phone.id) }
+        XCTAssertEqual(updated, .triggered(ArmSession(departed: [TrustedDevice.phone.id]), countdown, .lidClosed))
     }
 }

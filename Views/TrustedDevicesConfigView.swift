@@ -256,21 +256,6 @@ struct TrustedDevicesConfigContainerView: View {
             Toggle("Auto-arm when devices leave", isOn: $settings.autoArmOnDeviceLeave)
 
             if settings.autoArmOnDeviceLeave {
-                // Mode picker (only when multiple devices)
-                if bluetoothManager.trustedDevices.count > 1 {
-                    HStack {
-                        Text("Trigger when")
-                        Spacer()
-                        Picker("", selection: $settings.autoArmMode) {
-                            ForEach(AutoArmMode.allCases) { mode in
-                                Text(mode.label).tag(mode)
-                            }
-                        }
-                        .pickerStyle(.menu)
-                        .frame(width: 150)
-                    }
-                }
-
                 // Grace period
                 HStack {
                     Text("Grace period")

@@ -131,6 +131,18 @@ Packaging: verified locally that `create-dmg.sh` builds a bundle with `Contents/
 
 - **`release.yml` no longer pastes event values into shell.** The event name, the bump-type input and the PR label names reach the step as environment variables. A label is free text that anyone with triage access can apply, so a label like `$(…)` previously ran inside a job that can push to the repo. The bump type is also checked against patch/minor/major.
 
+## Round 5: only a device that was away may disarm
+
+The old rules let a device that never left vouch for the owner. In the default "all devices away" mode, a phone left on the desk made every trigger be ignored ("suppressed") and disarmed the alarm. The mode picker that changed this was hidden whenever auto-arm was off, but still applied.
+
+Now there is one rule and no mode:
+- Each arm session records the trusted devices **seen away**: positively observed away when arming starts, or leaving later. Unobserved devices don't count.
+- Only those devices can disarm, whether by returning (during arming, armed, countdown or alarm) or when the Mac wakes.
+- A nearby device never makes MacGuard ignore a trigger.
+- Auto-arm starts its grace period when **any** device leaves; a return cancels it only once no device is still away.
+- A BLE disconnect now reports the device as away. Before, a device that dropped its connection while armed never counted as having left.
+- The armed marker stores the departed devices; a marker from before this change fails closed (no proximity-disarm rights).
+
 ## Open (not fixed)
 
 - **Tamper relaunch saves the wrong "original" audio state.** The alarm switches output to the built-in speaker and raises the volume. A `kill -9` skips the restore, and the relaunched instance then saves the alarm's speaker and volume as the originals, so disarming "restores" those. Fix: persist the pre-alarm device and volume in the armed marker. Found while planning on-device tests; not verified.

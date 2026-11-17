@@ -155,13 +155,12 @@ final class ClassicLinkTrackerTests: XCTestCase {
 }
 
 final class RecoveryCooldownTests: XCTestCase {
-    func testAssumedPresenceVouchesForNobodyDuringCooldown() {
+    func testCooldownLastsFifteenSeconds() {
         var cooldown = RecoveryCooldown()
-        XCTAssertTrue(cooldown.vouchesForPresence(true, at: t0))
+        XCTAssertFalse(cooldown.isActive(at: t0))
         cooldown.start(at: t0)
-        XCTAssertFalse(cooldown.vouchesForPresence(true, at: t0 + 14))
-        XCTAssertTrue(cooldown.vouchesForPresence(true, at: t0 + 15))
-        XCTAssertFalse(cooldown.vouchesForPresence(false, at: t0 + 60))
+        XCTAssertTrue(cooldown.isActive(at: t0 + 14))
+        XCTAssertFalse(cooldown.isActive(at: t0 + 15))
     }
 }
 

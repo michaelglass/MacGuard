@@ -116,10 +116,11 @@ final class SettingsMigrationTests: XCTestCase {
         defaults.set("Tink", forKey: SettingsMigration.alarmSoundKey)
         defaults.set("custom:-80", forKey: SettingsMigration.proximityDistanceKey)
         let (sound, distance) = migrated(["alarmSound": "Ping", "customSoundPath": "/a.mp3",
-                                          "proximityDistance": "Near", "customDetectionRange": -90])
+                                          "proximityDistance": "Near", "customDetectionRange": -90,
+                                          "autoArmMode": "any"])
         XCTAssertEqual(sound, .builtIn(.tink))
         XCTAssertEqual(distance, .custom(DetectionRange(clamping: -80)))
-        for key in ["alarmSound", "customSoundPath", "proximityDistance", "customDetectionRange"] {
+        for key in ["alarmSound", "customSoundPath", "proximityDistance", "customDetectionRange", "autoArmMode"] {
             XCTAssertNil(defaults.object(forKey: key), key)
         }
     }

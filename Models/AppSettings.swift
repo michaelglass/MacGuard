@@ -93,30 +93,6 @@ enum ProximityMenuItem: Hashable {
     }
 }
 
-/// Auto-arm trigger mode for multiple trusted devices
-enum AutoArmMode: String, CaseIterable, Identifiable {
-    case allDevicesAway = "all"   // Arm when ALL devices leave (default)
-    case anyDeviceAway = "any"    // Arm when ANY device leaves
-
-    var id: String { rawValue }
-
-    /// Display label for UI
-    var label: String {
-        switch self {
-        case .allDevicesAway: return "All devices leave"
-        case .anyDeviceAway: return "Any device leaves"
-        }
-    }
-
-    /// Short description for UI
-    var description: String {
-        switch self {
-        case .allDevicesAway: return "More flexible - arm only when all trusted devices are away"
-        case .anyDeviceAway: return "More secure - arm when any trusted device leaves"
-        }
-    }
-}
-
 /// Available alarm sounds
 enum AlarmSound: String, CaseIterable, Identifiable {
     // Bundled sound
@@ -296,6 +272,8 @@ enum SettingsMigration {
         static let customSoundPath = "customSoundPath"
         static let proximityDistance = "proximityDistance"
         static let customDetectionRange = "customDetectionRange"
+        /// Removed: only a device away during a session may disarm, so there is no mode.
+        static let autoArmMode = "autoArmMode"
         static let customSound = "Custom..."
         static let customDistance = "Custom"
     }
@@ -309,7 +287,8 @@ enum SettingsMigration {
             let range = defaults.object(forKey: Legacy.customDetectionRange) as? Int
             defaults.set(proximityDistance(raw: raw, customDetectionRange: range).rawValue, forKey: proximityDistanceKey)
         }
-        for key in [Legacy.alarmSound, Legacy.customSoundPath, Legacy.proximityDistance, Legacy.customDetectionRange] {
+        for key in [Legacy.alarmSound, Legacy.customSoundPath, Legacy.proximityDistance, Legacy.customDetectionRange,
+                    Legacy.autoArmMode] {
             defaults.removeObject(forKey: key)
         }
     }
@@ -353,7 +332,6 @@ class AppSettings: ObservableObject {
     @AppStorage("networkTriggerEnabled") var networkTriggerEnabled: Bool = false
     @AppStorage("autoArmOnScreenLock") var autoArmOnScreenLock: Bool = false
     @AppStorage("autoArmGracePeriod") var autoArmGracePeriod: GracePeriod = .default
-    @AppStorage("autoArmMode") var autoArmMode: AutoArmMode = .allDevicesAway
 
     var alarmVolume: Double {
         get { AlarmVolume(clamping: alarmVolumeRaw).value }

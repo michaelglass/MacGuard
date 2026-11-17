@@ -49,7 +49,6 @@ enum AlarmInput {
     case countdownTick
     case trustedDeviceNearby(TrustedDevice)
     case trustedDeviceAway(TrustedDevice)
-    case allTrustedDevicesAway
     case systemWoke
     case autoArmTimerFired
     case screenLocked
@@ -57,19 +56,9 @@ enum AlarmInput {
     case settingsChanged
 }
 
-/// How many trusted devices are positively observed nearby.
-enum Presence: Equatable {
-    case none, some, all
-
-    /// Both facts are positive evidence only (scanning, outside the BT recovery
-    /// cooldown), so "all" without "any" is a stale reading and vouches for nobody.
-    init(anyNearby: Bool, allNearby: Bool) {
-        switch (anyNearby, allNearby) {
-        case (false, _): self = .none
-        case (true, false): self = .some
-        case (true, true): self = .all
-        }
-    }
+/// A trusted device positively observed (scanning, outside the BT recovery cooldown).
+enum Sighting: Equatable {
+    case nearby, away
 }
 
 enum BluetoothHealth: Equatable {
@@ -83,28 +72,33 @@ enum AutoArm: Equatable {
 }
 
 struct TrustedDeviceEvidence: Equatable {
-    /// Applies with auto-arm off too: it decides which presence suppresses and disarms.
-    var mode: AutoArmMode
-    var presence: Presence
+    /// Unobserved devices are absent: not seen is neither here nor gone.
+    var sightings: [TrustedDevice.ID: Sighting]
     var autoArm: AutoArm
 }
 
-/// With no trusted devices there is no presence, mode or auto-arm to consider.
+/// With no trusted devices there are no sightings or auto-arm to consider.
 enum ProximityEvidence: Equatable {
     case noTrustedDevices
     case trusted(TrustedDeviceEvidence)
 
-    init(hasTrustedDevices: Bool, mode: AutoArmMode, autoArmEnabled: Bool,
-         anyNearby: Bool, allNearby: Bool, bluetoothStable: Bool) {
+    init(hasTrustedDevices: Bool, sightings: [TrustedDevice.ID: Sighting],
+         autoArmEnabled: Bool, bluetoothStable: Bool) {
         guard hasTrustedDevices else {
             self = .noTrustedDevices
             return
         }
         self = .trusted(TrustedDeviceEvidence(
-            mode: mode,
-            presence: Presence(anyNearby: anyNearby, allNearby: allNearby),
+            sightings: sightings,
             autoArm: autoArmEnabled ? .onDeviceLeave(bluetoothStable ? .stable : .unstable) : .off
         ))
+    }
+
+    func seen(_ sighting: Sighting) -> Set<TrustedDevice.ID> {
+        switch self {
+        case .noTrustedDevices: return []
+        case .trusted(let devices): return Set(devices.sightings.filter { $0.value == sighting }.keys)
+        }
     }
 }
 
@@ -164,17 +158,18 @@ enum AlarmMachine {
             if env.autoLockOnArm { effects.append(.lockScreen) }
             effects.append(.scheduleArmingDelay(env.exitDelay))
             let until = env.now.addingTimeInterval(env.exitDelay.seconds)
-            return (.arming(ArmSession(trustedDeviceHasLeft: auto), until: until), effects)
+            let session = ArmSession(departed: env.proximity.seen(.away))
+            return (.arming(session, until: until, origin: auto ? .deviceLeft : .manual), effects)
 
         case (.arming, .armingDelayElapsed):
             return (state, [.startInputMonitoring])
 
-        case (.arming(let session, _), .inputMonitoringStarted(true)):
+        case (.arming(let session, _, let origin), .inputMonitoringStarted(true)):
             return (.armed(session), [
                 .persistArmedMarker(session),
                 .startSystemMonitors,
                 .log(.armed, "System armed - monitoring active"),
-                .emit(.armed(auto: session.trustedDeviceHasLeft)),
+                .emit(.armed(auto: origin == .deviceLeft)),
             ])
 
         case (.arming, .inputMonitoringStarted(false)):
@@ -192,7 +187,6 @@ enum AlarmMachine {
             guard isEnabled(cause, env) else {
                 return (state, [.log(.system, "Ignored \(cause.label) - trigger disabled")])
             }
-            if let suppressed = suppression(env.proximity) { return (state, [suppressed]) }
             guard let countdown = env.countdown else {
                 return soundAlarm(session, cause, "Immediate alarm triggered (no countdown)", overlay: true)
             }
@@ -205,7 +199,6 @@ enum AlarmMachine {
 
         case (.armed(let session), .severeIntrusion(let cause)),
              (.triggered(let session, _, _), .severeIntrusion(let cause)):
-            if let suppressed = suppression(env.proximity) { return (state, [suppressed]) }
             return soundAlarm(session, cause, "ALARM ACTIVE - \(cause.label)", overlay: true)
 
         case (.triggered(let session, let countdown, let cause), .countdownTick):
@@ -214,37 +207,32 @@ enum AlarmMachine {
             }
             return (.triggered(session, next, cause), [])
 
-        // MARK: ProximityEvidence
+        // MARK: Proximity
+        // The grace period runs while any device is still away.
+        case (.idle, .trustedDeviceNearby(let device)):
+            guard env.proximity.seen(.away).isEmpty else { return (state, []) }
+            return (state, [.cancelAutoArmTimer(reason: "Auto-arm cancelled - '\(device.name)' back nearby")])
+
         case (_, .trustedDeviceNearby(let device)):
-            let name = device.name
-            let cancel = AlarmEffect.cancelAutoArmTimer(reason: "Auto-arm cancelled - '\(name)' detected nearby")
-            guard let session = state.session else { return (state, [cancel]) }
-            if proximityMayDisarm(state, env) {
-                let (next, effects) = standDown("Disarmed via trusted device '\(name)'", env)
-                return (next, [cancel] + effects)
+            guard state.session?.departed.contains(device.id) == true else {
+                return (state, [.log(.bluetooth, "'\(device.name)' nearby but was here at arming - not disarming")])
             }
-            guard !session.trustedDeviceHasLeft else { return (state, [cancel]) }
-            return (state, [cancel, .log(.bluetooth, "Device '\(name)' nearby but manual arm - not auto-disarming")])
+            return standDown("Disarmed via trusted device '\(device.name)'", env)
+
+        case (.idle, .trustedDeviceAway(let device)):
+            guard case .trusted(let devices) = env.proximity else { return (state, []) }
+            return (state, autoArmGracePeriod("'\(device.name)' left - starting grace period", devices.autoArm))
 
         case (_, .trustedDeviceAway(let device)):
             var effects: [AlarmEffect] = [.log(.bluetooth, "Trusted device '\(device.name)' left proximity")]
-            var next = state
-            if state.session?.trustedDeviceHasLeft == false {
-                next = state.updatingSession { $0.trustedDeviceHasLeft = true }
-                effects.append(.log(.bluetooth, "Device left while armed - enabling auto-disarm on return"))
+            if state.session?.departed.contains(device.id) == false {
+                effects.append(.log(.bluetooth, "'\(device.name)' may now disarm on return"))
             }
-            if next == .idle, case .trusted(let devices) = env.proximity, devices.mode == .anyDeviceAway {
-                effects += autoArmGracePeriod("Any device away mode - starting grace period", devices.autoArm)
-            }
-            return (next, effects)
-
-        case (.idle, .allTrustedDevicesAway):
-            guard case .trusted(let devices) = env.proximity, devices.mode == .allDevicesAway else { return (state, []) }
-            return (state, autoArmGracePeriod("All trusted devices away - starting grace period", devices.autoArm))
+            return (state.updatingSession { $0.departed.insert(device.id) }, effects)
 
         case (_, .systemWoke):
-            if proximityMayDisarm(state, env) {
-                return standDown("Disarmed on wake - trusted device nearby", env)
+            if let session = state.session, !session.departed.isDisjoint(with: env.proximity.seen(.nearby)) {
+                return standDown("Disarmed on wake - trusted device back nearby", env)
             }
             return (state, [.log(.system, "System woke from sleep")])
 
@@ -259,7 +247,7 @@ enum AlarmMachine {
 
         case (.idle, .screenLocked):
             guard env.autoArmOnScreenLock else { return (state, []) }
-            // Manual-arm rules: a device must leave before its return may disarm.
+            // A manual arm: only devices already away (or leaving later) may disarm.
             let (next, effects) = step(.idle, .armRequested(auto: false), env)
             return (next, [.log(.armed, "Screen locked - arming")] + effects)
 
@@ -282,28 +270,6 @@ enum AlarmMachine {
         case .networkChanged: return env.networkTriggerEnabled
         case .motion: return env.motionTriggerEnabled
         case .lidMoved: return env.lidAngleTriggerEnabled
-        }
-    }
-
-    /// A nearby trusted device swallows intrusions, except in "any device away" mode.
-    private static func suppression(_ proximity: ProximityEvidence) -> AlarmEffect? {
-        guard case .trusted(let devices) = proximity else { return nil }
-        switch (devices.mode, devices.presence) {
-        case (.allDevicesAway, .some), (.allDevicesAway, .all):
-            return .log(.bluetooth, "Trusted device nearby - ignoring trigger")
-        case (.allDevicesAway, .none), (.anyDeviceAway, _):
-            return nil
-        }
-    }
-
-    /// Every proximity disarm (return, wake): only once a device has left this session.
-    static func proximityMayDisarm(_ state: AlarmState, _ env: AlarmEnvironment) -> Bool {
-        guard let session = state.session, state.phase != .arming,
-              session.trustedDeviceHasLeft,
-              case .trusted(let devices) = env.proximity else { return false }
-        switch (devices.mode, devices.presence) {
-        case (_, .all), (.allDevicesAway, .some): return true
-        case (_, .none), (.anyDeviceAway, .some): return false
         }
     }
 
