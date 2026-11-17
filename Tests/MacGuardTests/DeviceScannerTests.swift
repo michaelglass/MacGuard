@@ -31,7 +31,7 @@ final class DeviceScannerTests: XCTestCase {
         let (scan, effects) = feed([.pairedLoaded([paired("Mike's iPhone")]), ad("mike's iphone", p1, -55)])
         XCTAssertEqual(scan.devices[0].tracking, .ble(peripheral: p1))
         XCTAssertEqual(scan.devices[0].signal, RSSI(-55))
-        XCTAssertEqual(effects, [.bound(name: "mike's iphone", peripheral: p1)])
+        XCTAssertEqual(effects, [.log(.bluetooth, "Device mike's iphone found via BLE, UUID: \(p1)")])
     }
 
     // S12: a second peripheral with the same name unbinds, and the name never binds again
@@ -40,7 +40,10 @@ final class DeviceScannerTests: XCTestCase {
             .pairedLoaded([paired("Phone")]), ad("Phone", p1), ad("Phone", p2), ad("Phone", p1),
         ])
         XCTAssertEqual(scan.devices[0].tracking, .classic(address))
-        XCTAssertEqual(effects, [.bound(name: "Phone", peripheral: p1), .unboundAmbiguous(name: "Phone")])
+        XCTAssertEqual(effects, [
+            .log(.bluetooth, "Device Phone found via BLE, UUID: \(p1)"),
+            .log(.bluetooth, "Multiple BLE peripherals named Phone - keeping Classic tracking"),
+        ])
     }
 
     func testAmbiguousNameWithoutAddressIsUntrackable() {

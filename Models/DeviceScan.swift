@@ -86,8 +86,7 @@ struct DeviceScan: Equatable {
     }
 
     enum Effect: Equatable {
-        case bound(name: String, peripheral: UUID)
-        case unboundAmbiguous(name: String)
+        case log(ActivityLogCategory, String)
     }
 
     static func update(_ model: DeviceScan, _ msg: Msg) -> (DeviceScan, [Effect]) {
@@ -105,10 +104,10 @@ struct DeviceScan: Equatable {
                 if peripherals.count == 1 {
                     model.devices[index].tracking = .ble(peripheral: ad.peripheral)
                     model.devices[index].signal = ad.signal ?? model.devices[index].signal
-                    effects.append(.bound(name: ad.name, peripheral: ad.peripheral))
+                    effects.append(.log(.bluetooth, "Device \(ad.name) found via BLE, UUID: \(ad.peripheral)"))
                 } else if case .ble = model.devices[index].tracking {
                     model.devices[index].tracking = DiscoveredDevice.pairedTracking(model.devices[index].classicAddress)
-                    effects.append(.unboundAmbiguous(name: ad.name))
+                    effects.append(.log(.bluetooth, "Multiple BLE peripherals named \(ad.name) - keeping Classic tracking"))
                 }
             }
         }

@@ -62,10 +62,8 @@ class DeviceScannerViewModel: NSObject, ObservableObject {
         scan = next
         for effect in effects {
             switch effect {
-            case .bound(let name, let peripheral):
-                logActivity(.bluetooth, "Device \(name) found via BLE, UUID: \(peripheral)")
-            case .unboundAmbiguous(let name):
-                logActivity(.bluetooth, "Multiple BLE peripherals named \(name) - keeping Classic tracking")
+            case .log(let category, let message):
+                logActivity(category, message)
             }
         }
     }
