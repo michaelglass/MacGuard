@@ -58,7 +58,7 @@ struct AudioDevice: Equatable, CustomStringConvertible {
 
     func setVolume(_ volume: Float) {
         for element in outputElements(kAudioDevicePropertyVolumeScalar) {
-            Self.set(id, Self.output(kAudioDevicePropertyVolumeScalar, element), Float32(min(max(volume, 0), 1)))
+            Self.set(id, Self.output(kAudioDevicePropertyVolumeScalar, element), Float32(volume.clamped(to: 0...1)))
         }
     }
 
@@ -153,7 +153,7 @@ class AlarmAudioManager {
         case .setOutputVolume(let volume):
             // CoreAudio, not AppleScript: enforcement runs on every volume change, on the main thread.
             AudioDevice.defaultOutput?.setVolume(volume)
-            logActivity(.alarm, "Set volume to \(Int(min(max(volume, 0), 1) * 100))%")
+            logActivity(.alarm, "Set volume to \(Int(volume.clamped(to: 0...1) * 100))%")
         case .unmuteOutput:
             AudioDevice.defaultOutput?.unmute()
         case .readOutput:

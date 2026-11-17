@@ -39,7 +39,7 @@ struct DetectionRange: Equatable {
     let dBm: Int
 
     init(clamping raw: Int) {
-        dBm = min(max(raw, Self.range.lowerBound), Self.range.upperBound)
+        dBm = raw.clamped(to: Self.range)
     }
 }
 
@@ -258,7 +258,7 @@ struct AlarmVolume: Equatable {
     let value: Double
 
     init(clamping raw: Double) {
-        value = raw.isFinite ? min(max(raw, Self.range.lowerBound), Self.range.upperBound) : Self.range.upperBound
+        value = raw.isFinite ? raw.clamped(to: Self.range) : Self.range.upperBound
     }
 }
 

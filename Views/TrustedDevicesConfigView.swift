@@ -329,7 +329,7 @@ struct TrustedDevicesConfigContainerView: View {
                     GeometryReader { geo in
                         let bounds = DetectionRange.range
                         let position = Double(nearestRSSI - bounds.lowerBound) / Double(bounds.upperBound - bounds.lowerBound)
-                        let clampedPosition = min(max(position, 0), 1)
+                        let clampedPosition = position.clamped(to: 0...1)
 
                         ZStack(alignment: .leading) {
                             // Track
