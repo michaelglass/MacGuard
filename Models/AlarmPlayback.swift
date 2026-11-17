@@ -135,7 +135,10 @@ enum AlarmPlayback<Sound: Equatable> {
         case (.idle(.none), .soundLoaded(.none, let start)):
             return begin(start, .beeping, .current, playLog: "Alarm sound not found, using system beep")
         case (.idle, .inherit(let restore)):
-            return (.inherited(restore), [.log(.alarm, "Restarted mid-alarm - keeping the audio settings recorded before it")])
+            return (
+                .inherited(restore),
+                [.log(.alarm, "Restarted mid-alarm - keeping the audio settings recorded before it")]
+            )
         // stop runs on every disarm, played or not: nothing to restore.
         case (.idle, .stop):
             return (.idle(prepared: nil), [.log(.alarm, "Alarm stopped")])
@@ -155,7 +158,7 @@ enum AlarmPlayback<Sound: Equatable> {
         case (.inherited(let restore), .stop):
             return (.idle(prepared: nil), self.restore(restore) + [.log(.alarm, "Alarm stopped")])
         case (.inherited, .prepare), (.inherited, .preloaded), (.inherited, .unprepare), (.inherited, .inherit),
-             (.inherited, .outputChanged), (.inherited, .outputRead):
+            (.inherited, .outputChanged), (.inherited, .outputRead):
             return (model, [])
 
         case (.playing(let playing), .outputChanged(let output)):
@@ -165,12 +168,14 @@ enum AlarmPlayback<Sound: Equatable> {
         case (.playing(let playing), .stop):
             return (.idle(prepared: nil), stop(playing))
         case (.playing, .prepare), (.playing, .preloaded), (.playing, .unprepare), (.playing, .inherit),
-             (.playing, .start), (.playing, .soundLoaded):
+            (.playing, .start), (.playing, .soundLoaded):
             return (model, [])
         }
     }
 
-    private static func begin(_ start: Start, _ output: Output, _ baseline: Baseline, playLog: String) -> (Model, [Effect]) {
+    private static func begin(_ start: Start, _ output: Output, _ baseline: Baseline, playLog: String) -> (
+        Model, [Effect]
+    ) {
         var effects: [Effect] = []
         var route: Route
         /// Where the alarm will sound, once any move is done.
@@ -180,8 +185,10 @@ enum AlarmPlayback<Sound: Equatable> {
             if let current = start.output, current.device != speaker.device {
                 route = .speaker(speaker.device, displaced: current.device)
                 alarmOutput = speaker
-                effects += [.setDefaultOutput(speaker.device),
-                         .log(.alarm, "Switched from device \(current.device) to built-in speaker \(speaker.device)")]
+                effects += [
+                    .setDefaultOutput(speaker.device),
+                    .log(.alarm, "Switched from device \(current.device) to built-in speaker \(speaker.device)"),
+                ]
             } else {
                 route = .speaker(speaker.device, displaced: nil)
                 alarmOutput = start.output
@@ -209,13 +216,16 @@ enum AlarmPlayback<Sound: Equatable> {
                 break
             }
         }
-        let playing = Playing(targetVolume: start.targetVolume, route: route, savedVolume: savedVolume,
-                              watched: alarmOutput?.device, output: output)
+        let playing = Playing(
+            targetVolume: start.targetVolume, route: route, savedVolume: savedVolume,
+            watched: alarmOutput?.device, output: output)
         effects.insert(.recordRestore(playing.restore), at: 0)
-        effects += [.log(.alarm, "Saved original volume: \(savedVolume.map { String($0) } ?? "unknown")"),
-                 .setOutputVolume(start.targetVolume),
-                 .unmuteOutput,
-                 .watch(alarmOutput?.device)]
+        effects += [
+            .log(.alarm, "Saved original volume: \(savedVolume.map { String($0) } ?? "unknown")"),
+            .setOutputVolume(start.targetVolume),
+            .unmuteOutput,
+            .watch(alarmOutput?.device),
+        ]
         switch output {
         case .sound(let sound): effects.append(.playSound(sound))
         case .beeping: effects.append(.startBeeping)
@@ -235,8 +245,10 @@ enum AlarmPlayback<Sound: Equatable> {
                     playing.route = .speaker(speaker, displaced: output)
                     effects.append(.recordRestore(playing.restore))
                 }
-                effects += [.setDefaultOutput(speaker),
-                         .log(.alarm, "Output moved to device \(output) - alarm kept on built-in speaker")]
+                effects += [
+                    .setDefaultOutput(speaker),
+                    .log(.alarm, "Output moved to device \(output) - alarm kept on built-in speaker"),
+                ]
             }
         case .followOutput:
             break
@@ -262,8 +274,10 @@ enum AlarmPlayback<Sound: Equatable> {
             if reading.isMuted {
                 effects += [.unmuteOutput, .setOutputVolume(target), .log(.alarm, "Mute blocked - volume restored")]
             } else if let current = reading.volume, current < target - 0.05 {
-                effects += [.setOutputVolume(target),
-                         .log(.alarm, "Volume restored from \(Int(current * 100))% to \(Int(target * 100))%")]
+                effects += [
+                    .setOutputVolume(target),
+                    .log(.alarm, "Volume restored from \(Int(current * 100))% to \(Int(target * 100))%"),
+                ]
             }
         }
         return (.playing(playing), effects)

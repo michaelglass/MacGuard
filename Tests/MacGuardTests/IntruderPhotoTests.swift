@@ -2,6 +2,7 @@
 // MacGuard - Anti-Theft Alarm for macOS
 
 import XCTest
+
 @testable import MacGuard
 
 final class IntruderPhotoPolicyTests: XCTestCase {
@@ -45,7 +46,8 @@ final class IntruderPhotoFilesTests: XCTestCase {
     func testPruneKeepsNewestAndIgnoresOtherFiles() {
         let dir = URL(fileURLWithPath: "/photos", isDirectory: true)
         let photos = (0..<5).map {
-            dir.appendingPathComponent(IntruderPhotoFiles.filename(for: Date(timeIntervalSince1970: TimeInterval($0) * 60)))
+            dir.appendingPathComponent(
+                IntruderPhotoFiles.filename(for: Date(timeIntervalSince1970: TimeInterval($0) * 60)))
         }
         let stray = dir.appendingPathComponent(".DS_Store")
 

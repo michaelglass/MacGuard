@@ -42,7 +42,7 @@ let package = Package(
                 "Tests",
                 "LaunchAgents",
                 "landing",
-                "mise.toml"
+                "mise.toml",
             ],
             sources: [
                 "main.swift",
@@ -51,7 +51,7 @@ let package = Package(
                 "Views",
                 "Models",
                 "Utilities",
-                "Theme"
+                "Theme",
             ],
             resources: [
                 .copy("Resources")
@@ -63,6 +63,6 @@ let package = Package(
             dependencies: ["MacGuard"],
             path: "Tests/MacGuardTests",
             swiftSettings: strict
-        )
+        ),
     ]
 )

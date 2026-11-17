@@ -27,7 +27,8 @@ class USBMonitor {
             logActivity(.system, "USB monitoring unavailable")
             return
         }
-        CFRunLoopAddSource(CFRunLoopGetMain(), IONotificationPortGetRunLoopSource(port).takeUnretainedValue(), .commonModes)
+        CFRunLoopAddSource(
+            CFRunLoopGetMain(), IONotificationPortGetRunLoopSource(port).takeUnretainedValue(), .commonModes)
 
         let callback: IOServiceMatchingCallback = { refcon, iterator in
             guard let refcon else { return }
@@ -64,8 +65,10 @@ class USBMonitor {
     private func handleAttached(_ iterator: io_iterator_t) {
         Self.drain(iterator) { service in
             var nameBuffer = [CChar](repeating: 0, count: MemoryLayout<io_name_t>.size)
-            let registryName = IORegistryEntryGetName(service, &nameBuffer) == KERN_SUCCESS ? String(cString: nameBuffer) : nil
-            let name = Self.productName(product: IORegistry.property(kUSBProductString, of: service), registryName: registryName)
+            let registryName =
+                IORegistryEntryGetName(service, &nameBuffer) == KERN_SUCCESS ? String(cString: nameBuffer) : nil
+            let name = Self.productName(
+                product: IORegistry.property(kUSBProductString, of: service), registryName: registryName)
             logActivity(.input, "USB device attached: \(name)")
             onInput(.intrusion(.usbDeviceAttached(name: name)))
         }

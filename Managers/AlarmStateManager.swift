@@ -2,8 +2,8 @@
 // MacGuard - Anti-Theft Alarm for macOS
 // Created: 2025-12-18
 
-import SwiftUI
 import Combine
+import SwiftUI
 
 /// Imperative shell around `AlarmMachine`: parses callbacks into inputs, performs effects.
 @MainActor
@@ -217,8 +217,8 @@ class AlarmStateManager: ObservableObject {
 
     private func lockScreenViaAppleScript() {
         let script = """
-        tell application "System Events" to keystroke "q" using {control down, command down}
-        """
+            tell application "System Events" to keystroke "q" using {control down, command down}
+            """
         var error: NSDictionary?
         if let scriptObject = NSAppleScript(source: script) {
             scriptObject.executeAndReturnError(&error)
@@ -254,8 +254,9 @@ extension AlarmStateManager: AlarmHardware {
         networkMonitor.startMonitoring()
         // The accelerometer is only woken when its trigger is on (battery)
         let settings = AppSettings.shared
-        motionMonitor.start(motion: settings.motionTriggerEnabled ? settings.motionSensitivity : nil,
-                            lidAngle: settings.lidAngleTriggerEnabled)
+        motionMonitor.start(
+            motion: settings.motionTriggerEnabled ? settings.motionSensitivity : nil,
+            lidAngle: settings.lidAngleTriggerEnabled)
         bluetoothManager.startScanning()
         bluetoothManager.setArmedState(true)
     }

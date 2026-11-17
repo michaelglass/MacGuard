@@ -1,8 +1,9 @@
 // SettingsParsingTests.swift
 // MacGuard - Anti-Theft Alarm for macOS
 
-import XCTest
 import Combine
+import XCTest
+
 @testable import MacGuard
 
 final class SettingsParsingTests: XCTestCase {
@@ -21,7 +22,8 @@ final class SettingsParsingTests: XCTestCase {
 
 final class ProximityDistanceTests: XCTestCase {
     func testEveryDistanceHasAProperBand() {
-        let distances = ProximityPreset.allCases.map(ProximityDistance.preset)
+        let distances =
+            ProximityPreset.allCases.map(ProximityDistance.preset)
             + [-200, -100, -65, -55, 0].map { .custom(DetectionRange(clamping: $0)) }
         for distance in distances {
             let band = distance.thresholds
@@ -30,15 +32,19 @@ final class ProximityDistanceTests: XCTestCase {
     }
 
     func testCustomRangeIsClampedToTheSliderRange() {
-        XCTAssertEqual(ProximityDistance.custom(DetectionRange(clamping: 0)).thresholds,
-                       ProximityThresholds(present: -50, away: -60))
-        XCTAssertEqual(ProximityDistance.custom(DetectionRange(clamping: -500)).thresholds,
-                       ProximityThresholds(present: -95, away: -105))
+        XCTAssertEqual(
+            ProximityDistance.custom(DetectionRange(clamping: 0)).thresholds,
+            ProximityThresholds(present: -50, away: -60))
+        XCTAssertEqual(
+            ProximityDistance.custom(DetectionRange(clamping: -500)).thresholds,
+            ProximityThresholds(present: -95, away: -105))
     }
 
     func testCustomRangeNamesTheNearestPreset() {
-        let cases: [(Int, ProximityPreset?)] = [(-55, .near), (-65, .near), (-70, .medium), (-75, .medium),
-                                                (-80, .far), (-90, .far), (-95, nil), (-100, nil)]
+        let cases: [(Int, ProximityPreset?)] = [
+            (-55, .near), (-65, .near), (-70, .medium), (-75, .medium),
+            (-80, .far), (-90, .far), (-95, nil), (-100, nil),
+        ]
         for (dBm, expected) in cases {
             XCTAssertEqual(DetectionRange(clamping: dBm).nearestPreset, expected, "\(dBm)")
         }
@@ -57,7 +63,8 @@ final class ProximityDistanceTests: XCTestCase {
 
 final class AlarmSoundChoiceTests: XCTestCase {
     func testStoredFormRoundTrips() {
-        let choices: [AlarmSoundChoice] = AlarmSound.allCases.map(AlarmSoundChoice.builtIn)
+        let choices: [AlarmSoundChoice] =
+            AlarmSound.allCases.map(AlarmSoundChoice.builtIn)
             + [.custom(URL(fileURLWithPath: "/Users/me/Music/alarm sound.mp3"))]
         for choice in choices {
             XCTAssertEqual(AlarmSoundChoice(rawValue: choice.rawValue), choice)
@@ -84,8 +91,10 @@ final class SettingsMigrationTests: XCTestCase {
     private func migrated(_ legacy: [String: Any]) -> (AlarmSoundChoice?, ProximityDistance?) {
         for (key, value) in legacy { defaults.set(value, forKey: key) }
         SettingsMigration.run(defaults)
-        return (defaults.string(forKey: SettingsMigration.alarmSoundKey).flatMap(AlarmSoundChoice.init(rawValue:)),
-                defaults.string(forKey: SettingsMigration.proximityDistanceKey).flatMap(ProximityDistance.init(rawValue:)))
+        return (
+            defaults.string(forKey: SettingsMigration.alarmSoundKey).flatMap(AlarmSoundChoice.init(rawValue:)),
+            defaults.string(forKey: SettingsMigration.proximityDistanceKey).flatMap(ProximityDistance.init(rawValue:))
+        )
     }
 
     func testAlarmSoundMigration() {
@@ -123,9 +132,11 @@ final class SettingsMigrationTests: XCTestCase {
     func testMigrationRemovesLegacyKeysAndKeepsNewValues() {
         defaults.set("Tink", forKey: SettingsMigration.alarmSoundKey)
         defaults.set("custom:-80", forKey: SettingsMigration.proximityDistanceKey)
-        let (sound, distance) = migrated(["alarmSound": "Ping", "customSoundPath": "/a.mp3",
-                                          "proximityDistance": "Near", "customDetectionRange": -90,
-                                          "autoArmMode": "any"])
+        let (sound, distance) = migrated([
+            "alarmSound": "Ping", "customSoundPath": "/a.mp3",
+            "proximityDistance": "Near", "customDetectionRange": -90,
+            "autoArmMode": "any",
+        ])
         XCTAssertEqual(sound, .builtIn(.tink))
         XCTAssertEqual(distance, .custom(DetectionRange(clamping: -80)))
         for key in ["alarmSound", "customSoundPath", "proximityDistance", "customDetectionRange", "autoArmMode"] {

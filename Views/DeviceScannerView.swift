@@ -2,9 +2,9 @@
 // MacGuard - Anti-Theft Alarm for macOS
 // Created: 2025-12-18
 
-import SwiftUI
 import CoreBluetooth
 import IOBluetooth
+import SwiftUI
 
 @MainActor
 final class DeviceScannerWindowController {
@@ -21,13 +21,15 @@ final class DeviceScannerWindowController {
     }
 
     private static func present(bluetoothManager: BluetoothProximityManager)
-        -> (viewModel: DeviceScannerViewModel, window: UtilityWindow) {
+        -> (viewModel: DeviceScannerViewModel, window: UtilityWindow)
+    {
         let viewModel = DeviceScannerViewModel(bluetoothManager: bluetoothManager)
         let window = UtilityWindow(
             title: "Scan for Devices", size: NSSize(width: 350, height: 400), transparent: true,
             onClose: { [viewModel] in viewModel.stopScanning() },
-            content: DeviceScannerContainerView(viewModel: viewModel,
-                                                onDismiss: { DeviceScannerWindowController.shared.close() }))
+            content: DeviceScannerContainerView(
+                viewModel: viewModel,
+                onDismiss: { DeviceScannerWindowController.shared.close() }))
         return (viewModel, window)
     }
 
@@ -75,7 +77,8 @@ class DeviceScannerViewModel: NSObject, ObservableObject {
         return paired.compactMap { ioDevice in
             guard let name = ioDevice.name, !name.isEmpty else { return nil }
             let connected = ioDevice.isConnected()
-            logActivity(.bluetooth, "Paired device: \(name) (addr: \(ioDevice.addressString ?? "?"), connected: \(connected))")
+            logActivity(
+                .bluetooth, "Paired device: \(name) (addr: \(ioDevice.addressString ?? "?"), connected: \(connected))")
             return DiscoveredDevice(
                 id: UUID(), name: name,
                 classicAddress: ioDevice.addressString.flatMap(BluetoothAddress.init),
@@ -117,8 +120,11 @@ extension DeviceScannerViewModel: @MainActor CBCentralManagerDelegate {
         advertisementData: [String: Any],
         rssi RSSI: NSNumber
     ) {
-        guard let ad = Advertisement(name: peripheral.name, peripheral: peripheral.identifier,
-                                     rawRSSI: RSSI.intValue) else { return }
+        guard
+            let ad = Advertisement(
+                name: peripheral.name, peripheral: peripheral.identifier,
+                rawRSSI: RSSI.intValue)
+        else { return }
         send(.advertised(ad))
     }
 }
@@ -270,27 +276,34 @@ struct DeviceRowButton: View {
         let status = device.isConnected ? ("Connected", Theme.StateColor.armed) : ("Paired", Color.orange)
         switch state {
         case .selectable:
-            return RowStyle(iconColor: Theme.Accent.primary, nameColor: .primary, badge: status,
-                            showsChevron: true, isEnabled: true)
+            return RowStyle(
+                iconColor: Theme.Accent.primary, nameColor: .primary, badge: status,
+                showsChevron: true, isEnabled: true)
         case .alreadyAdded:
-            return RowStyle(iconColor: .secondary, nameColor: .secondary, badge: ("Added", Theme.StateColor.armed),
-                            showsChevron: false, isEnabled: false)
+            return RowStyle(
+                iconColor: .secondary, nameColor: .secondary, badge: ("Added", Theme.StateColor.armed),
+                showsChevron: false, isEnabled: false)
         case .unavailable:
-            return RowStyle(iconColor: Theme.Accent.primary, nameColor: .primary, badge: status,
-                            showsChevron: true, isEnabled: false)
+            return RowStyle(
+                iconColor: Theme.Accent.primary, nameColor: .primary, badge: status,
+                showsChevron: true, isEnabled: false)
         }
     }
 
     var body: some View {
         switch state {
         case .selectable(let trusted):
-            Button { action(trusted) } label: { row(style) }
-                .buttonStyle(.plain)
-                .onHover { hovering in
-                    withAnimation(.easeInOut(duration: Theme.Animation.hoverDuration)) {
-                        isHovered = hovering
-                    }
+            Button {
+                action(trusted)
+            } label: {
+                row(style)
+            }
+            .buttonStyle(.plain)
+            .onHover { hovering in
+                withAnimation(.easeInOut(duration: Theme.Animation.hoverDuration)) {
+                    isHovered = hovering
                 }
+            }
         case .alreadyAdded, .unavailable:
             row(style)
         }

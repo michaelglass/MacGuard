@@ -2,6 +2,7 @@
 // MacGuard - Anti-Theft Alarm for macOS
 
 import XCTest
+
 @testable import MacGuard
 
 final class AlarmPlaybackTests: XCTestCase {
@@ -72,9 +73,13 @@ final class AlarmPlaybackTests: XCTestCase {
     func testStartMovesOutputToSpeakerAndRaisesVolume() {
         let (_, effects) = update(.idle(prepared: "siren"), .start(start(speaker: read(speaker), output: read(usb))))
         let actions = effects.filter { if case .log = $0 { return false } else { return true } }
-        XCTAssertEqual(actions, [.recordRestore(AudioRestore(displaced: usb, volume: 0.3)),
-                                 .setDefaultOutput(speaker), .setOutputVolume(1.0), .unmuteOutput,
-                                 .watch(speaker), .playSound("siren")])
+        XCTAssertEqual(
+            actions,
+            [
+                .recordRestore(AudioRestore(displaced: usb, volume: 0.3)),
+                .setDefaultOutput(speaker), .setOutputVolume(1.0), .unmuteOutput,
+                .watch(speaker), .playSound("siren"),
+            ])
     }
 
     /// The record comes before any change, and matches what stop restores.
@@ -136,12 +141,19 @@ final class AlarmPlaybackTests: XCTestCase {
 
     func testInheritedRouteTableDriven() {
         let cases: [(String, AudioRestore, P.Start, AudioRestore)] = [
-            ("output moved since the kill, alarm had moved none", AudioRestore(displaced: nil, volume: 0.2),
-             start(speaker: read(speaker, 1.0), output: read(headphones)), AudioRestore(displaced: headphones, volume: 0.2)),
-            ("recorded output wins over one moved since", AudioRestore(displaced: usb, volume: nil),
-             start(speaker: read(speaker, 1.0), output: read(headphones)), AudioRestore(displaced: usb, volume: nil)),
-            ("no speaker: nothing to route back through", AudioRestore(displaced: usb, volume: 0.2),
-             start(speaker: nil, output: read(usb, 1.0)), AudioRestore(displaced: nil, volume: 0.2)),
+            (
+                "output moved since the kill, alarm had moved none", AudioRestore(displaced: nil, volume: 0.2),
+                start(speaker: read(speaker, 1.0), output: read(headphones)),
+                AudioRestore(displaced: headphones, volume: 0.2)
+            ),
+            (
+                "recorded output wins over one moved since", AudioRestore(displaced: usb, volume: nil),
+                start(speaker: read(speaker, 1.0), output: read(headphones)), AudioRestore(displaced: usb, volume: nil)
+            ),
+            (
+                "no speaker: nothing to route back through", AudioRestore(displaced: usb, volume: 0.2),
+                start(speaker: nil, output: read(usb, 1.0)), AudioRestore(displaced: nil, volume: 0.2)
+            ),
         ]
         for (name, recorded, s, expected) in cases {
             let effects = update(.inherited(recorded), .soundLoaded("siren", then: s)).1
@@ -160,14 +172,21 @@ final class AlarmPlaybackTests: XCTestCase {
     func testHeadphonesMidAlarmKeepTheSpeaker() {
         let state = playing(start(speaker: read(speaker), output: read(speaker)))
         let (moved, effects) = update(state, .outputChanged(headphones))
-        XCTAssertEqual(Array(effects.prefix(2)), [.recordRestore(AudioRestore(displaced: headphones, volume: 0.3)),
-                                                  .setDefaultOutput(speaker)])
+        XCTAssertEqual(
+            Array(effects.prefix(2)),
+            [
+                .recordRestore(AudioRestore(displaced: headphones, volume: 0.3)),
+                .setDefaultOutput(speaker),
+            ])
         // The same output again changes nothing that stop restores.
-        XCTAssertFalse(update(moved, .outputChanged(headphones)).1.contains { if case .recordRestore = $0 { true } else { false } })
+        XCTAssertFalse(
+            update(moved, .outputChanged(headphones)).1.contains { if case .recordRestore = $0 { true } else { false } }
+        )
         XCTAssertEqual(effects.last, .readOutput)
         XCTAssertTrue(effects.contains(.resumeSound("siren")))
         // Still watching the speaker, and the headphones are what stop puts back.
-        XCTAssertFalse(update(moved, .outputRead(read(speaker, 1.0))).1.contains { if case .watch = $0 { true } else { false } })
+        XCTAssertFalse(
+            update(moved, .outputRead(read(speaker, 1.0))).1.contains { if case .watch = $0 { true } else { false } })
         XCTAssertEqual(restores(update(moved, .stop).1), [.setOutputVolume(0.3), .setDefaultOutput(headphones)])
     }
 

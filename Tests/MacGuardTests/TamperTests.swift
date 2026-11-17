@@ -3,6 +3,7 @@
 
 import ServiceManagement
 import XCTest
+
 @testable import MacGuard
 
 final class TamperMachineTests: XCTestCase {
@@ -11,7 +12,9 @@ final class TamperMachineTests: XCTestCase {
     private let env = AlarmEnvironment.fixture()
 
     func testArmingPersistsTheMarker() {
-        let effects = AlarmMachine.update(.fixture(.arming(left, until: AlarmEnvironment.t0, origin: .deviceLeft)), .inputMonitoringStarted(true), env).1
+        let effects = AlarmMachine.update(
+            .fixture(.arming(left, until: AlarmEnvironment.t0, origin: .deviceLeft)), .inputMonitoringStarted(true), env
+        ).1
         XCTAssertEqual(effects.first, .persistArmedMarker(left))
     }
 
@@ -23,10 +26,13 @@ final class TamperMachineTests: XCTestCase {
             (.alarming(left, .tamper), .systemWoke),
         ]
         for (state, input) in standDowns {
-            let (next, effects) = AlarmMachine.update(.fixture(state, presence: [.phone: .seen(.nearby)]), input, .fixture(countdown: 0))
+            let (next, effects) = AlarmMachine.update(
+                .fixture(state, presence: [.phone: .seen(.nearby)]), input, .fixture(countdown: 0))
             XCTAssertEqual(next.alarm, .idle, "\(state) + \(input)")
-            for required: AlarmMachine.Effect in [.stopCountdownTimer, .stopMonitors, .stopAlarm, .hideOverlay,
-                                          .clearArmedMarker, .endOwnerChallenge] {
+            for required: AlarmMachine.Effect in [
+                .stopCountdownTimer, .stopMonitors, .stopAlarm, .hideOverlay,
+                .clearArmedMarker, .endOwnerChallenge,
+            ] {
                 XCTAssertTrue(effects.contains(required), "\(state) + \(input): \(required)")
             }
         }
@@ -37,22 +43,27 @@ final class TamperMachineTests: XCTestCase {
         for session in [left, .noDepartures] {
             let (model, effects) = AlarmMachine.update(.initial, .resumeAfterTamper(session), env)
             XCTAssertEqual(model.alarm, .alarming(session, .tamper))
-            for required: AlarmMachine.Effect in [.persistArmedMarker(session), .startSystemMonitors, .showOverlay,
-                                          .playAlarm, .emit(.alarmSounding(.tamper))] {
+            for required: AlarmMachine.Effect in [
+                .persistArmedMarker(session), .startSystemMonitors, .showOverlay,
+                .playAlarm, .emit(.alarmSounding(.tamper)),
+            ] {
                 XCTAssertTrue(effects.contains(required), "\(session): \(required)")
             }
         }
     }
 
     func testResumeIgnoredWhenAlreadyActive() {
-        XCTAssertEqual(AlarmMachine.update(.fixture(.armed(.noDepartures)), .resumeAfterTamper(left), env).0.alarm, .armed(.noDepartures))
+        XCTAssertEqual(
+            AlarmMachine.update(.fixture(.armed(.noDepartures)), .resumeAfterTamper(left), env).0.alarm,
+            .armed(.noDepartures))
     }
 }
 
 final class LaunchDecisionTests: XCTestCase {
     private let phoneLeft = ArmSession(departed: [TrustedDevice.phone.id])
 
-    private let recorded = MarkedAudio.recorded(SavedAudioRestore(displaced: AudioDeviceUID(rawValue: "usb-dac"), volume: 0.2))
+    private let recorded = MarkedAudio.recorded(
+        SavedAudioRestore(displaced: AudioDeviceUID(rawValue: "usb-dac"), volume: 0.2))
 
     private func markerData(_ session: ArmSession, pid: Int32, audio: MarkedAudio = .unrecorded) throws -> Data {
         try TamperGuard.encoder.encode(ArmedMarker(session: session, pid: pid, audio: audio))
@@ -63,22 +74,38 @@ final class LaunchDecisionTests: XCTestCase {
         let cases: [(String, Data?, Bool, LaunchDecision)] = [
             ("no marker", nil, false, .normal),
             ("dead owner", try markerData(phoneLeft, pid: 4242), false, .resumeAfterTamper(phoneLeft, .unrecorded)),
-            ("dead owner mid-alarm", try markerData(phoneLeft, pid: 4242, audio: recorded), false,
-             .resumeAfterTamper(phoneLeft, recorded)),
+            (
+                "dead owner mid-alarm", try markerData(phoneLeft, pid: 4242, audio: recorded), false,
+                .resumeAfterTamper(phoneLeft, recorded)
+            ),
             ("live owner", try markerData(.noDepartures, pid: 4242), true, .normal),
             ("corrupt marker fails closed", Data("garbage".utf8), true, failedClosed),
-            ("pre-upgrade marker fails closed", Data(#"{"trustedDeviceHasLeft":true,"armedAt":0,"pid":4242}"#.utf8), false,
-             failedClosed),
-            ("flat departed marker fails closed",
-             Data(#"{"departed":["\#(TrustedDevice.phone.id)"],"armedAt":0,"pid":4242}"#.utf8), false, failedClosed),
-            ("marker without audio fails closed",
-             Data(#"{"session":{"departed":["\#(TrustedDevice.phone.id)"]},"pid":4242}"#.utf8), false, failedClosed),
-            ("hand-written mid-alarm marker",
-             Data(#"{"session":{"departed":[]},"pid":4242,"audio":{"recorded":{"_0":{"displaced":"usb-dac","volume":0.2}}}}"#.utf8),
-             false, .resumeAfterTamper(.noDepartures, recorded)),
-            ("empty device UID fails closed",
-             Data(#"{"session":{"departed":[]},"pid":4242,"audio":{"recorded":{"_0":{"displaced":""}}}}"#.utf8), false,
-             failedClosed),
+            (
+                "pre-upgrade marker fails closed", Data(#"{"trustedDeviceHasLeft":true,"armedAt":0,"pid":4242}"#.utf8),
+                false,
+                failedClosed
+            ),
+            (
+                "flat departed marker fails closed",
+                Data(#"{"departed":["\#(TrustedDevice.phone.id)"],"armedAt":0,"pid":4242}"#.utf8), false, failedClosed
+            ),
+            (
+                "marker without audio fails closed",
+                Data(#"{"session":{"departed":["\#(TrustedDevice.phone.id)"]},"pid":4242}"#.utf8), false, failedClosed
+            ),
+            (
+                "hand-written mid-alarm marker",
+                Data(
+                    #"{"session":{"departed":[]},"pid":4242,"audio":{"recorded":{"_0":{"displaced":"usb-dac","volume":0.2}}}}"#
+                        .utf8),
+                false, .resumeAfterTamper(.noDepartures, recorded)
+            ),
+            (
+                "empty device UID fails closed",
+                Data(#"{"session":{"departed":[]},"pid":4242,"audio":{"recorded":{"_0":{"displaced":""}}}}"#.utf8),
+                false,
+                failedClosed
+            ),
         ]
         for (name, data, alive, expected) in cases {
             XCTAssertEqual(LaunchDecision.decide(markerData: data) { _ in alive }, expected, name)
@@ -93,7 +120,8 @@ final class LaunchDecisionTests: XCTestCase {
         ]
         for audio in cases {
             let marker = ArmedMarker(session: phoneLeft, pid: 4242, audio: audio)
-            XCTAssertEqual(try TamperGuard.decoder.decode(ArmedMarker.self, from: TamperGuard.encoder.encode(marker)), marker)
+            XCTAssertEqual(
+                try TamperGuard.decoder.decode(ArmedMarker.self, from: TamperGuard.encoder.encode(marker)), marker)
         }
     }
 
@@ -126,8 +154,9 @@ final class WatchdogSyncTests: XCTestCase {
             ("disabled, not registered", false, .notRegistered, old, new, .keep),
         ]
         for (name, enabled, service, registered, own, expected) in cases {
-            XCTAssertEqual(WatchdogSync.plan(enabled: enabled, service: service, registered: registered, own: own),
-                           expected, name)
+            XCTAssertEqual(
+                WatchdogSync.plan(enabled: enabled, service: service, registered: registered, own: own),
+                expected, name)
         }
     }
 

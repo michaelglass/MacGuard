@@ -9,10 +9,12 @@ struct TamperSettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
-            Toggle("Alarm if MacGuard is force-quit", isOn: Binding(
-                get: { tamperGuard.isEnabled },
-                set: { tamperGuard.isEnabled = $0 }
-            ))
+            Toggle(
+                "Alarm if MacGuard is force-quit",
+                isOn: Binding(
+                    get: { tamperGuard.isEnabled },
+                    set: { tamperGuard.isEnabled = $0 }
+                ))
 
             switch tamperGuard.status {
             case .off, .active:

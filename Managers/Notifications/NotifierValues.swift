@@ -11,11 +11,12 @@ struct EmailAddress: Hashable, Codable {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         let parts = trimmed.split(separator: "@", omittingEmptySubsequences: false)
         guard parts.count == 2,
-              let local = parts.first, let domain = parts.last,
-              !local.isEmpty, local.count <= 64,
-              domain.contains("."), !domain.hasPrefix("."), !domain.hasSuffix("."), !domain.contains(".."),
-              trimmed.count <= 254,
-              trimmed.unicodeScalars.allSatisfy(Self.isAllowed) else { return nil }
+            let local = parts.first, let domain = parts.last,
+            !local.isEmpty, local.count <= 64,
+            domain.contains("."), !domain.hasPrefix("."), !domain.hasSuffix("."), !domain.contains(".."),
+            trimmed.count <= 254,
+            trimmed.unicodeScalars.allSatisfy(Self.isAllowed)
+        else { return nil }
         value = trimmed
     }
 
@@ -41,7 +42,8 @@ enum MessagesRecipient: Hashable {
         let compact = String(String.UnicodeScalarView(trimmed.unicodeScalars.filter { !separators.contains($0) }))
         let digits = compact.hasPrefix("+") ? compact.dropFirst() : Substring(compact)
         guard (7...15).contains(digits.count),
-              digits.allSatisfy({ $0.isASCII && $0.isNumber }) else { return nil }
+            digits.allSatisfy({ $0.isASCII && $0.isNumber })
+        else { return nil }
         self = .phone(compact)
     }
 
@@ -59,8 +61,8 @@ struct ShortcutName: Hashable {
     init?(_ raw: String) {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed.count <= 255,
-              !trimmed.unicodeScalars.contains(where: { CharacterSet.newlines.contains($0) }),
-              !trimmed.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) })
+            !trimmed.unicodeScalars.contains(where: { CharacterSet.newlines.contains($0) }),
+            !trimmed.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) })
         else { return nil }
         value = trimmed
     }
@@ -73,8 +75,9 @@ struct WebhookURL: Hashable {
     init?(_ raw: String) {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let url = URL(string: trimmed),
-              url.scheme?.lowercased() == "https",
-              let host = url.host, !host.isEmpty else { return nil }
+            url.scheme?.lowercased() == "https",
+            let host = url.host, !host.isEmpty
+        else { return nil }
         self.url = url
     }
 }

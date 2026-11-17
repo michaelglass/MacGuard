@@ -63,8 +63,10 @@ enum WatchdogSync: Equatable {
     case unregister
 
     /// `nil` hashes mean unsigned (own) or never registered / registered unsigned (stored).
-    static func plan(enabled: Bool, service: SMAppService.Status,
-                     registered: CodeHash?, own: CodeHash?) -> WatchdogSync {
+    static func plan(
+        enabled: Bool, service: SMAppService.Status,
+        registered: CodeHash?, own: CodeHash?
+    ) -> WatchdogSync {
         if enabled {
             guard service == .enabled else { return .register }
             return registered == own ? .keep : .reregister
@@ -82,7 +84,10 @@ enum WatchdogStatus: Equatable {
 
     /// After a successful sync.
     init(enabled: Bool, service: SMAppService.Status) {
-        guard enabled else { self = .off; return }
+        guard enabled else {
+            self = .off
+            return
+        }
         switch service {
         case .enabled: self = .active
         case .requiresApproval: self = .needsApproval
@@ -151,7 +156,10 @@ final class TamperGuard: ObservableObject {
     }
 
     func launchDecision() -> LaunchDecision {
-        guard isEnabled else { clear(); return .normal }
+        guard isEnabled else {
+            clear()
+            return .normal
+        }
         let data = try? Data(contentsOf: Self.markerURL)
         let me = getpid()
         let decision = LaunchDecision.decide(markerData: data) { $0 != me && Self.isMacGuardProcess($0) }
@@ -168,8 +176,9 @@ final class TamperGuard: ObservableObject {
     private func write(_ next: ArmedMarker) {
         marker = next
         do {
-            try FileManager.default.createDirectory(at: Self.markerURL.deletingLastPathComponent(),
-                                                    withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(
+                at: Self.markerURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true)
             try Self.encoder.encode(next).write(to: Self.markerURL, options: .atomic)
         } catch {
             logActivity(.system, "Failed to write armed marker: \(error.localizedDescription)")
@@ -180,13 +189,16 @@ final class TamperGuard: ObservableObject {
 
     func syncAgent() {
         let enabled = isEnabled
-        let plan = WatchdogSync.plan(enabled: enabled, service: agent.status,
-                                     registered: CodeHash(rawValue: registeredCodeRaw), own: Self.ownCodeHash)
+        let plan = WatchdogSync.plan(
+            enabled: enabled, service: agent.status,
+            registered: CodeHash(rawValue: registeredCodeRaw), own: Self.ownCodeHash)
         do {
             try apply(plan)
             status = WatchdogStatus(enabled: enabled, service: agent.status)
         } catch {
-            logActivity(.system, "Tamper watchdog \(enabled ? "registration" : "removal") failed: \(error.localizedDescription)")
+            logActivity(
+                .system, "Tamper watchdog \(enabled ? "registration" : "removal") failed: \(error.localizedDescription)"
+            )
             status = enabled ? .unavailable(error.localizedDescription) : .off
         }
     }
@@ -227,9 +239,10 @@ final class TamperGuard: ObservableObject {
         var staticCode: SecStaticCode?
         var info: CFDictionary?
         guard SecCodeCopySelf([], &code) == errSecSuccess, let code,
-              SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode,
-              SecCodeCopySigningInformation(staticCode, [], &info) == errSecSuccess,
-              let unique = (info as? [String: Any])?[kSecCodeInfoUnique as String] as? Data else { return nil }
+            SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode,
+            SecCodeCopySigningInformation(staticCode, [], &info) == errSecSuccess,
+            let unique = (info as? [String: Any])?[kSecCodeInfoUnique as String] as? Data
+        else { return nil }
         return CodeHash(rawValue: unique.map { String(format: "%02x", $0) }.joined())
     }()
 
@@ -259,7 +272,8 @@ enum Watchdog {
     @MainActor
     private static func poll() {
         guard Date() >= nextAttempt,
-              let data = try? Data(contentsOf: TamperGuard.markerURL) else { return }
+            let data = try? Data(contentsOf: TamperGuard.markerURL)
+        else { return }
         let decision = LaunchDecision.decide(markerData: data) { TamperGuard.isMacGuardProcess($0) }
         guard case .resumeAfterTamper = decision else { return }
         nextAttempt = Date().addingTimeInterval(relaunchBackoff)

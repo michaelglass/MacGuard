@@ -1,8 +1,9 @@
 // InputParsingTests.swift
 // MacGuard - Anti-Theft Alarm for macOS
 
-import XCTest
 import CoreGraphics
+import XCTest
+
 @testable import MacGuard
 
 final class IntrusionInputTests: XCTestCase {
@@ -29,8 +30,10 @@ final class IntrusionInputTests: XCTestCase {
     }
 
     func testIgnoresTapControlAndUnmonitoredEvents() {
-        for type: CGEventType in [.tapDisabledByTimeout, .tapDisabledByUserInput, .keyUp,
-                                  .leftMouseUp, .rightMouseUp, .otherMouseUp, .null] {
+        for type: CGEventType in [
+            .tapDisabledByTimeout, .tapDisabledByUserInput, .keyUp,
+            .leftMouseUp, .rightMouseUp, .otherMouseUp, .null,
+        ] {
             XCTAssertNil(IntrusionInput(type), "raw \(type.rawValue)")
         }
     }

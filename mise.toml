@@ -1,5 +1,12 @@
 # One verb for every check: `mise check` (alias of `mise run check`).
 
+[vars]
+swift_sources = "Package.swift main.swift MacGuardApp.swift Managers Models Views Utilities Theme Tests"
+
+[tasks.format]
+description = "Format the Swift sources in place"
+run = "swift format format --in-place --parallel --recursive {{vars.swift_sources}}"
+
 [tasks.check]
 description = "Type check with warnings as errors, then run the tests"
 run = [

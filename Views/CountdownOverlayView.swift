@@ -25,7 +25,7 @@ struct CountdownOverlayView: View {
                 LinearGradient(
                     stops: [
                         .init(color: .black.opacity(0.60), location: 0.0),
-                        .init(color: .black.opacity(isAlarming ? 0.40 : 0.50), location: 1.0)
+                        .init(color: .black.opacity(isAlarming ? 0.40 : 0.50), location: 1.0),
                     ],
                     startPoint: .top,
                     endPoint: .bottom
@@ -296,15 +296,18 @@ struct PINOverlay: View {
 
     /// No input at all while locked out.
     private func entry(lockedUntil: Date?, now: Date) -> some View {
-        let message = lockedUntil.map {
-            ("lock.fill", "Too many attempts - try again in \($0.secondsLeft(from: now))s")
-        } ?? errorText.map { ("xmark.circle.fill", $0) }
+        let message =
+            lockedUntil.map {
+                ("lock.fill", "Too many attempts - try again in \($0.secondsLeft(from: now))s")
+            } ?? errorText.map { ("xmark.circle.fill", $0) }
 
         return VStack(spacing: Theme.Spacing.xl) {
-            NativeSecureField(text: $pin, placeholder: "PIN", isEnabled: lockedUntil == nil, focusOnAppear: true,
-                              font: .systemFont(ofSize: 14), onSubmit: validate)
-                .frame(width: 180, height: 32)
-                .offset(x: shakeOffset)
+            NativeSecureField(
+                text: $pin, placeholder: "PIN", isEnabled: lockedUntil == nil, focusOnAppear: true,
+                font: .systemFont(ofSize: 14), onSubmit: validate
+            )
+            .frame(width: 180, height: 32)
+            .offset(x: shakeOffset)
 
             if let (icon, text) = message {
                 HStack(spacing: Theme.Spacing.xs) {

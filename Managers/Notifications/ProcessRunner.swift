@@ -14,14 +14,17 @@ enum ProcessRunner {
 
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             process.terminationHandler = { finished in
-                let message = String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+                let message =
+                    String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
                     .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 if finished.terminationReason == .exit && finished.terminationStatus == 0 {
                     continuation.resume()
                 } else {
                     let name = (executable as NSString).lastPathComponent
-                    continuation.resume(throwing: NotifierError(
-                        message: "\(name) exited \(finished.terminationStatus)\(message.isEmpty ? "" : ": \(message)")"))
+                    continuation.resume(
+                        throwing: NotifierError(
+                            message:
+                                "\(name) exited \(finished.terminationStatus)\(message.isEmpty ? "" : ": \(message)")"))
                 }
             }
             do {

@@ -37,8 +37,9 @@ class SleepMonitor {
         RunLoop.main.add(lidTimer, forMode: .common)
 
         let lidClosed = Self.isLidClosed
-        session = Session(caffeinate: Self.startCaffeinate(), assertions: Self.preventSleep(),
-                          lidTimer: lidTimer, lidClosed: lidClosed)
+        session = Session(
+            caffeinate: Self.startCaffeinate(), assertions: Self.preventSleep(),
+            lidTimer: lidTimer, lidClosed: lidClosed)
         logActivity(.system, "Sleep prevention active while armed")
         logActivity(.system, "Lid state monitoring started (closed: \(lidClosed))")
 
@@ -115,8 +116,9 @@ class SleepMonitor {
     private static func preventSleep() -> [IOPMAssertionID] {
         [kIOPMAssertionTypePreventSystemSleep, kIOPMAssertionTypeNoDisplaySleep].compactMap { type in
             var id = IOPMAssertionID(0)
-            let result = IOPMAssertionCreateWithName(type as CFString, IOPMAssertionLevel(kIOPMAssertionLevelOn),
-                                                     "MacGuard anti-theft alarm armed" as CFString, &id)
+            let result = IOPMAssertionCreateWithName(
+                type as CFString, IOPMAssertionLevel(kIOPMAssertionLevelOn),
+                "MacGuard anti-theft alarm armed" as CFString, &id)
             return result == kIOReturnSuccess ? id : nil
         }
     }

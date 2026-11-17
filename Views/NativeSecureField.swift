@@ -1,8 +1,8 @@
 // NativeSecureField.swift
 // MacGuard - Anti-Theft Alarm for macOS
 
-import SwiftUI
 import AppKit
+import SwiftUI
 
 /// AppKit secure field: SwiftUI's takes no focus in borderless or freshly shown windows.
 struct NativeSecureField: NSViewRepresentable {
@@ -57,7 +57,9 @@ struct NativeSecureField: NSViewRepresentable {
         }
 
         func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-            guard commandSelector == #selector(NSResponder.insertNewline(_:)), let onSubmit = parent.onSubmit else { return false }
+            guard commandSelector == #selector(NSResponder.insertNewline(_:)), let onSubmit = parent.onSubmit else {
+                return false
+            }
             onSubmit()
             return true
         }

@@ -7,9 +7,9 @@ import SwiftUI
 
 /// Proximity distance presets for trusted device detection
 enum ProximityPreset: String, CaseIterable, Identifiable {
-    case near = "Near"      // ~1-2m
+    case near = "Near"  // ~1-2m
     case medium = "Medium"  // ~3-5m (default)
-    case far = "Far"        // ~7-10m
+    case far = "Far"  // ~7-10m
 
     var id: String { rawValue }
 
@@ -164,7 +164,8 @@ enum AlarmSound: String, CaseIterable, Identifiable {
         case .dontTouchMyMac:
             return ResourceBundle.url(forResource: "dont-touch-my-mac", withExtension: "mp3", subdirectory: "Resources")
                 .flatMap(PlayableSound.init(url:))
-        case .funk, .basso, .blow, .bottle, .frog, .glass, .hero, .morse, .ping, .pop, .purr, .sosumi, .submarine, .tink:
+        case .funk, .basso, .blow, .bottle, .frog, .glass, .hero, .morse, .ping, .pop, .purr, .sosumi, .submarine,
+            .tink:
             return PlayableSound(url: URL(fileURLWithPath: "/System/Library/Sounds/\(rawValue).aiff"))
         }
     }
@@ -261,7 +262,11 @@ struct PlayableSound: Equatable {
 
 enum CountdownDuration: Int, CaseIterable, Identifiable {
     case immediate = 0
-    case s3 = 3, s5 = 5, s10 = 10, s15 = 15, s30 = 30
+    case s3 = 3
+    case s5 = 5
+    case s10 = 10
+    case s15 = 15
+    case s30 = 30
 
     static let `default` = CountdownDuration.s3
 
@@ -274,7 +279,10 @@ enum CountdownDuration: Int, CaseIterable, Identifiable {
 
 /// Lets the owner walk away, and keeps the arming keystroke from being an intrusion.
 enum ExitDelay: Int, CaseIterable, Identifiable {
-    case s1 = 1, s5 = 5, s10 = 10, s30 = 30
+    case s1 = 1
+    case s5 = 5
+    case s10 = 10
+    case s30 = 30
 
     static let `default` = ExitDelay.s1
 
@@ -284,7 +292,11 @@ enum ExitDelay: Int, CaseIterable, Identifiable {
 }
 
 enum GracePeriod: Int, CaseIterable, Identifiable {
-    case s5 = 5, s10 = 10, s15 = 15, s30 = 30, s60 = 60
+    case s5 = 5
+    case s10 = 10
+    case s15 = 15
+    case s30 = 30
+    case s60 = 60
 
     static let `default` = GracePeriod.s15
 
@@ -326,15 +338,21 @@ enum SettingsMigration {
 
     static func run(_ defaults: UserDefaults) {
         if defaults.object(forKey: alarmSoundKey) == nil, let raw = defaults.string(forKey: Legacy.alarmSound) {
-            defaults.set(alarmSound(raw: raw, customPath: defaults.string(forKey: Legacy.customSoundPath)).rawValue,
-                         forKey: alarmSoundKey)
+            defaults.set(
+                alarmSound(raw: raw, customPath: defaults.string(forKey: Legacy.customSoundPath)).rawValue,
+                forKey: alarmSoundKey)
         }
-        if defaults.object(forKey: proximityDistanceKey) == nil, let raw = defaults.string(forKey: Legacy.proximityDistance) {
+        if defaults.object(forKey: proximityDistanceKey) == nil,
+            let raw = defaults.string(forKey: Legacy.proximityDistance)
+        {
             let range = defaults.object(forKey: Legacy.customDetectionRange) as? Int
-            defaults.set(proximityDistance(raw: raw, customDetectionRange: range).rawValue, forKey: proximityDistanceKey)
+            defaults.set(
+                proximityDistance(raw: raw, customDetectionRange: range).rawValue, forKey: proximityDistanceKey)
         }
-        for key in [Legacy.alarmSound, Legacy.customSoundPath, Legacy.proximityDistance, Legacy.customDetectionRange,
-                    Legacy.autoArmMode] {
+        for key in [
+            Legacy.alarmSound, Legacy.customSoundPath, Legacy.proximityDistance, Legacy.customDetectionRange,
+            Legacy.autoArmMode,
+        ] {
             defaults.removeObject(forKey: key)
         }
         migrateTrustedDevice(defaults)
@@ -343,8 +361,9 @@ enum SettingsMigration {
     /// Only when the list is missing or unreadable, as loading used to fall back to the single device.
     private static func migrateTrustedDevice(_ defaults: UserDefaults) {
         guard decoded([TrustedDevice].self, defaults.data(forKey: trustedDevicesKey)) == nil,
-              let device = decoded(TrustedDevice.self, defaults.data(forKey: Legacy.trustedDevice)),
-              let list = try? JSONEncoder().encode([device]) else { return }
+            let device = decoded(TrustedDevice.self, defaults.data(forKey: Legacy.trustedDevice)),
+            let list = try? JSONEncoder().encode([device])
+        else { return }
         defaults.set(list, forKey: trustedDevicesKey)
         defaults.removeObject(forKey: Legacy.trustedDevice)
     }
@@ -417,7 +436,10 @@ class AppSettings: ObservableObject {
 
     private func setDisableSleep(_ on: Bool) -> Bool {
         var error: NSDictionary?
-        guard let script = NSAppleScript(source: "do shell script \"pmset -a disablesleep \(on ? 1 : 0)\" with administrator privileges") else { return false }
+        guard
+            let script = NSAppleScript(
+                source: "do shell script \"pmset -a disablesleep \(on ? 1 : 0)\" with administrator privileges")
+        else { return false }
         script.executeAndReturnError(&error)
         if let error {
             logActivity(.system, "Failed to set disablesleep \(on ? 1 : 0): \(error)")
@@ -438,7 +460,8 @@ class AppSettings: ObservableObject {
     /// Preview the selected alarm sound
     func previewSound() {
         guard let file = alarmSound.resolved.file,
-              let sound = NSSound(contentsOf: file.url, byReference: true) else {
+            let sound = NSSound(contentsOf: file.url, byReference: true)
+        else {
             NSSound.beep()
             return
         }

@@ -109,7 +109,8 @@ enum DeviceScan {
                     effects.append(.log(.bluetooth, "Device \(ad.name) found via BLE, UUID: \(ad.peripheral)"))
                 } else if case .ble = model.devices[index].tracking {
                     model.devices[index].tracking = DiscoveredDevice.pairedTracking(model.devices[index].classicAddress)
-                    effects.append(.log(.bluetooth, "Multiple BLE peripherals named \(ad.name) - keeping Classic tracking"))
+                    effects.append(
+                        .log(.bluetooth, "Multiple BLE peripherals named \(ad.name) - keeping Classic tracking"))
                 }
             }
         }
@@ -121,7 +122,7 @@ enum DeviceScan {
     private static func listOrder(_ a: DiscoveredDevice, _ b: DiscoveredDevice) -> Bool {
         if a.isConnected != b.isConnected { return a.isConnected }
         switch (a.signal, b.signal) {
-        case let (a?, b?): return a > b
+        case (let a?, let b?): return a > b
         case (_?, nil): return true
         case (nil, _): return false
         }

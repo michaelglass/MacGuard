@@ -2,8 +2,8 @@
 // MacGuard - Anti-Theft Alarm for macOS
 // Created: 2025-12-18
 
-import SwiftUI
 import ServiceManagement
+import SwiftUI
 
 /// Main settings view for MacGuard
 struct SettingsView: View {
@@ -63,11 +63,13 @@ struct SettingsView: View {
                     HStack {
                         Spacer()
                         Button {
-                            TrustedDevicesConfigWindowController.shared.show(bluetoothManager: alarmManager.bluetoothManager)
+                            TrustedDevicesConfigWindowController.shared.show(
+                                bluetoothManager: alarmManager.bluetoothManager)
                         } label: {
                             Label(
                                 alarmManager.bluetoothManager.trustedDevices.isEmpty ? "Add Devices" : "Manage Devices",
-                                systemImage: alarmManager.bluetoothManager.trustedDevices.isEmpty ? "plus.circle" : "gearshape"
+                                systemImage: alarmManager.bluetoothManager.trustedDevices.isEmpty
+                                    ? "plus.circle" : "gearshape"
                             )
                         }
                         .buttonStyle(GlassBorderedProminentButtonStyle(tint: Theme.Accent.primary))
@@ -160,7 +162,8 @@ struct SettingsView: View {
                         .frame(width: 56, height: 56)
                         .cornerRadius(Theme.CornerRadius.lg)
                         .shadow(
-                            color: alarmManager.state != .idle ? Theme.StateColor.armed.opacity(0.4) : .black.opacity(0.2),
+                            color: alarmManager.state != .idle
+                                ? Theme.StateColor.armed.opacity(0.4) : .black.opacity(0.2),
                             radius: alarmManager.state != .idle ? 12 : 4,
                             x: 0, y: 2
                         )
@@ -211,7 +214,8 @@ struct SettingsView: View {
                         .overlay(
                             Circle()
                                 .strokeBorder(
-                                    (alarmManager.state != .idle ? Theme.StateColor.armed : Theme.StateColor.idle).opacity(0.3),
+                                    (alarmManager.state != .idle ? Theme.StateColor.armed : Theme.StateColor.idle)
+                                        .opacity(0.3),
                                     lineWidth: 1
                                 )
                         )
@@ -385,15 +389,18 @@ struct SettingsView: View {
 
         // Resolved once per render: a custom file is opened to check it.
         let alarmSound = settings.alarmSound.resolved
-        Picker("Alarm Sound", selection: Binding(
-            get: { AlarmSoundMenuItem(alarmSound) },
-            set: { item in
-                switch item {
-                case .builtIn(let sound): settings.chooseSound(sound)
-                case .custom: _ = settings.selectCustomSound()
+        Picker(
+            "Alarm Sound",
+            selection: Binding(
+                get: { AlarmSoundMenuItem(alarmSound) },
+                set: { item in
+                    switch item {
+                    case .builtIn(let sound): settings.chooseSound(sound)
+                    case .custom: _ = settings.selectCustomSound()
+                    }
                 }
-            }
-        )) {
+            )
+        ) {
             ForEach(AlarmSoundMenuItem.offered) { item in
                 Text(item.label).tag(item)
             }
@@ -474,7 +481,9 @@ struct SettingsView: View {
 
     @ViewBuilder
     private var aboutSection: some View {
-        LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Unknown")
+        LabeledContent(
+            "Version",
+            value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Unknown")
         LabeledContent("macOS", value: macOSVersion)
 
         // Check for Updates button
@@ -517,7 +526,7 @@ struct SettingsView: View {
                 colors: [
                     Color(red: 0.4, green: 0.49, blue: 0.92),
                     Color(red: 0.61, green: 0.3, blue: 0.79),
-                    Color(red: 0.91, green: 0.3, blue: 0.55)
+                    Color(red: 0.91, green: 0.3, blue: 0.55),
                 ],
                 startPoint: .leading,
                 endPoint: .trailing
@@ -529,14 +538,17 @@ struct SettingsView: View {
 
     private func loadAppIcon() -> NSImage? {
         guard let url = ResourceBundle.url(forResource: "AppIcon", withExtension: "png", subdirectory: "Resources"),
-              let image = NSImage(contentsOf: url) else {
+            let image = NSImage(contentsOf: url)
+        else {
             return nil
         }
         return image
     }
 
     @ViewBuilder
-    private func permissionRow(icon: String, title: String, subtitle: String, granted: Bool, action: @escaping () -> Void) -> some View {
+    private func permissionRow(
+        icon: String, title: String, subtitle: String, granted: Bool, action: @escaping () -> Void
+    ) -> some View {
         HStack(spacing: Theme.Spacing.md) {
             ZStack {
                 GlassIconCircle(size: 32, material: .selection)
@@ -585,11 +597,14 @@ final class PINSetupWindowController {
     func show(alarmManager: AlarmStateManager) {
         guard alarmManager.state == .idle else { return }
         viewModel.reset()
-        window = window ?? UtilityWindow(
-            title: "Set Backup PIN", size: NSSize(width: 300, height: 220), fitsContent: true,
-            onClose: { [viewModel] in viewModel.reset() },
-            content: PINSetupContainerView(viewModel: viewModel, alarmManager: alarmManager,
-                                           onDismiss: { PINSetupWindowController.shared.close() }))
+        window =
+            window
+            ?? UtilityWindow(
+                title: "Set Backup PIN", size: NSSize(width: 300, height: 220), fitsContent: true,
+                onClose: { [viewModel] in viewModel.reset() },
+                content: PINSetupContainerView(
+                    viewModel: viewModel, alarmManager: alarmManager,
+                    onDismiss: { PINSetupWindowController.shared.close() }))
         window?.show()
     }
 

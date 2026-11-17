@@ -21,10 +21,12 @@ class PowerMonitor {
         guard session == nil else { return }
 
         let context = UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque())
-        let source = IOPSNotificationCreateRunLoopSource({ context in
-            guard let context else { return }
-            Unmanaged<PowerMonitor>.fromOpaque(context).takeUnretainedValue().handlePowerSourceChange()
-        }, context).takeRetainedValue()
+        let source = IOPSNotificationCreateRunLoopSource(
+            { context in
+                guard let context else { return }
+                Unmanaged<PowerMonitor>.fromOpaque(context).takeUnretainedValue().handlePowerSourceChange()
+            }, context
+        ).takeRetainedValue()
 
         // Common modes: still delivered while a menu or modal is tracking
         CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
@@ -45,8 +47,9 @@ class PowerMonitor {
     /// The *providing* source: a UPS reports "AC Power" even after the laptop's cable is pulled.
     static func currentSource() -> PowerSource {
         guard let snapshot = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
-              let providing = IOPSGetProvidingPowerSourceType(snapshot)?.takeUnretainedValue() else {
-            return .ac // Assume AC if unknown
+            let providing = IOPSGetProvidingPowerSourceType(snapshot)?.takeUnretainedValue()
+        else {
+            return .ac  // Assume AC if unknown
         }
         return (providing as String) == kIOPSACPowerValue ? .ac : .battery
     }
@@ -60,7 +63,8 @@ class PowerMonitor {
 
     private func handlePowerSourceChange() {
         guard let previous = session?.last,
-              let source = Self.transition(from: previous, to: Self.currentSource()) else { return }
+            let source = Self.transition(from: previous, to: Self.currentSource())
+        else { return }
         session?.last = source
 
         logActivity(.power, source == .ac ? "Power cable connected" : "Power cable disconnected")

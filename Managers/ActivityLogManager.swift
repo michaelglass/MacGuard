@@ -2,9 +2,9 @@
 // MacGuard - Anti-Theft Alarm for macOS
 // Created: 2025-12-22
 
-import Foundation
-import Combine
 import AppKit
+import Combine
+import Foundation
 
 /// Singleton manager for activity logging throughout the app
 @MainActor
@@ -110,7 +110,8 @@ class ActivityLogManager: ObservableObject {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
 
         guard let data = try? encoder.encode(entries),
-              let json = String(data: data, encoding: .utf8) else {
+            let json = String(data: data, encoding: .utf8)
+        else {
             return "[]"
         }
         return json
@@ -152,7 +153,8 @@ class ActivityLogManager: ObservableObject {
 
         let picker = NSSharingServicePicker(items: [exportURL])
         if let window = NSApplication.shared.keyWindow,
-           let contentView = window.contentView {
+            let contentView = window.contentView
+        {
             picker.show(relativeTo: .zero, of: contentView, preferredEdge: .minY)
         }
     }

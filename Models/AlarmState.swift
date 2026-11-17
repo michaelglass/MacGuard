@@ -66,10 +66,18 @@ enum AlarmState: Equatable {
     func updatingSession(_ update: (inout ArmSession) -> Void) -> AlarmState {
         switch self {
         case .idle: return self
-        case .arming(var s, let until, let origin): update(&s); return .arming(s, until: until, origin: origin)
-        case .armed(var s): update(&s); return .armed(s)
-        case .triggered(var s, let c, let cause): update(&s); return .triggered(s, c, cause)
-        case .alarming(var s, let cause): update(&s); return .alarming(s, cause)
+        case .arming(var s, let until, let origin):
+            update(&s)
+            return .arming(s, until: until, origin: origin)
+        case .armed(var s):
+            update(&s)
+            return .armed(s)
+        case .triggered(var s, let c, let cause):
+            update(&s)
+            return .triggered(s, c, cause)
+        case .alarming(var s, let cause):
+            update(&s)
+            return .alarming(s, cause)
         }
     }
 

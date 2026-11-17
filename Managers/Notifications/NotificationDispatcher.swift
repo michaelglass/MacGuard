@@ -27,7 +27,9 @@ final class NotificationDispatcher: Sendable {
     private let host: String
 
     init(
-        notifiers: @escaping @MainActor @Sendable () -> [any Notifier] = { NotificationSettings.shared.enabledNotifiers() },
+        notifiers: @escaping @MainActor @Sendable () -> [any Notifier] = {
+            NotificationSettings.shared.enabledNotifiers()
+        },
         policy: @escaping @MainActor @Sendable () -> AlertPolicy = { NotificationSettings.shared.policy },
         attachments: @escaping @Sendable (AlarmEvent) async -> [URL] = { _ in [] },
         log: @escaping @Sendable (String) -> Void = { logActivity(.system, $0) },
@@ -47,7 +49,8 @@ final class NotificationDispatcher: Sendable {
     func handle(_ event: AlarmEvent) {
         let targets = notifiers()
         guard !targets.isEmpty,
-              let alert = Alert.make(from: event, at: now(), host: host, policy: policy()) else { return }
+            let alert = Alert.make(from: event, at: now(), host: host, policy: policy())
+        else { return }
         Task.detached(priority: .userInitiated) { [self] in
             _ = await deliver(alert, for: event, to: targets)
         }
@@ -57,7 +60,8 @@ final class NotificationDispatcher: Sendable {
         let targets = await notifiers()
         let policy = await policy()
         guard !targets.isEmpty,
-              let alert = Alert.make(from: event, at: now(), host: host, policy: policy) else { return [] }
+            let alert = Alert.make(from: event, at: now(), host: host, policy: policy)
+        else { return [] }
         return await deliver(alert, for: event, to: targets)
     }
 

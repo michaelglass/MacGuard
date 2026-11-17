@@ -184,12 +184,15 @@ enum AlarmMachine {
             switch state {
             case .arming(let session, _, let origin):
                 guard granted else { return standDown("Failed to arm - accessibility permission denied", env) }
-                return (.armed(session), [
-                    .persistArmedMarker(session),
-                    .startSystemMonitors,
-                    .log(.armed, "System armed - monitoring active"),
-                    .emit(.armed(auto: origin == .deviceLeft)),
-                ])
+                return (
+                    .armed(session),
+                    [
+                        .persistArmedMarker(session),
+                        .startSystemMonitors,
+                        .log(.armed, "System armed - monitoring active"),
+                        .emit(.armed(auto: origin == .deviceLeft)),
+                    ]
+                )
             case .idle, .armed, .triggered, .alarming:
                 return (state, [])
             }
@@ -221,12 +224,15 @@ enum AlarmMachine {
                 guard let countdown = env.countdown else {
                     return soundAlarm(session, cause, "Immediate alarm triggered (no countdown)", overlay: true)
                 }
-                return (.triggered(session, countdown, cause), [
-                    .showOverlay,
-                    .startCountdownTimer,
-                    .log(.trigger, "Countdown started (\(countdown.total)s) - \(cause.label)"),
-                    .emit(.countdownStarted(cause, seconds: countdown.total)),
-                ])
+                return (
+                    .triggered(session, countdown, cause),
+                    [
+                        .showOverlay,
+                        .startCountdownTimer,
+                        .log(.trigger, "Countdown started (\(countdown.total)s) - \(cause.label)"),
+                        .emit(.countdownStarted(cause, seconds: countdown.total)),
+                    ]
+                )
             case .idle, .arming, .triggered, .alarming:  // not monitoring, or already raised
                 return (state, [])
             }
@@ -257,7 +263,8 @@ enum AlarmMachine {
             case .idle:
                 guard seen(.away).isEmpty else { return (state, []) }
                 return (state, [.cancelAutoArmTimer(reason: "Auto-arm cancelled - '\(device.name)' back nearby")])
-            case .arming(let session, _, _), .armed(let session), .triggered(let session, _, _), .alarming(let session, _):
+            case .arming(let session, _, _), .armed(let session), .triggered(let session, _, _),
+                .alarming(let session, _):
                 guard session.departed.contains(device.id) else {
                     return (state, [.log(.bluetooth, "'\(device.name)' nearby but was here at arming - not disarming")])
                 }
@@ -269,11 +276,14 @@ enum AlarmMachine {
             // Only leaving starts the grace period: a device first seen away was never here.
             case .idle:
                 guard before[device.id]?.holdsNearby == true else {
-                    return (state, [.log(.bluetooth, "'\(device.name)' seen away but was not nearby - no grace period")])
+                    return (
+                        state, [.log(.bluetooth, "'\(device.name)' seen away but was not nearby - no grace period")]
+                    )
                 }
                 return (state, autoArmGracePeriod("'\(device.name)' left - starting grace period", env.autoArm))
             // A first sighting of away counts too: the device is missing from this session.
-            case .arming(let session, _, _), .armed(let session), .triggered(let session, _, _), .alarming(let session, _):
+            case .arming(let session, _, _), .armed(let session), .triggered(let session, _, _),
+                .alarming(let session, _):
                 var effects: [Effect] = [.log(.bluetooth, "Trusted device '\(device.name)' left proximity")]
                 if !session.departed.contains(device.id) {
                     effects.append(.log(.bluetooth, "'\(device.name)' may now disarm on return"))
@@ -287,7 +297,8 @@ enum AlarmMachine {
 
         case .systemWoke:
             switch state {
-            case .arming(let session, _, _), .armed(let session), .triggered(let session, _, _), .alarming(let session, _):
+            case .arming(let session, _, _), .armed(let session), .triggered(let session, _, _),
+                .alarming(let session, _):
                 if !session.departed.isDisjoint(with: seen(.nearby)) {
                     return standDown("Disarmed on wake - trusted device back nearby", env)
                 }
@@ -301,7 +312,8 @@ enum AlarmMachine {
             switch state {
             // The marker is rewritten so a second kill is caught too.
             case .idle:
-                let (next, effects) = soundAlarm(session, .tamper, "Restarted after being terminated while armed - ALARM ACTIVE", overlay: true)
+                let (next, effects) = soundAlarm(
+                    session, .tamper, "Restarted after being terminated while armed - ALARM ACTIVE", overlay: true)
                 return (next, [.persistArmedMarker(session), .startSystemMonitors] + effects)
             case .arming, .armed, .triggered, .alarming:
                 return (state, [])
@@ -358,13 +370,16 @@ enum AlarmMachine {
         }
     }
 
-    private static func soundAlarm(_ session: ArmSession, _ cause: TriggerCause, _ message: String, overlay: Bool) -> (AlarmState, [Effect]) {
-        let effects: [Effect] = (overlay ? [.showOverlay] : []) + [
-            .stopCountdownTimer,
-            .playAlarm,
-            .log(.alarm, message),
-            .emit(.alarmSounding(cause)),
-        ]
+    private static func soundAlarm(_ session: ArmSession, _ cause: TriggerCause, _ message: String, overlay: Bool) -> (
+        AlarmState, [Effect]
+    ) {
+        let effects: [Effect] =
+            (overlay ? [.showOverlay] : []) + [
+                .stopCountdownTimer,
+                .playAlarm,
+                .log(.alarm, message),
+                .emit(.alarmSounding(cause)),
+            ]
         return (.alarming(session, cause), effects)
     }
 

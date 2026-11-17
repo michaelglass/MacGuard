@@ -268,9 +268,10 @@ final class ActivityLogWindowController {
 
     func show(alarmManager: AlarmStateManager) {
         if window == nil {
-            let window = UtilityWindow(title: "Event Log", size: NSSize(width: 500, height: 400),
-                                       style: [.titled, .closable, .resizable],
-                                       content: ActivityLogView(alarmManager: alarmManager))
+            let window = UtilityWindow(
+                title: "Event Log", size: NSSize(width: 500, height: 400),
+                style: [.titled, .closable, .resizable],
+                content: ActivityLogView(alarmManager: alarmManager))
             window.window.minSize = NSSize(width: 400, height: 300)
             self.window = window
         }

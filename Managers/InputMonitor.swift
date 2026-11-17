@@ -2,9 +2,9 @@
 // MacGuard - Anti-Theft Alarm for macOS
 // Created: 2025-12-18
 
-import Cocoa
 // Declares constant CFStrings such as kAXTrustedCheckOptionPrompt as mutable C globals.
 @preconcurrency import ApplicationServices
+import Cocoa
 
 /// User input that counts as an intrusion, parsed from raw `CGEventType`s at the boundary.
 enum IntrusionInput: CaseIterable {
@@ -18,7 +18,7 @@ enum IntrusionInput: CaseIterable {
         switch self {
         case .keyboard: return [CGEventType.keyDown.rawValue]
         case .mediaKey: return [Self.systemDefinedRawValue]
-        case .modifier: return [CGEventType.flagsChanged.rawValue]   // ⌘, ⌥, fn, ... alone
+        case .modifier: return [CGEventType.flagsChanged.rawValue]  // ⌘, ⌥, fn, ... alone
         case .click: return [CGEventType.leftMouseDown, .rightMouseDown, .otherMouseDown].map(\.rawValue)
         case .drag: return [CGEventType.leftMouseDragged, .rightMouseDragged, .otherMouseDragged].map(\.rawValue)
         case .pointerMove: return [CGEventType.mouseMoved.rawValue]
@@ -45,7 +45,8 @@ enum IntrusionInput: CaseIterable {
         }
     }
 
-    static let eventMask: CGEventMask = allCases
+    static let eventMask: CGEventMask =
+        allCases
         .flatMap(\.eventTypeRawValues)
         .reduce(CGEventMask(0)) { $0 | (CGEventMask(1) << $1) }
 }
@@ -101,14 +102,16 @@ class InputMonitor {
             return Unmanaged.passUnretained(event)
         }
 
-        guard let port = CGEvent.tapCreate(
-            tap: .cgSessionEventTap,
-            place: .headInsertEventTap,
-            options: .listenOnly,
-            eventsOfInterest: IntrusionInput.eventMask,
-            callback: callback,
-            userInfo: Unmanaged.passUnretained(self).toOpaque()
-        ), let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, port, 0) else {
+        guard
+            let port = CGEvent.tapCreate(
+                tap: .cgSessionEventTap,
+                place: .headInsertEventTap,
+                options: .listenOnly,
+                eventsOfInterest: IntrusionInput.eventMask,
+                callback: callback,
+                userInfo: Unmanaged.passUnretained(self).toOpaque()
+            ), let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, port, 0)
+        else {
             logActivity(.input, "Failed to create event tap - check Accessibility permissions")
             return false
         }

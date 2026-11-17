@@ -24,7 +24,7 @@ struct GlassBorder: ViewModifier {
                     .init(color: .white.opacity(0.25), location: 0.0),
                     .init(color: .white.opacity(0.12), location: 0.2),
                     .init(color: .clear, location: 0.4),
-                    .init(color: .black.opacity(0.12), location: 1.0)
+                    .init(color: .black.opacity(0.12), location: 1.0),
                 ],
                 startPoint: .top,
                 endPoint: .bottom
@@ -35,7 +35,7 @@ struct GlassBorder: ViewModifier {
                     .init(color: .white.opacity(0.20), location: 0.0),
                     .init(color: .white.opacity(0.08), location: 0.3),
                     .init(color: .clear, location: 0.5),
-                    .init(color: .black.opacity(0.08), location: 1.0)
+                    .init(color: .black.opacity(0.08), location: 1.0),
                 ],
                 startPoint: .top,
                 endPoint: .bottom
@@ -69,7 +69,7 @@ struct GlassCapsuleBorder: ViewModifier {
                 .init(color: .white.opacity(prominent ? 0.25 : 0.20), location: 0.0),
                 .init(color: .white.opacity(prominent ? 0.12 : 0.08), location: 0.3),
                 .init(color: .clear, location: 0.5),
-                .init(color: .black.opacity(prominent ? 0.12 : 0.08), location: 1.0)
+                .init(color: .black.opacity(prominent ? 0.12 : 0.08), location: 1.0),
             ],
             startPoint: .top,
             endPoint: .bottom

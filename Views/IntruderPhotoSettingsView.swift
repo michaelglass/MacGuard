@@ -8,10 +8,12 @@ struct IntruderPhotoSettingsView: View {
 
     var body: some View {
         Section {
-            Toggle("Photograph whoever triggers the alarm", isOn: Binding(
-                get: { camera.setting == .onIntrusion },
-                set: { camera.setEnabled($0) }
-            ))
+            Toggle(
+                "Photograph whoever triggers the alarm",
+                isOn: Binding(
+                    get: { camera.setting == .onIntrusion },
+                    set: { camera.setEnabled($0) }
+                ))
 
             if camera.access == .denied {
                 HStack(spacing: Theme.Spacing.sm) {
@@ -23,7 +25,9 @@ struct IntruderPhotoSettingsView: View {
                         .foregroundColor(.secondary)
                     Spacer()
                     Button("Open Privacy Settings") {
-                        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera") {
+                        if let url = URL(
+                            string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera")
+                        {
                             NSWorkspace.shared.open(url)
                         }
                     }

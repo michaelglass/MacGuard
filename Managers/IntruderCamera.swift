@@ -62,7 +62,8 @@ enum IntruderPhotoFiles {
 
     /// Oldest first; non-photos are ignored.
     static func toPrune(_ files: [URL], keep: Int = keep) -> [URL] {
-        let photos = files
+        let photos =
+            files
             .filter { $0.pathExtension.lowercased() == fileExtension }
             .sorted { $0.lastPathComponent > $1.lastPathComponent }
         return Array(photos.dropFirst(keep).reversed())
@@ -87,7 +88,10 @@ final class IntruderCamera: ObservableObject {
 
     /// Asks for camera permission only now, never at launch.
     func setEnabled(_ enabled: Bool) {
-        guard enabled else { setting = .off; return }
+        guard enabled else {
+            setting = .off
+            return
+        }
         refreshAccess()
         switch access {
         case .granted:
@@ -184,9 +188,10 @@ private final class StillCapture: NSObject, AVCapturePhotoCaptureDelegate, @unch
 
     private func start(_ continuation: CheckedContinuation<Data?, Never>) {
         self.continuation = continuation
-        let device = AVCaptureDevice.DiscoverySession(
-            deviceTypes: [.builtInWideAngleCamera], mediaType: .video, position: .unspecified
-        ).devices.first ?? AVCaptureDevice.default(for: .video)
+        let device =
+            AVCaptureDevice.DiscoverySession(
+                deviceTypes: [.builtInWideAngleCamera], mediaType: .video, position: .unspecified
+            ).devices.first ?? AVCaptureDevice.default(for: .video)
 
         guard let device, let input = try? AVCaptureDeviceInput(device: device) else { return finish(nil) }
         let session = AVCaptureSession()

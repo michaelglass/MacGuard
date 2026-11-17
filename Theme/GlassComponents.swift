@@ -35,7 +35,7 @@ struct GlassBackground: View {
                         stops: [
                             .init(color: .white.opacity(0.08), location: 0.0),
                             .init(color: .clear, location: 0.5),
-                            .init(color: .black.opacity(0.05), location: 1.0)
+                            .init(color: .black.opacity(0.05), location: 1.0),
                         ],
                         startPoint: .top,
                         endPoint: .bottom
@@ -52,7 +52,7 @@ struct GlassBackground: View {
                                 .init(color: .white.opacity(0.20), location: 0.0),
                                 .init(color: .white.opacity(0.08), location: 0.3),
                                 .init(color: .clear, location: 0.5),
-                                .init(color: .black.opacity(0.08), location: 1.0)
+                                .init(color: .black.opacity(0.08), location: 1.0),
                             ],
                             startPoint: .top,
                             endPoint: .bottom
@@ -99,7 +99,7 @@ struct ClearGlassBackground: View {
                     LinearGradient(
                         stops: [
                             .init(color: .white.opacity(0.06), location: 0.0),
-                            .init(color: .black.opacity(0.04), location: 1.0)
+                            .init(color: .black.opacity(0.04), location: 1.0),
                         ],
                         startPoint: .top,
                         endPoint: .bottom
@@ -115,7 +115,7 @@ struct ClearGlassBackground: View {
                             stops: [
                                 .init(color: .white.opacity(0.15), location: 0.0),
                                 .init(color: .clear, location: 0.5),
-                                .init(color: .black.opacity(0.06), location: 1.0)
+                                .init(color: .black.opacity(0.06), location: 1.0),
                             ],
                             startPoint: .top,
                             endPoint: .bottom
@@ -218,7 +218,7 @@ struct GlassIconCircle: View {
                             stops: [
                                 .init(color: .white.opacity(0.15), location: 0.0),
                                 .init(color: .clear, location: 0.5),
-                                .init(color: .black.opacity(0.08), location: 1.0)
+                                .init(color: .black.opacity(0.08), location: 1.0),
                             ],
                             startPoint: .top,
                             endPoint: .bottom

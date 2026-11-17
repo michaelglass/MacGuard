@@ -11,10 +11,13 @@ final class TrustedDevicesConfigWindowController {
     private var window: UtilityWindow?
 
     func show(bluetoothManager: BluetoothProximityManager) {
-        window = window ?? UtilityWindow(
-            title: "Trusted Devices", size: NSSize(width: 450, height: 500), transparent: true,
-            content: TrustedDevicesConfigContainerView(bluetoothManager: bluetoothManager,
-                                                       onDismiss: { TrustedDevicesConfigWindowController.shared.close() }))
+        window =
+            window
+            ?? UtilityWindow(
+                title: "Trusted Devices", size: NSSize(width: 450, height: 500), transparent: true,
+                content: TrustedDevicesConfigContainerView(
+                    bluetoothManager: bluetoothManager,
+                    onDismiss: { TrustedDevicesConfigWindowController.shared.close() }))
         window?.show()
     }
 
@@ -228,16 +231,19 @@ struct TrustedDevicesConfigContainerView: View {
             HStack {
                 Text("Detection Distance")
                 Spacer()
-                Picker("", selection: Binding(
-                    get: { ProximityMenuItem(settings.proximityDistance) },
-                    set: { item in
-                        switch (item, settings.proximityDistance) {
-                        case (.preset(let preset), _): settings.proximityDistance = .preset(preset)
-                        case (.custom, .custom): break
-                        case (.custom, .preset): settings.proximityDistance = .custom(.default)
+                Picker(
+                    "",
+                    selection: Binding(
+                        get: { ProximityMenuItem(settings.proximityDistance) },
+                        set: { item in
+                            switch (item, settings.proximityDistance) {
+                            case (.preset(let preset), _): settings.proximityDistance = .preset(preset)
+                            case (.custom, .custom): break
+                            case (.custom, .preset): settings.proximityDistance = .custom(.default)
+                            }
                         }
-                    }
-                )) {
+                    )
+                ) {
                     ForEach(ProximityMenuItem.offered) { item in
                         if case .custom = item { Divider() }
                         Text(item.label).tag(item)
@@ -327,7 +333,8 @@ struct TrustedDevicesConfigContainerView: View {
                 if let nearestRSSI = nearestDeviceRSSI {
                     GeometryReader { geo in
                         let bounds = DetectionRange.range
-                        let position = Double(nearestRSSI - bounds.lowerBound) / Double(bounds.upperBound - bounds.lowerBound)
+                        let position =
+                            Double(nearestRSSI - bounds.lowerBound) / Double(bounds.upperBound - bounds.lowerBound)
                         let clampedPosition = position.clamped(to: 0...1)
 
                         ZStack(alignment: .leading) {

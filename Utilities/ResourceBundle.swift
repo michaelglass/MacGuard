@@ -22,11 +22,11 @@ enum ResourceBundle {
 
         // Priority 3: Development - SPM build directory
         #if DEBUG
-        let debugPath = Bundle.main.bundleURL.deletingLastPathComponent()
-            .appendingPathComponent("MacGuard_MacGuard.bundle").path
-        if let bundle = Bundle(path: debugPath) {
-            return bundle
-        }
+            let debugPath = Bundle.main.bundleURL.deletingLastPathComponent()
+                .appendingPathComponent("MacGuard_MacGuard.bundle").path
+            if let bundle = Bundle(path: debugPath) {
+                return bundle
+            }
         #endif
 
         // Fallback: Use SPM's Bundle.module (works during development)

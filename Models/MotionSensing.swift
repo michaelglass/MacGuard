@@ -17,7 +17,9 @@ struct Acceleration: Equatable {
     }
 
     init(x: Double, y: Double, z: Double) {
-        self.x = x; self.y = y; self.z = z
+        self.x = x
+        self.y = y
+        self.z = z
     }
 
     func distance(to other: Acceleration) -> Double {
@@ -28,7 +30,9 @@ struct Acceleration: Equatable {
 /// Deviation from rest that counts as being moved. A still MacBook measured
 /// at most 0.0065 g, so even `.high` leaves a 2x margin.
 enum MotionSensitivity: String, CaseIterable, Identifiable {
-    case low = "Low", medium = "Medium", high = "High"
+    case low = "Low"
+    case medium = "Medium"
+    case high = "High"
 
     var id: String { rawValue }
 
@@ -64,9 +68,10 @@ struct MotionDetector {
             warmUp.append(sample)
             if warmUp.count == Self.warmUpSamples {
                 let n = Double(warmUp.count)
-                let mean = Acceleration(x: warmUp.map(\.x).reduce(0, +) / n,
-                                        y: warmUp.map(\.y).reduce(0, +) / n,
-                                        z: warmUp.map(\.z).reduce(0, +) / n)
+                let mean = Acceleration(
+                    x: warmUp.map(\.x).reduce(0, +) / n,
+                    y: warmUp.map(\.y).reduce(0, +) / n,
+                    z: warmUp.map(\.z).reduce(0, +) / n)
                 rest = mean
                 smoothed = mean
             }
@@ -74,7 +79,8 @@ struct MotionDetector {
         }
         let s = smoothed ?? rest
         let a = Self.smoothing
-        let next = Acceleration(x: s.x + a * (sample.x - s.x), y: s.y + a * (sample.y - s.y), z: s.z + a * (sample.z - s.z))
+        let next = Acceleration(
+            x: s.x + a * (sample.x - s.x), y: s.y + a * (sample.y - s.y), z: s.z + a * (sample.z - s.z))
         smoothed = next
         let deviation = next.distance(to: rest)
         guard !reported, deviation > threshold else { return nil }

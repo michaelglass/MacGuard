@@ -4,6 +4,7 @@
 // The real AlarmRuntime against a recording AlarmHardware and a manual clock.
 
 import XCTest
+
 @testable import MacGuard
 
 @MainActor
@@ -12,7 +13,8 @@ private final class FakeHardware: AlarmHardware {
         case prepareAudio, lockScreen, closeConfigWindows, startInputMonitoring
         case startSystemMonitors, stopMonitors, resumeIdleScanning, stopIdleScanning
         case showOverlay, hideOverlay, playAlarm, stopAlarm
-        case persistArmedMarker(ArmSession), clearArmedMarker, endOwnerChallenge
+        case persistArmedMarker(ArmSession)
+        case clearArmedMarker, endOwnerChallenge
     }
 
     var calls: [Call] = []
@@ -22,7 +24,10 @@ private final class FakeHardware: AlarmHardware {
     func prepareAudio() { calls.append(.prepareAudio) }
     func lockScreen() { calls.append(.lockScreen) }
     func closeConfigWindows() { calls.append(.closeConfigWindows) }
-    func startInputMonitoring() -> Bool { calls.append(.startInputMonitoring); return accessibilityGranted }
+    func startInputMonitoring() -> Bool {
+        calls.append(.startInputMonitoring)
+        return accessibilityGranted
+    }
     func startSystemMonitors() { calls.append(.startSystemMonitors) }
     func stopMonitors() { calls.append(.stopMonitors) }
     func resumeIdleScanning() { calls.append(.resumeIdleScanning) }
@@ -47,7 +52,10 @@ private final class ManualScheduler: AlarmScheduler {
         let action: @MainActor () -> Void
         var cancelled = false
         init(due: Date, interval: TimeInterval, repeats: Bool, action: @escaping @MainActor () -> Void) {
-            self.due = due; self.interval = interval; self.repeats = repeats; self.action = action
+            self.due = due
+            self.interval = interval
+            self.repeats = repeats
+            self.action = action
         }
         func cancel() { cancelled = true }
     }
@@ -59,8 +67,11 @@ private final class ManualScheduler: AlarmScheduler {
 
     func now() -> Date { current }
 
-    func schedule(after interval: TimeInterval, repeats: Bool, _ action: @escaping @MainActor @Sendable () -> Void) -> AlarmTimer {
-        let entry = Entry(due: current.addingTimeInterval(interval), interval: interval, repeats: repeats, action: action)
+    func schedule(after interval: TimeInterval, repeats: Bool, _ action: @escaping @MainActor @Sendable () -> Void)
+        -> AlarmTimer
+    {
+        let entry = Entry(
+            due: current.addingTimeInterval(interval), interval: interval, repeats: repeats, action: action)
         entries.append(entry)
         return entry
     }
@@ -89,13 +100,14 @@ final class AlarmRuntimeTests: XCTestCase {
         scheduler = ManualScheduler()
         events = []
         env = .fixture()
-        runtime = AlarmRuntime(hardware: hardware, scheduler: scheduler,
-                               environment: { [unowned self] now in
-                                   var env = self.env
-                                   env.now = now
-                                   return env
-                               },
-                               gracePeriod: { .s15 })
+        runtime = AlarmRuntime(
+            hardware: hardware, scheduler: scheduler,
+            environment: { [unowned self] now in
+                var env = self.env
+                env.now = now
+                return env
+            },
+            gracePeriod: { .s15 })
         runtime.onEvent { [unowned self] in self.events.append($0) }
     }
 
@@ -106,14 +118,18 @@ final class AlarmRuntimeTests: XCTestCase {
 
     func testArmRunsDelayThenStartsMonitoringViaFeedback() {
         runtime.send(.armRequested(auto: false))
-        XCTAssertEqual(runtime.state, .arming(.noDepartures,
-                                              until: scheduler.now().addingTimeInterval(1), origin: .manual))
+        XCTAssertEqual(
+            runtime.state,
+            .arming(
+                .noDepartures,
+                until: scheduler.now().addingTimeInterval(1), origin: .manual))
         XCTAssertFalse(hardware.calls.contains(.startInputMonitoring), "nothing starts before the exit delay")
 
         scheduler.advance(by: 1)
         XCTAssertEqual(runtime.state, .armed(.noDepartures))
-        XCTAssertEqual(Array(hardware.calls.suffix(3)),
-                       [.startInputMonitoring, .persistArmedMarker(.noDepartures), .startSystemMonitors])
+        XCTAssertEqual(
+            Array(hardware.calls.suffix(3)),
+            [.startInputMonitoring, .persistArmedMarker(.noDepartures), .startSystemMonitors])
         XCTAssertEqual(events, [.armed(auto: false)])
     }
 
@@ -172,7 +188,8 @@ final class AlarmRuntimeTests: XCTestCase {
         runtime.send(.proximity(.seen(.phone, .nearby)))
         XCTAssertEqual(runtime.state, .idle)
         XCTAssertEqual(scheduler.pending, 0)
-        for call: FakeHardware.Call in [.stopMonitors, .stopAlarm, .hideOverlay, .clearArmedMarker, .endOwnerChallenge] {
+        for call: FakeHardware.Call in [.stopMonitors, .stopAlarm, .hideOverlay, .clearArmedMarker, .endOwnerChallenge]
+        {
             XCTAssertTrue(hardware.calls.contains(call), "\(call)")
         }
         scheduler.advance(by: 30)
@@ -191,8 +208,11 @@ final class AlarmRuntimeTests: XCTestCase {
 
         runtime.send(.proximity(.seen(.phone, .away)))
         scheduler.advance(by: 15)
-        XCTAssertEqual(runtime.state, .arming(ArmSession(departed: [TrustedDevice.phone.id]),
-                                              until: scheduler.now().addingTimeInterval(1), origin: .deviceLeft))
+        XCTAssertEqual(
+            runtime.state,
+            .arming(
+                ArmSession(departed: [TrustedDevice.phone.id]),
+                until: scheduler.now().addingTimeInterval(1), origin: .deviceLeft))
         scheduler.advance(by: 1)
         XCTAssertEqual(events, [.armed(auto: true)])
     }

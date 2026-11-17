@@ -2,6 +2,7 @@
 // MacGuard - Anti-Theft Alarm for macOS
 
 import XCTest
+
 @testable import MacGuard
 
 final class MotionSensingTests: XCTestCase {

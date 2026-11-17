@@ -32,19 +32,20 @@ struct MailNotifier: Notifier {
     let recipient: EmailAddress
 
     func send(_ alert: Alert) async throws {
-        try await ProcessRunner.osascript([
-            "on run argv",
-            "set theRecipient to item 1 of argv",
-            "tell application \"Mail\"",
-            "set msg to make new outgoing message with properties {subject:(item 2 of argv), content:(item 3 of argv) & return, visible:false}",
-            "tell msg to make new to recipient at end of to recipients with properties {address:theRecipient}",
-            "repeat with i from 4 to count of argv",
-            "tell content of msg to make new attachment with properties {file name:(POSIX file (item i of argv))} at after last paragraph",
-            "end repeat",
-            "send msg",
-            "end tell",
-            "end run",
-        ], arguments: [recipient.value, alert.title, alert.body] + alert.attachments.map(\.path))
+        try await ProcessRunner.osascript(
+            [
+                "on run argv",
+                "set theRecipient to item 1 of argv",
+                "tell application \"Mail\"",
+                "set msg to make new outgoing message with properties {subject:(item 2 of argv), content:(item 3 of argv) & return, visible:false}",
+                "tell msg to make new to recipient at end of to recipients with properties {address:theRecipient}",
+                "repeat with i from 4 to count of argv",
+                "tell content of msg to make new attachment with properties {file name:(POSIX file (item i of argv))} at after last paragraph",
+                "end repeat",
+                "send msg",
+                "end tell",
+                "end run",
+            ], arguments: [recipient.value, alert.title, alert.body] + alert.attachments.map(\.path))
     }
 }
 
@@ -53,18 +54,19 @@ struct MessagesNotifier: Notifier {
     let recipient: MessagesRecipient
 
     func send(_ alert: Alert) async throws {
-        try await ProcessRunner.osascript([
-            "on run argv",
-            "tell application \"Messages\"",
-            "set svc to 1st account whose service type = iMessage",
-            "set target to participant (item 1 of argv) of svc",
-            "send (item 2 of argv) to target",
-            "repeat with i from 3 to count of argv",
-            "send (POSIX file (item i of argv)) to target",
-            "end repeat",
-            "end tell",
-            "end run",
-        ], arguments: [recipient.handle, "\(alert.title)\n\(alert.body)"] + alert.attachments.map(\.path))
+        try await ProcessRunner.osascript(
+            [
+                "on run argv",
+                "tell application \"Messages\"",
+                "set svc to 1st account whose service type = iMessage",
+                "set target to participant (item 1 of argv) of svc",
+                "send (item 2 of argv) to target",
+                "repeat with i from 3 to count of argv",
+                "send (POSIX file (item i of argv)) to target",
+                "end repeat",
+                "end tell",
+                "end run",
+            ], arguments: [recipient.handle, "\(alert.title)\n\(alert.body)"] + alert.attachments.map(\.path))
     }
 }
 
@@ -83,11 +85,13 @@ struct ShortcutsNotifier: Notifier {
 
     /// ~/Library/Application Support/MacGuard/notifications (owner-only).
     private static func inputDirectory() throws -> URL {
-        let support = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask,
-                                                  appropriateFor: nil, create: true)
+        let support = try FileManager.default.url(
+            for: .applicationSupportDirectory, in: .userDomainMask,
+            appropriateFor: nil, create: true)
         let directory = support.appendingPathComponent("MacGuard/notifications", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
-                                                attributes: [.posixPermissions: 0o700])
+        try FileManager.default.createDirectory(
+            at: directory, withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700])
         return directory
     }
 
@@ -115,8 +119,9 @@ struct WebhookNotifier: Notifier {
     }
 
     static func payload(for alert: Alert) -> Payload {
-        Payload(kind: alert.kind, title: alert.title, body: alert.body, date: alert.date,
-                host: alert.host, attachmentCount: alert.attachments.count)
+        Payload(
+            kind: alert.kind, title: alert.title, body: alert.body, date: alert.date,
+            host: alert.host, attachmentCount: alert.attachments.count)
     }
 
     func send(_ alert: Alert) async throws {

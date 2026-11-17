@@ -18,9 +18,11 @@ struct NotificationSettingsSection: View {
         } header: {
             Label("Notifications", systemImage: "bell.badge")
         } footer: {
-            Text("Sent on intrusion, alarm and disarm. Mail and Messages ask for permission to control those apps the first time.")
-                .font(.caption)
-                .foregroundColor(.secondary)
+            Text(
+                "Sent on intrusion, alarm and disarm. Mail and Messages ask for permission to control those apps the first time."
+            )
+            .font(.caption)
+            .foregroundColor(.secondary)
         }
     }
 
@@ -29,10 +31,13 @@ struct NotificationSettingsSection: View {
         let configured = settings.drafts.notifier(for: id) != nil
         VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
             HStack {
-                Toggle(id.displayName, isOn: Binding(
-                    get: { settings.isEnabled(id) },
-                    set: { settings.setEnabled(id, $0) }
-                ))
+                Toggle(
+                    id.displayName,
+                    isOn: Binding(
+                        get: { settings.isEnabled(id) },
+                        set: { settings.setEnabled(id, $0) }
+                    )
+                )
                 .disabled(!configured)
                 Spacer()
                 Button(testing.contains(id) ? "Sending…" : "Send test") { sendTest(id) }
@@ -68,18 +73,22 @@ struct NotificationSettingsSection: View {
         case .notificationCenter:
             return nil
         case .mail:
-            return Field(placeholder: "you@example.com", invalidHint: "Enter a valid e-mail address",
-                         text: $settings.mailTo)
+            return Field(
+                placeholder: "you@example.com", invalidHint: "Enter a valid e-mail address",
+                text: $settings.mailTo)
         case .messages:
-            return Field(placeholder: "+15551234567 or Apple ID e-mail",
-                         invalidHint: "Enter a phone number (7-15 digits) or Apple ID e-mail",
-                         text: $settings.messagesTo)
+            return Field(
+                placeholder: "+15551234567 or Apple ID e-mail",
+                invalidHint: "Enter a phone number (7-15 digits) or Apple ID e-mail",
+                text: $settings.messagesTo)
         case .shortcuts:
-            return Field(placeholder: "Shortcut name", invalidHint: "Enter a single-line Shortcut name",
-                         text: $settings.shortcutName)
+            return Field(
+                placeholder: "Shortcut name", invalidHint: "Enter a single-line Shortcut name",
+                text: $settings.shortcutName)
         case .webhook:
-            return Field(placeholder: "https://ntfy.sh/your-topic", invalidHint: "Enter an https:// URL",
-                         text: $settings.webhookURL)
+            return Field(
+                placeholder: "https://ntfy.sh/your-topic", invalidHint: "Enter an https:// URL",
+                text: $settings.webhookURL)
         }
     }
 

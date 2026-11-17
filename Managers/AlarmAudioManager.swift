@@ -43,9 +43,14 @@ struct AudioDevice: Equatable, CustomStringConvertible {
     private static let system = AudioObjectID(kAudioObjectSystemObject)
 
     static var defaultOutput: AudioDevice? {
-        get { get(system, address(kAudioHardwarePropertyDefaultOutputDevice), as: AudioDeviceID(0)).flatMap(AudioDevice.init) }
+        get {
+            get(system, address(kAudioHardwarePropertyDefaultOutputDevice), as: AudioDeviceID(0)).flatMap(
+                AudioDevice.init)
+        }
         set {
-            guard let newValue, !set(system, address(kAudioHardwarePropertyDefaultOutputDevice), newValue.id) else { return }
+            guard let newValue, !set(system, address(kAudioHardwarePropertyDefaultOutputDevice), newValue.id) else {
+                return
+            }
             logActivity(.alarm, "Failed to set output device \(newValue)")
         }
     }
@@ -75,7 +80,8 @@ struct AudioDevice: Equatable, CustomStringConvertible {
         var id = AudioDeviceID(kAudioObjectUnknown)
         var size = UInt32(MemoryLayout<AudioDeviceID>.size)
         let status = withUnsafePointer(to: &cfUID) { qualifier in
-            AudioObjectGetPropertyData(Self.system, &address, UInt32(MemoryLayout<CFString>.size), qualifier, &size, &id)
+            AudioObjectGetPropertyData(
+                Self.system, &address, UInt32(MemoryLayout<CFString>.size), qualifier, &size, &id)
         }
         guard status == noErr else { return nil }
         self.init(id)
@@ -85,7 +91,8 @@ struct AudioDevice: Equatable, CustomStringConvertible {
         var streams = Self.address(kAudioDevicePropertyStreams, kAudioDevicePropertyScopeOutput)
         var size: UInt32 = 0
         guard AudioObjectGetPropertyDataSize(id, &streams, 0, nil, &size) == noErr, size > 0 else { return false }
-        return Self.get(id, Self.address(kAudioDevicePropertyTransportType), as: UInt32(0)) == kAudioDeviceTransportTypeBuiltIn
+        return Self.get(id, Self.address(kAudioDevicePropertyTransportType), as: UInt32(0))
+            == kAudioDeviceTransportTypeBuiltIn
     }
 
     /// Average output volume (0...1), or nil if the device exposes none.
@@ -98,7 +105,9 @@ struct AudioDevice: Equatable, CustomStringConvertible {
 
     /// False when the device exposes no mute control.
     var isMuted: Bool {
-        outputElements(kAudioDevicePropertyMute).contains { Self.get(id, Self.output(kAudioDevicePropertyMute, $0), as: UInt32(0)).map { $0 != 0 } ?? false }
+        outputElements(kAudioDevicePropertyMute).contains {
+            Self.get(id, Self.output(kAudioDevicePropertyMute, $0), as: UInt32(0)).map { $0 != 0 } ?? false
+        }
     }
 
     func setVolume(_ volume: Float) {
@@ -129,16 +138,22 @@ struct AudioDevice: Equatable, CustomStringConvertible {
         return has(kAudioObjectPropertyElementMain) ? [kAudioObjectPropertyElementMain] : [1, 2].filter(has)
     }
 
-    static func address(_ selector: AudioObjectPropertySelector,
-                        _ scope: AudioObjectPropertyScope = kAudioObjectPropertyScopeGlobal) -> AudioObjectPropertyAddress {
+    static func address(
+        _ selector: AudioObjectPropertySelector,
+        _ scope: AudioObjectPropertyScope = kAudioObjectPropertyScopeGlobal
+    ) -> AudioObjectPropertyAddress {
         AudioObjectPropertyAddress(mSelector: selector, mScope: scope, mElement: kAudioObjectPropertyElementMain)
     }
 
-    private static func output(_ selector: AudioObjectPropertySelector, _ element: AudioObjectPropertyElement) -> AudioObjectPropertyAddress {
+    private static func output(_ selector: AudioObjectPropertySelector, _ element: AudioObjectPropertyElement)
+        -> AudioObjectPropertyAddress
+    {
         AudioObjectPropertyAddress(mSelector: selector, mScope: kAudioDevicePropertyScopeOutput, mElement: element)
     }
 
-    private static func get<T: BitwiseCopyable>(_ object: AudioObjectID, _ address: AudioObjectPropertyAddress, as initial: T) -> T? {
+    private static func get<T: BitwiseCopyable>(
+        _ object: AudioObjectID, _ address: AudioObjectPropertyAddress, as initial: T
+    ) -> T? {
         var address = address
         var value = initial
         var size = UInt32(MemoryLayout<T>.size)
@@ -146,7 +161,9 @@ struct AudioDevice: Equatable, CustomStringConvertible {
     }
 
     @discardableResult
-    private static func set<T: BitwiseCopyable>(_ object: AudioObjectID, _ address: AudioObjectPropertyAddress, _ value: T) -> Bool {
+    private static func set<T: BitwiseCopyable>(
+        _ object: AudioObjectID, _ address: AudioObjectPropertyAddress, _ value: T
+    ) -> Bool {
         var address = address
         var value = value
         return AudioObjectSetPropertyData(object, &address, 0, nil, UInt32(MemoryLayout<T>.size), &value) == noErr
@@ -175,10 +192,12 @@ class AlarmAudioManager {
 
     func playAlarm() {
         // Built-in speaker before volume changes
-        send(.start(Playback.Start(
-            targetVolume: Float(AppSettings.shared.alarmVolume),
-            speaker: AudioDevice.all.first(where: \.isBuiltInOutput).map(Playback.Reading.init),
-            output: AudioDevice.defaultOutput.map(Playback.Reading.init))))
+        send(
+            .start(
+                Playback.Start(
+                    targetVolume: Float(AppSettings.shared.alarmVolume),
+                    speaker: AudioDevice.all.first(where: \.isBuiltInOutput).map(Playback.Reading.init),
+                    output: AudioDevice.defaultOutput.map(Playback.Reading.init))))
     }
 
     /// Stop the alarm and restore what it changed
@@ -256,8 +275,8 @@ class AlarmAudioManager {
     }
 }
 
-private extension AlarmPlayback.Reading {
-    init(_ device: AudioDevice) {
+extension AlarmPlayback.Reading {
+    fileprivate init(_ device: AudioDevice) {
         self.init(device: device, volume: device.volume, isMuted: device.isMuted)
     }
 }
@@ -275,7 +294,8 @@ private final class OutputWatch {
 
     func watch(_ device: AudioDevice?) {
         unwatch()
-        let targets = [(AudioObjectID(kAudioObjectSystemObject), AudioDevice.address(kAudioHardwarePropertyDefaultOutputDevice))]
+        let targets =
+            [(AudioObjectID(kAudioObjectSystemObject), AudioDevice.address(kAudioHardwarePropertyDefaultOutputDevice))]
             + (device.map { d in d.enforcementAddresses.map { (d.id, $0) } } ?? [])
         for (object, address) in targets {
             var address = address

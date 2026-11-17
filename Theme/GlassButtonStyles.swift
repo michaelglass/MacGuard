@@ -156,7 +156,7 @@ struct GlassIconButtonStyle: ButtonStyle {
                             stops: [
                                 .init(color: .white.opacity(0.15), location: 0.0),
                                 .init(color: .clear, location: 0.5),
-                                .init(color: .black.opacity(0.08), location: 1.0)
+                                .init(color: .black.opacity(0.08), location: 1.0),
                             ],
                             startPoint: .top,
                             endPoint: .bottom
@@ -193,7 +193,7 @@ struct GlassBorderedProminentButtonStyle: ButtonStyle {
                                 stops: [
                                     .init(color: .white.opacity(0.20), location: 0.0),
                                     .init(color: .clear, location: 0.5),
-                                    .init(color: .black.opacity(0.10), location: 1.0)
+                                    .init(color: .black.opacity(0.10), location: 1.0),
                                 ],
                                 startPoint: .top,
                                 endPoint: .bottom

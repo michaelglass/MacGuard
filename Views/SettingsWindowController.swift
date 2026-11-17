@@ -2,8 +2,8 @@
 // MacGuard - Anti-Theft Alarm for macOS
 // Created: 2025-12-18
 
-import SwiftUI
 import AppKit
+import SwiftUI
 
 @MainActor
 final class SettingsWindowController {
@@ -12,10 +12,12 @@ final class SettingsWindowController {
     private var window: UtilityWindow?
 
     func show(alarmManager: AlarmStateManager) {
-        window = window ?? UtilityWindow(
-            title: "MacGuard Settings", size: NSSize(width: 420, height: 520),
-            style: [.titled, .closable, .miniaturizable], transparent: true,
-            content: SettingsView(alarmManager: alarmManager))
+        window =
+            window
+            ?? UtilityWindow(
+                title: "MacGuard Settings", size: NSSize(width: 420, height: 520),
+                style: [.titled, .closable, .miniaturizable], transparent: true,
+                content: SettingsView(alarmManager: alarmManager))
         window?.show()
         logActivity(.system, "Settings window shown")
     }

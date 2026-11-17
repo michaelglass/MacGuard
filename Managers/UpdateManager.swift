@@ -1,8 +1,8 @@
 // UpdateManager.swift
 // MacGuard - Anti-Theft Alarm for macOS
 
-import SwiftUI
 import Sparkle
+import SwiftUI
 
 /// Manages Sparkle auto-update functionality
 @MainActor
@@ -34,7 +34,9 @@ final class UpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate, @Main
     // MARK: - SPUStandardUserDriverDelegate
 
     /// Bring app to front when about to show update dialog
-    func standardUserDriverWillHandleShowingUpdate(_ handleShowingUpdate: Bool, forUpdate update: SUAppcastItem, state: SPUUserUpdateState) {
+    func standardUserDriverWillHandleShowingUpdate(
+        _ handleShowingUpdate: Bool, forUpdate update: SUAppcastItem, state: SPUUserUpdateState
+    ) {
         bringToFront()
     }
 
@@ -50,9 +52,9 @@ final class UpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate, @Main
             NSApp.activate(ignoringOtherApps: true)
             // Also bring any Sparkle windows to front
             for window in NSApp.windows where window.isVisible {
-                if String(describing: type(of: window)).contains("SPU") ||
-                   window.title.contains("Update") ||
-                   window.title.contains("update") {
+                if String(describing: type(of: window)).contains("SPU") || window.title.contains("Update")
+                    || window.title.contains("update")
+                {
                     window.makeKeyAndOrderFront(nil)
                     window.level = .floating
                     // Reset level after a moment

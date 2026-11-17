@@ -2,8 +2,8 @@
 // MacGuard - Liquid Glass UI Theme
 // Created: 2025-12-21
 
-import SwiftUI
 import AppKit
+import SwiftUI
 
 /// NSVisualEffectView wrapper for SwiftUI
 /// Provides blur materials for liquid glass backporting to macOS 13+

@@ -2,8 +2,8 @@
 // MacGuard - Anti-Theft Alarm for macOS
 // Created: 2025-12-18
 
-import SwiftUI
 import AppKit
+import SwiftUI
 
 /// Custom window that can become key even when borderless
 class KeyableWindow: NSWindow {

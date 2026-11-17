@@ -27,7 +27,8 @@ struct PIN {
 
     init?(_ raw: String) {
         guard Self.allowedLengths.contains(raw.count),
-              raw.allSatisfy({ $0.isASCII && $0.isNumber }) else { return nil }
+            raw.allSatisfy({ $0.isASCII && $0.isNumber })
+        else { return nil }
         digits = raw
     }
 
@@ -50,7 +51,9 @@ enum PINWeakness: Equatable {
     case sequence
     case common
 
-    static let wellKnown: Set<String> = ["1212", "2580", "1122", "1313", "6969", "2000", "1004", "123123", "121212", "112233"]
+    static let wellKnown: Set<String> = [
+        "1212", "2580", "1122", "1313", "6969", "2000", "1004", "123123", "121212", "112233",
+    ]
 
     var message: String {
         switch self {
@@ -125,7 +128,8 @@ class AuthManager: ObservableObject {
     // MARK: - Initialization
 
     init() {
-        throttle = UserDefaults.standard.data(forKey: Self.throttleKey)
+        throttle =
+            UserDefaults.standard.data(forKey: Self.throttleKey)
             .flatMap { try? JSONDecoder().decode(PINThrottle.self, from: $0) } ?? PINThrottle()
         checkBiometrics()
         hasPIN = pinExists()
@@ -174,10 +178,11 @@ class AuthManager: ObservableObject {
         // Delete existing PIN first
         deletePIN()
 
-        let status = SecItemAdd(pinQuery([
-            kSecValueData as String: Data(pin.digits.utf8),
-            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
-        ]), nil)
+        let status = SecItemAdd(
+            pinQuery([
+                kSecValueData as String: Data(pin.digits.utf8),
+                kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+            ]), nil)
         hasPIN = status == errSecSuccess
 
         if hasPIN {
@@ -191,20 +196,28 @@ class AuthManager: ObservableObject {
 
     /// The PIN item's identity plus `extra`.
     private func pinQuery(_ extra: [String: Any] = [:]) -> CFDictionary {
-        [kSecClass as String: kSecClassGenericPassword,
-         kSecAttrService as String: keychainService,
-         kSecAttrAccount as String: keychainAccount]
-            .merging(extra) { $1 } as CFDictionary
+        [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: keychainAccount,
+        ]
+        .merging(extra) { $1 } as CFDictionary
     }
 
     /// Attributes only: reading the secret would prompt for keychain access at launch.
     private func pinExists() -> Bool {
-        SecItemCopyMatching(pinQuery([kSecReturnAttributes as String: true, kSecMatchLimit as String: kSecMatchLimitOne]), nil) == errSecSuccess
+        SecItemCopyMatching(
+            pinQuery([kSecReturnAttributes as String: true, kSecMatchLimit as String: kSecMatchLimitOne]), nil)
+            == errSecSuccess
     }
 
     private func retrievePIN() -> Data? {
         var result: AnyObject?
-        guard SecItemCopyMatching(pinQuery([kSecReturnData as String: true, kSecMatchLimit as String: kSecMatchLimitOne]), &result) == errSecSuccess else { return nil }
+        guard
+            SecItemCopyMatching(
+                pinQuery([kSecReturnData as String: true, kSecMatchLimit as String: kSecMatchLimitOne]), &result)
+                == errSecSuccess
+        else { return nil }
         return result as? Data
     }
 

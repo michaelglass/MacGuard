@@ -2,9 +2,9 @@
 // MacGuard - Anti-Theft Alarm for macOS
 // Created: 2025-12-18
 
+import Combine
 import CoreBluetooth
 import IOBluetooth
-import Combine
 
 struct DeviceTracking: Equatable {
     var proximity = ProximityTracker()
@@ -136,7 +136,8 @@ class BluetoothProximityManager: NSObject, ObservableObject {
     }
 
     private func scanForBLE() {
-        centralManager.scanForPeripherals(withServices: nil, options: [CBCentralManagerScanOptionAllowDuplicatesKey: false])
+        centralManager.scanForPeripherals(
+            withServices: nil, options: [CBCentralManagerScanOptionAllowDuplicatesKey: false])
     }
 
     /// Start scanning if trusted devices exist (called when Bluetooth powers on)
@@ -162,7 +163,10 @@ class BluetoothProximityManager: NSObject, ObservableObject {
         trustedDevices.append(device)
         saveTrustedDevices()
         publishSightings()
-        logActivity(.bluetooth, "Added trusted device: \(device.name) (classic: \(device.isClassicBluetooth), total: \(trustedDevices.count))")
+        logActivity(
+            .bluetooth,
+            "Added trusted device: \(device.name) (classic: \(device.isClassicBluetooth), total: \(trustedDevices.count))"
+        )
 
         if centralManager.state == .poweredOn {
             if !isScanning {
@@ -204,7 +208,8 @@ class BluetoothProximityManager: NSObject, ObservableObject {
 
     private func loadTrustedDevices() {
         if let data = UserDefaults.standard.data(forKey: trustedDevicesKey),
-           let devices = try? JSONDecoder().decode([TrustedDevice].self, from: data) {
+            let devices = try? JSONDecoder().decode([TrustedDevice].self, from: data)
+        {
             trustedDevices = devices
             logActivity(.bluetooth, "Loaded \(devices.count) trusted devices")
         }
@@ -246,7 +251,8 @@ class BluetoothProximityManager: NSObject, ObservableObject {
 
         schedulePolling()
         publishSightings()
-        logActivity(.bluetooth, "Started scanning for \(trustedDevices.count) trusted devices (interval: \(pollingInterval)s)")
+        logActivity(
+            .bluetooth, "Started scanning for \(trustedDevices.count) trusted devices (interval: \(pollingInterval)s)")
     }
 
     /// Stop scanning for Bluetooth devices
@@ -277,9 +283,13 @@ class BluetoothProximityManager: NSObject, ObservableObject {
                 peripheral.readRSSI()
                 continue
             }
-            if tracking[deviceID, default: DeviceTracking()].proximity.shouldDebounceDisconnect(at: now, lowPower: isLowPower) {
+            if tracking[deviceID, default: DeviceTracking()].proximity.shouldDebounceDisconnect(
+                at: now, lowPower: isLowPower)
+            {
                 if let device = device(deviceID) {
-                    logActivity(.bluetooth, "BLE device (\(device.name)) disconnect debounced - ignoring brief disconnect\(lowPowerSuffix)")
+                    logActivity(
+                        .bluetooth,
+                        "BLE device (\(device.name)) disconnect debounced - ignoring brief disconnect\(lowPowerSuffix)")
                 }
                 continue
             }
@@ -296,9 +306,10 @@ class BluetoothProximityManager: NSObject, ObservableObject {
 
         for device in trustedDevices {
             guard case .classic(let address) = device.transport,
-                  let ioDevice = pairedDevices.first(where: {
-                      $0.addressString.flatMap(BluetoothAddress.init) == address
-                  }) else { continue }
+                let ioDevice = pairedDevices.first(where: {
+                    $0.addressString.flatMap(BluetoothAddress.init) == address
+                })
+            else { continue }
 
             let result = tracking[device.id, default: DeviceTracking()].classicLink.poll(
                 isConnected: ioDevice.isConnected(),
@@ -310,10 +321,14 @@ class BluetoothProximityManager: NSObject, ObservableObject {
             case .none:
                 break
             case .disconnectDebounced:
-                logActivity(.bluetooth, "Classic device (\(device.name)) disconnect debounced - ignoring rapid state change\(lowPowerSuffix)")
+                logActivity(
+                    .bluetooth,
+                    "Classic device (\(device.name)) disconnect debounced - ignoring rapid state change\(lowPowerSuffix)"
+                )
             case .observe(let observation, let event):
                 switch event {
-                case .initiallyConnected?, .connected?: logActivity(.bluetooth, "Classic device connected: \(device.name)")
+                case .initiallyConnected?, .connected?:
+                    logActivity(.bluetooth, "Classic device connected: \(device.name)")
                 case .initiallyDisconnected?: logActivity(.bluetooth, "Classic device not connected: \(device.name)")
                 case .disconnected?: logActivity(.bluetooth, "Classic device disconnected: \(device.name)")
                 case nil: break
@@ -349,7 +364,10 @@ class BluetoothProximityManager: NSObject, ObservableObject {
         case .awaySuppressedByCooldown:
             logActivity(.bluetooth, "\(device.name) away blocked (BT recovery cooldown)")
         case .awayDebounced(let since):
-            logActivity(.bluetooth, "\(device.name) RSSI drop debounced (last nearby: \(String(format: "%.1f", since))s ago)\(lowPowerSuffix)")
+            logActivity(
+                .bluetooth,
+                "\(device.name) RSSI drop debounced (last nearby: \(String(format: "%.1f", since))s ago)\(lowPowerSuffix)"
+            )
         case .unchanged:
             break
         }
@@ -425,7 +443,8 @@ extension BluetoothProximityManager: @MainActor CBCentralManagerDelegate {
             btStateChangeWindowStart = Date()
         }
         if btStateChangeCount >= btStabilityThreshold {
-            logActivity(.bluetooth, "BT unstable - \(btStateChangeCount) state changes in \(Int(btStabilityWindow))s window")
+            logActivity(
+                .bluetooth, "BT unstable - \(btStateChangeCount) state changes in \(Int(btStabilityWindow))s window")
         }
 
         let stateName: String
@@ -532,11 +551,13 @@ extension BluetoothProximityManager: IOBluetoothDeviceInquiryDelegate {
     /// Device discovered during inquiry - provides fresh RSSI
     nonisolated func deviceInquiryDeviceFound(_ sender: IOBluetoothDeviceInquiry!, device: IOBluetoothDevice!) {
         guard let address = device.addressString.flatMap(BluetoothAddress.init),
-              let rssi = RSSI(Int(device.rawRSSI())) else { return }
+            let rssi = RSSI(Int(device.rawRSSI()))
+        else { return }
 
         DispatchQueue.main.async { [weak self] in
             guard let self,
-                  let trustedDevice = self.trustedDevices.first(where: { $0.classicAddress == address }) else { return }
+                let trustedDevice = self.trustedDevices.first(where: { $0.classicAddress == address })
+            else { return }
 
             let now = Date()
             self.tracking[trustedDevice.id, default: DeviceTracking()].classicLink.noteSignal(at: now)
@@ -558,12 +579,16 @@ extension BluetoothProximityManager: IOBluetoothDeviceInquiryDelegate {
     }
 
     /// Optional: Called when name resolution starts (not used, but required for protocol)
-    nonisolated func deviceInquiryUpdatingDeviceNamesStarted(_ sender: IOBluetoothDeviceInquiry!, devicesRemaining: UInt32) {
+    nonisolated func deviceInquiryUpdatingDeviceNamesStarted(
+        _ sender: IOBluetoothDeviceInquiry!, devicesRemaining: UInt32
+    ) {
         // Not used - we disabled name updates for speed
     }
 
     /// Optional: Called when device name is updated
-    nonisolated func deviceInquiryDeviceNameUpdated(_ sender: IOBluetoothDeviceInquiry!, device: IOBluetoothDevice!, devicesRemaining: UInt32) {
+    nonisolated func deviceInquiryDeviceNameUpdated(
+        _ sender: IOBluetoothDeviceInquiry!, device: IOBluetoothDevice!, devicesRemaining: UInt32
+    ) {
         // Not used - we disabled name updates for speed
     }
 }

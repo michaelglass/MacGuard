@@ -96,7 +96,7 @@ enum PresenceChange: Equatable {
         let devices = Set(old.keys).union(new.keys).sorted { $0.id.uuidString < $1.id.uuidString }
         return devices.compactMap { device in
             switch (old[device], new[device]) {
-            case let (before, now?) where before != now: return change(device, to: now)
+            case (let before, let now?) where before != now: return change(device, to: now)
             case (_?, nil): return .lost(device)
             case (_, _?), (nil, nil): return nil
             }

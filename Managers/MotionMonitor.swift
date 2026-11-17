@@ -13,7 +13,9 @@ import IOKit.hid
 final class MotionMonitor {
     var onInput: (AlarmMachine.Msg) -> Void = { _ in }
 
-    private static let accelerometerMatch: [String: Int] = [kIOHIDPrimaryUsagePageKey: 0xFF00, kIOHIDPrimaryUsageKey: 3]
+    private static let accelerometerMatch: [String: Int] = [
+        kIOHIDPrimaryUsagePageKey: 0xFF00, kIOHIDPrimaryUsageKey: 3,
+    ]
     private static let lidMatch: [String: Int] = [kIOHIDPrimaryUsagePageKey: 0x20, kIOHIDPrimaryUsageKey: 138]
 
     static let hasAccelerometer = !devices(matching: accelerometerMatch).devices.isEmpty
@@ -44,7 +46,8 @@ final class MotionMonitor {
 
     func stop() {
         if let accelerometer {
-            IOHIDManagerUnscheduleFromRunLoop(accelerometer.manager, CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue)
+            IOHIDManagerUnscheduleFromRunLoop(
+                accelerometer.manager, CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue)
             IOHIDManagerClose(accelerometer.manager, IOOptionBits(kIOHIDOptionsTypeNone))
             accelerometer.buffer.deallocate()
             if let driver = accelerometer.driver {
@@ -70,17 +73,20 @@ final class MotionMonitor {
             return
         }
         let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: 64)
-        accelerometer = Accelerometer(manager: manager, buffer: buffer, driver: Self.wakeDriver(),
-                                      detector: MotionDetector(sensitivity: sensitivity))
+        accelerometer = Accelerometer(
+            manager: manager, buffer: buffer, driver: Self.wakeDriver(),
+            detector: MotionDetector(sensitivity: sensitivity))
         let context = Unmanaged.passUnretained(self).toOpaque()
         for device in devices {
-            IOHIDDeviceRegisterInputReportCallback(device, buffer, 64, { context, _, _, _, _, report, length in
-                guard let context else { return }
-                MainActor.assumeIsolated {
-                    Unmanaged<MotionMonitor>.fromOpaque(context).takeUnretainedValue()
-                        .received(UnsafeRawBufferPointer(start: report, count: length))
-                }
-            }, context)
+            IOHIDDeviceRegisterInputReportCallback(
+                device, buffer, 64,
+                { context, _, _, _, _, report, length in
+                    guard let context else { return }
+                    MainActor.assumeIsolated {
+                        Unmanaged<MotionMonitor>.fromOpaque(context).takeUnretainedValue()
+                            .received(UnsafeRawBufferPointer(start: report, count: length))
+                    }
+                }, context)
         }
         IOHIDManagerScheduleWithRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue)
         logActivity(.system, "Motion monitoring started (\(sensitivity.rawValue) sensitivity)")
@@ -88,7 +94,8 @@ final class MotionMonitor {
 
     private func received(_ report: UnsafeRawBufferPointer) {
         guard let sample = Acceleration(report: report),
-              let deviation = accelerometer?.detector.add(sample) else { return }
+            let deviation = accelerometer?.detector.add(sample)
+        else { return }
         logActivity(.input, String(format: "Motion detected (%.3f g)", deviation))
         onInput(.intrusion(.motion))
     }
@@ -99,12 +106,16 @@ final class MotionMonitor {
     /// stopping switches reporting off rather than restoring a prior value.
     private static func wakeDriver() -> io_service_t? {
         var iterator = io_iterator_t()
-        guard IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("AppleSPUHIDDriver"), &iterator) == KERN_SUCCESS else { return nil }
+        guard
+            IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("AppleSPUHIDDriver"), &iterator)
+                == KERN_SUCCESS
+        else { return nil }
         defer { IOObjectRelease(iterator) }
         while case let service = IOIteratorNext(iterator), service != 0 {
             let page: Int? = IORegistry.property(kIOHIDPrimaryUsagePageKey, of: service)
             let usage: Int? = IORegistry.property(kIOHIDPrimaryUsageKey, of: service)
-            if page == accelerometerMatch[kIOHIDPrimaryUsagePageKey], usage == accelerometerMatch[kIOHIDPrimaryUsageKey] {
+            if page == accelerometerMatch[kIOHIDPrimaryUsagePageKey], usage == accelerometerMatch[kIOHIDPrimaryUsageKey]
+            {
                 setDriver(service, reporting: true)
                 return service
             }
@@ -114,9 +125,11 @@ final class MotionMonitor {
     }
 
     private static func setDriver(_ service: io_service_t, reporting: Bool) {
-        let values = ["SensorPropertyReportingState": reporting ? 1 : 0,
-                      "SensorPropertyPowerState": reporting ? 1 : 0,
-                      "ReportInterval": reporting ? 10_000 : 0]
+        let values = [
+            "SensorPropertyReportingState": reporting ? 1 : 0,
+            "SensorPropertyPowerState": reporting ? 1 : 0,
+            "ReportInterval": reporting ? 10_000 : 0,
+        ]
         for (key, value) in values {
             IORegistryEntrySetCFProperty(service, key as CFString, value as CFNumber)
         }
@@ -130,7 +143,9 @@ final class MotionMonitor {
             logActivity(.system, "Lid angle trigger unavailable: no lid sensor")
             return
         }
-        let timer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.pollLid() } }
+        let timer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.pollLid() }
+        }
         RunLoop.main.add(timer, forMode: .common)
         lid = Lid(manager: manager, device: device, timer: timer)
         pollLid()
@@ -142,8 +157,9 @@ final class MotionMonitor {
         var report = [UInt8](repeating: 0, count: 8)
         var length = CFIndex(report.count)
         guard IOHIDDeviceGetReport(device, kIOHIDReportTypeFeature, 1, &report, &length) == kIOReturnSuccess,
-              let angle = LidAngle(report: Array(report.prefix(length))),
-              let change = lid?.detector.add(angle) else { return }
+            let angle = LidAngle(report: Array(report.prefix(length))),
+            let change = lid?.detector.add(angle)
+        else { return }
         logActivity(.input, "Lid moved \(change)°")
         onInput(.intrusion(.lidMoved(degrees: change)))
     }

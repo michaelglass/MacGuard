@@ -2,6 +2,7 @@
 // MacGuard - Anti-Theft Alarm for macOS
 
 import XCTest
+
 @testable import MacGuard
 
 private let t0 = Date(timeIntervalSinceReferenceDate: 1_000_000)
@@ -11,11 +12,14 @@ private func signal(_ dBm: Int) -> Observation {
     .signal(RSSI(dBm)!)
 }
 
-private extension ProximityTracker {
-    mutating func feed(_ obs: Observation, at seconds: TimeInterval,
-                       cooldown: Bool = false, lowPower: Bool = false) -> ProximityChange {
-        observe(obs, at: t0.addingTimeInterval(seconds), thresholds: medium,
-                lowPower: lowPower, recoveryCooldownActive: cooldown)
+extension ProximityTracker {
+    fileprivate mutating func feed(
+        _ obs: Observation, at seconds: TimeInterval,
+        cooldown: Bool = false, lowPower: Bool = false
+    ) -> ProximityChange {
+        observe(
+            obs, at: t0.addingTimeInterval(seconds), thresholds: medium,
+            lowPower: lowPower, recoveryCooldownActive: cooldown)
     }
 }
 
@@ -45,7 +49,8 @@ final class ProximityTrackerTests: XCTestCase {
     /// A Classic device that is not connected at the first poll is decisively away.
     func testDisconnectedClassicFirstPollIsAway() {
         var link = ClassicLinkTracker()
-        guard case .observe(let observation, _) = link.poll(isConnected: false, rssi: nil, at: t0, lowPower: false) else {
+        guard case .observe(let observation, _) = link.poll(isConnected: false, rssi: nil, at: t0, lowPower: false)
+        else {
             return XCTFail("first poll observes")
         }
         var tracker = ProximityTracker()
@@ -101,8 +106,9 @@ final class ProximityTrackerTests: XCTestCase {
         let veryFar = ProximityThresholds(present: -95, away: -105)
         var tracker = ProximityTracker()
         _ = tracker.observe(signal(-60), at: t0, thresholds: veryFar, lowPower: false, recoveryCooldownActive: false)
-        let change = tracker.observe(.disconnected, at: t0 + 60, thresholds: veryFar,
-                                     lowPower: false, recoveryCooldownActive: false)
+        let change = tracker.observe(
+            .disconnected, at: t0 + 60, thresholds: veryFar,
+            lowPower: false, recoveryCooldownActive: false)
         XCTAssertEqual(change, .becameAway)
     }
 
@@ -144,9 +150,12 @@ final class ProximityTrackerTests: XCTestCase {
     }
 
     func testPresenceSkipsUnobservedDevices() {
-        let proximity: [TrustedDevice.ID: Proximity] = [TrustedDevice.phone.id: .seen(.away), TrustedDevice.watch.id: .assumedNearby]
-        XCTAssertEqual(Proximity.presence(of: [.phone, .watch]) { proximity[$0] ?? .unobserved },
-                       [.phone: .seen(.away), .watch: .assumedNearby])
+        let proximity: [TrustedDevice.ID: Proximity] = [
+            TrustedDevice.phone.id: .seen(.away), TrustedDevice.watch.id: .assumedNearby,
+        ]
+        XCTAssertEqual(
+            Proximity.presence(of: [.phone, .watch]) { proximity[$0] ?? .unobserved },
+            [.phone: .seen(.away), .watch: .assumedNearby])
         XCTAssertEqual(Proximity.presence(of: [.phone, .watch]) { _ in .unobserved }, [:])
     }
 
@@ -171,29 +180,35 @@ final class ProximityTrackerTests: XCTestCase {
 final class ClassicLinkTrackerTests: XCTestCase {
     func testFirstPollInitialises() {
         var link = ClassicLinkTracker()
-        XCTAssertEqual(link.poll(isConnected: true, rssi: nil, at: t0, lowPower: false),
-                       .observe(.connectedWithoutSignal, .initiallyConnected))
+        XCTAssertEqual(
+            link.poll(isConnected: true, rssi: nil, at: t0, lowPower: false),
+            .observe(.connectedWithoutSignal, .initiallyConnected))
         var down = ClassicLinkTracker()
-        XCTAssertEqual(down.poll(isConnected: false, rssi: nil, at: t0, lowPower: false),
-                       .observe(.disconnected, .initiallyDisconnected))
+        XCTAssertEqual(
+            down.poll(isConnected: false, rssi: nil, at: t0, lowPower: false),
+            .observe(.disconnected, .initiallyDisconnected))
     }
 
     func testDisconnectRightAfterChangeIsDebounced() {
         var link = ClassicLinkTracker()
         _ = link.poll(isConnected: true, rssi: nil, at: t0, lowPower: false)
         XCTAssertEqual(link.poll(isConnected: false, rssi: nil, at: t0 + 2, lowPower: false), .disconnectDebounced)
-        XCTAssertEqual(link.poll(isConnected: false, rssi: nil, at: t0 + 6, lowPower: false),
-                       .observe(.disconnected, .disconnected))
+        XCTAssertEqual(
+            link.poll(isConnected: false, rssi: nil, at: t0 + 6, lowPower: false),
+            .observe(.disconnected, .disconnected))
     }
 
     func testMissingSignalFallsBackAfterTimeout() {
         var link = ClassicLinkTracker()
         _ = link.poll(isConnected: true, rssi: nil, at: t0, lowPower: false)
-        XCTAssertEqual(link.poll(isConnected: true, rssi: RSSI(-65), at: t0 + 1, lowPower: false),
-                       .observe(signal(-65), nil))
-        XCTAssertEqual(link.poll(isConnected: true, rssi: nil, at: t0 + 1.5, lowPower: false), ClassicLinkTracker.PollResult.none)
-        XCTAssertEqual(link.poll(isConnected: true, rssi: nil, at: t0 + 2.5, lowPower: false),
-                       .observe(.connectedWithoutSignal, nil))
+        XCTAssertEqual(
+            link.poll(isConnected: true, rssi: RSSI(-65), at: t0 + 1, lowPower: false),
+            .observe(signal(-65), nil))
+        XCTAssertEqual(
+            link.poll(isConnected: true, rssi: nil, at: t0 + 1.5, lowPower: false), ClassicLinkTracker.PollResult.none)
+        XCTAssertEqual(
+            link.poll(isConnected: true, rssi: nil, at: t0 + 2.5, lowPower: false),
+            .observe(.connectedWithoutSignal, nil))
     }
 
     func testResetForScanReinitialisesAndForgetsSignal() {
@@ -203,11 +218,13 @@ final class ClassicLinkTrackerTests: XCTestCase {
         link.resetForScan()
         XCTAssertEqual(link.link, .unpolled)
         // Same connection state, but reported afresh
-        XCTAssertEqual(link.poll(isConnected: true, rssi: nil, at: t0 + 10.2, lowPower: false),
-                       .observe(.connectedWithoutSignal, .initiallyConnected))
+        XCTAssertEqual(
+            link.poll(isConnected: true, rssi: nil, at: t0 + 10.2, lowPower: false),
+            .observe(.connectedWithoutSignal, .initiallyConnected))
         // The pre-reset signal no longer counts as fresh
-        XCTAssertEqual(link.poll(isConnected: true, rssi: nil, at: t0 + 10.4, lowPower: false),
-                       .observe(.connectedWithoutSignal, nil))
+        XCTAssertEqual(
+            link.poll(isConnected: true, rssi: nil, at: t0 + 10.4, lowPower: false),
+            .observe(.connectedWithoutSignal, nil))
         // The re-initialising poll restarted the debounce clock
         XCTAssertEqual(link.poll(isConnected: false, rssi: nil, at: t0 + 12, lowPower: false), .disconnectDebounced)
     }
@@ -216,8 +233,9 @@ final class ClassicLinkTrackerTests: XCTestCase {
         var link = ClassicLinkTracker()
         link.noteSignal(at: t0)
         _ = link.poll(isConnected: true, rssi: nil, at: t0 + 0.2, lowPower: false)
-        XCTAssertEqual(link.poll(isConnected: true, rssi: nil, at: t0 + 0.5, lowPower: false),
-                       ClassicLinkTracker.PollResult.none)
+        XCTAssertEqual(
+            link.poll(isConnected: true, rssi: nil, at: t0 + 0.5, lowPower: false),
+            ClassicLinkTracker.PollResult.none)
     }
 }
 
@@ -228,9 +246,12 @@ final class PresenceChangeTests: XCTestCase {
 
     func testOnlyDevicesWhosePresenceChangedAreReported() {
         XCTAssertEqual(changes([:], [:]), [])
-        XCTAssertEqual(changes([.phone: .seen(.nearby), .watch: .assumedNearby], [.phone: .seen(.nearby), .watch: .assumedNearby]), [])
-        XCTAssertEqual(changes([.phone: .seen(.nearby), .watch: .seen(.away)], [.phone: .seen(.away), .watch: .seen(.away)]),
-                       [.seen(.phone, .away)])
+        XCTAssertEqual(
+            changes(
+                [.phone: .seen(.nearby), .watch: .assumedNearby], [.phone: .seen(.nearby), .watch: .assumedNearby]), [])
+        XCTAssertEqual(
+            changes([.phone: .seen(.nearby), .watch: .seen(.away)], [.phone: .seen(.away), .watch: .seen(.away)]),
+            [.seen(.phone, .away)])
     }
 
     func testEachNewPresenceIsReported() {
@@ -247,8 +268,10 @@ final class PresenceChangeTests: XCTestCase {
 
     func testApplyingTheChangesReachesTheNewSnapshot() {
         let old: [TrustedDevice: Presence] = [.phone: .seen(.nearby), .watch: .seen(.away)]
-        for new: [TrustedDevice: Presence] in [[:], [.phone: .seen(.away)], [.watch: .assumedNearby],
-                                               [.phone: .assumedNearby, .watch: .seen(.nearby)]] {
+        for new: [TrustedDevice: Presence] in [
+            [:], [.phone: .seen(.away)], [.watch: .assumedNearby],
+            [.phone: .assumedNearby, .watch: .seen(.nearby)],
+        ] {
             var applied = old
             changes(old, new).forEach { $0.apply(to: &applied) { $0 } }
             XCTAssertEqual(applied, new, "\(new)")
@@ -289,12 +312,13 @@ final class BluetoothParsingTests: XCTestCase {
     }
 
     func testTrustedDeviceLegacyDecodingAndRoundTrip() throws {
-        let json = Data("""
-        [{"id":"11111111-1111-1111-1111-111111111111","name":"AirPods","isClassicBluetooth":true,"bluetoothAddress":"aa-bb-cc-dd-ee-ff"},
-         {"id":"22222222-2222-2222-2222-222222222222","name":"Phone","isClassicBluetooth":false},
-         {"id":"33333333-3333-3333-3333-333333333333","name":"NoAddress","isClassicBluetooth":true},
-         {"id":"44444444-4444-4444-4444-444444444444","name":"Oldest"}]
-        """.utf8)
+        let json = Data(
+            """
+            [{"id":"11111111-1111-1111-1111-111111111111","name":"AirPods","isClassicBluetooth":true,"bluetoothAddress":"aa-bb-cc-dd-ee-ff"},
+             {"id":"22222222-2222-2222-2222-222222222222","name":"Phone","isClassicBluetooth":false},
+             {"id":"33333333-3333-3333-3333-333333333333","name":"NoAddress","isClassicBluetooth":true},
+             {"id":"44444444-4444-4444-4444-444444444444","name":"Oldest"}]
+            """.utf8)
         let devices = try JSONDecoder().decode([TrustedDevice].self, from: json)
         let address = try XCTUnwrap(BluetoothAddress("aa-bb-cc-dd-ee-ff"))
         XCTAssertEqual(devices.map(\.transport), [.classic(address: address), .ble, .ble, .ble])

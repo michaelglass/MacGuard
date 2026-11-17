@@ -33,7 +33,8 @@ protocol AlarmTimer: AnyObject {
 @MainActor
 protocol AlarmScheduler {
     func now() -> Date
-    func schedule(after interval: TimeInterval, repeats: Bool, _ action: @escaping @MainActor @Sendable () -> Void) -> AlarmTimer
+    func schedule(after interval: TimeInterval, repeats: Bool, _ action: @escaping @MainActor @Sendable () -> Void)
+        -> AlarmTimer
 }
 
 /// Updates `AlarmMachine` and runs its effects. Feedback effects (timers,
@@ -58,10 +59,12 @@ final class AlarmRuntime {
     private var autoArmTimer: AlarmTimer?
     private var eventSinks: [(AlarmEvent) -> Void] = []
 
-    init(hardware: AlarmHardware,
-         scheduler: AlarmScheduler,
-         environment: @escaping (_ now: Date) -> AlarmEnvironment,
-         gracePeriod: @escaping () -> GracePeriod) {
+    init(
+        hardware: AlarmHardware,
+        scheduler: AlarmScheduler,
+        environment: @escaping (_ now: Date) -> AlarmEnvironment,
+        gracePeriod: @escaping () -> GracePeriod
+    ) {
         self.hardware = hardware
         self.scheduler = scheduler
         self.environment = environment
@@ -144,7 +147,9 @@ struct RunLoopScheduler: AlarmScheduler {
 
     func now() -> Date { Date() }
 
-    func schedule(after interval: TimeInterval, repeats: Bool, _ action: @escaping @MainActor @Sendable () -> Void) -> AlarmTimer {
+    func schedule(after interval: TimeInterval, repeats: Bool, _ action: @escaping @MainActor @Sendable () -> Void)
+        -> AlarmTimer
+    {
         let timer = Timer(timeInterval: interval, repeats: repeats) { _ in
             MainActor.assumeIsolated { action() }
         }

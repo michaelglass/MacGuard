@@ -21,13 +21,14 @@ class NetworkMonitor {
     /// Loopback, VPN tunnels and cellular are not physical tampering signals.
     nonisolated static func links(of path: NWPath) -> Set<NetworkLink> {
         guard path.status == .satisfied else { return [] }
-        return Set(path.availableInterfaces.compactMap { interface in
-            switch interface.type {
-            case .wifi: return NetworkLink(name: interface.name, kind: .wifi)
-            case .wiredEthernet: return NetworkLink(name: interface.name, kind: .wired)
-            default: return nil
-            }
-        })
+        return Set(
+            path.availableInterfaces.compactMap { interface in
+                switch interface.type {
+                case .wifi: return NetworkLink(name: interface.name, kind: .wifi)
+                case .wiredEthernet: return NetworkLink(name: interface.name, kind: .wired)
+                default: return nil
+                }
+            })
     }
 
     nonisolated static func isChange(from baseline: Set<NetworkLink>?, to current: Set<NetworkLink>) -> Bool {

@@ -1,8 +1,8 @@
 // UtilityWindow.swift
 // MacGuard - Anti-Theft Alarm for macOS
 
-import SwiftUI
 import AppKit
+import SwiftUI
 
 /// A titled window built once around its SwiftUI content.
 @MainActor
@@ -11,15 +11,18 @@ final class UtilityWindow: NSObject, NSWindowDelegate {
     private weak var parent: NSWindow?
     private let onClose: () -> Void
 
-    init<Content: View>(title: String, size: NSSize,
-                        style: NSWindow.StyleMask = [.titled, .closable],
-                        transparent: Bool = false,
-                        fitsContent: Bool = false,
-                        onClose: @escaping () -> Void = {},
-                        content: Content) {
+    init<Content: View>(
+        title: String, size: NSSize,
+        style: NSWindow.StyleMask = [.titled, .closable],
+        transparent: Bool = false,
+        fitsContent: Bool = false,
+        onClose: @escaping () -> Void = {},
+        content: Content
+    ) {
         let host = NSHostingController(rootView: content)
         if fitsContent { host.sizingOptions = .preferredContentSize }
-        window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: style, backing: .buffered, defer: false)
+        window = NSWindow(
+            contentRect: NSRect(origin: .zero, size: size), styleMask: style, backing: .buffered, defer: false)
         window.contentViewController = host
         window.title = title
         window.isReleasedWhenClosed = false
@@ -44,7 +47,8 @@ final class UtilityWindow: NSObject, NSWindowDelegate {
     /// `center()` uses the window's last screen, which can be another display.
     private func centerOnMouseScreen() {
         guard let screen = NSScreen.underMouse else { return }
-        let area = screen.visibleFrame, size = window.frame.size
+        let area = screen.visibleFrame
+        let size = window.frame.size
         window.setFrameOrigin(NSPoint(x: area.midX - size.width / 2, y: area.midY - size.height / 2))
     }
 

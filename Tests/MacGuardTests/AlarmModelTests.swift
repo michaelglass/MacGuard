@@ -2,6 +2,7 @@
 // MacGuard - Anti-Theft Alarm for macOS
 
 import XCTest
+
 @testable import MacGuard
 
 final class CountdownTests: XCTestCase {
@@ -26,8 +27,10 @@ final class CountdownTests: XCTestCase {
 
 final class PINTests: XCTestCase {
     func testParsesFourToEightASCIIDigits() {
-        for (raw, valid) in [("1234", true), ("12345678", true), ("123", false), ("123456789", false),
-                             ("12a4", false), ("１２３４", false), ("١٢٣٤", false)] {
+        for (raw, valid) in [
+            ("1234", true), ("12345678", true), ("123", false), ("123456789", false),
+            ("12a4", false), ("１２３４", false), ("١٢٣٤", false),
+        ] {
             XCTAssertEqual(PIN(raw) != nil, valid, raw)
         }
     }
