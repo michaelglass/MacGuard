@@ -150,12 +150,18 @@ fi
 
 # Code sign the app bundle (consistent identity for TCC permission persistence)
 echo "Code signing app bundle with '$SIGNING_IDENTITY'..."
+# Hardened runtime needs an Apple-issued identity: under it, library validation
+# refuses a Sparkle signed by a self-signed or ad-hoc identity (no Team ID).
+case "$SIGNING_IDENTITY" in
+    "Developer ID Application"*|"Apple Development"*|"Apple Distribution"*) RUNTIME=(--options runtime) ;;
+    *) RUNTIME=() ;;
+esac
 # Sign frameworks first (Sparkle contains nested frameworks/helpers)
 if [ -d "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework" ]; then
-    codesign --force --deep --sign "$SIGNING_IDENTITY" "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework"
+    codesign --force --deep "${RUNTIME[@]}" --sign "$SIGNING_IDENTITY" "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework"
 fi
 # Sign the main app bundle
-codesign --force --sign "$SIGNING_IDENTITY" "$APP_BUNDLE"
+codesign --force "${RUNTIME[@]}" --entitlements MacGuard.entitlements --sign "$SIGNING_IDENTITY" "$APP_BUNDLE"
 echo "✓ App bundle code signed"
 
 echo "App bundle created: $APP_BUNDLE"

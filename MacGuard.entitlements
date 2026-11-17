@@ -10,8 +10,12 @@
     <key>com.apple.security.device.bluetooth</key>
     <true/>
 
-    <!-- Apple Events for volume control -->
+    <!-- Apple Events: Mail and Messages notifiers -->
     <key>com.apple.security.automation.apple-events</key>
+    <true/>
+
+    <!-- Camera: opt-in intruder photo (required under the hardened runtime) -->
+    <key>com.apple.security.device.camera</key>
     <true/>
 </dict>
 </plist>
