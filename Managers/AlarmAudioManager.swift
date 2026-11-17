@@ -108,107 +108,81 @@ struct AudioDevice: Equatable, CustomStringConvertible {
     }
 }
 
-/// Manages alarm audio playback at maximum volume
+/// Performs AlarmPlayback's decisions: reads CoreAudio into messages and runs the commands.
 class AlarmAudioManager {
-    /// Everything that exists only while the alarm sounds.
-    private struct Playing {
-        let targetVolume: Float
-        let speaker: AudioDevice?
-        /// nil when there is nothing to restore (stopAlarm() also runs on every plain disarm)
-        var originalVolume: Float?
-        /// nil when the alarm didn't move the output
-        var deviceToRestore: AudioDevice?
-        /// The device whose volume and mute the listeners watch
-        var enforced: AudioDevice?
-        var listeners: [(object: AudioObjectID, address: AudioObjectPropertyAddress)] = []
-    }
-
-    private var playing: Playing?
-    private var audioPlayer: AVAudioPlayer?
-    private var beepTimer: Timer?
-    private lazy var enforcementBlock: AudioObjectPropertyListenerBlock = { [weak self] _, _ in self?.enforceVolume() }
-
-    // MARK: - Preparation
+    private typealias Playback = AlarmPlayback
+    private var state: Playback.State<AVAudioPlayer> = .idle(prepared: nil)
+    private lazy var outputWatch = OutputWatch { [weak self] in self?.send(.outputChanged(AudioDevice.defaultOutput)) }
+    private let beeper = Beeper()
 
     /// Pre-load audio file so it's ready for instant playback
-    func prepare() {
-        guard audioPlayer == nil else { return }
-        let settings = AppSettings.shared
-        if settings.customSoundUnavailable {
-            logActivity(.alarm, "Custom sound '\(settings.customSoundName)' is unavailable - using the default sound")
-        }
-        audioPlayer = settings.alarmSoundFile.flatMap { makePlayer($0.url) }
-        if audioPlayer != nil { logActivity(.alarm, "Audio pre-loaded and ready") }
-    }
+    func prepare() { send(.prepare) }
 
     /// Release pre-loaded audio
-    func unprepare() {
-        guard playing == nil else { return }
-        audioPlayer?.stop()
-        audioPlayer = nil
-        logActivity(.alarm, "Audio released")
-    }
-
-    // MARK: - Playback
+    func unprepare() { send(.unprepare) }
 
     func playAlarm() {
-        guard playing == nil else { return }
-
         // Built-in speaker before volume changes
-        let speaker = AudioDevice.all.first(where: \.isBuiltInOutput)
-        var state = Playing(targetVolume: Float(AppSettings.shared.alarmVolume), speaker: speaker)
-        if let speaker {
-            logActivity(.alarm, "Found built-in speaker: device ID \(speaker)")
-            if let previous = moveToSpeaker(&state) {
-                logActivity(.alarm, "Switched from device \(previous) to built-in speaker \(speaker)")
-            } else {
-                logActivity(.alarm, "Already using built-in speaker")
+        send(.start(Playback.Start(
+            targetVolume: Float(AppSettings.shared.alarmVolume),
+            speaker: AudioDevice.all.first(where: \.isBuiltInOutput).map(Playback.Reading.init),
+            output: AudioDevice.defaultOutput.map(Playback.Reading.init))))
+    }
+
+    /// Stop the alarm and restore what it changed
+    func stopAlarm() { send(.stop) }
+
+    private func send(_ msg: Playback.Msg<AVAudioPlayer>) {
+        let (next, cmds) = Playback.update(state, msg)
+        state = next
+        cmds.forEach(perform)
+    }
+
+    private func perform(_ cmd: Playback.Cmd<AVAudioPlayer>) {
+        switch cmd {
+        case .preload:
+            let settings = AppSettings.shared
+            if settings.customSoundUnavailable {
+                logActivity(.alarm, "Custom sound '\(settings.customSoundName)' is unavailable - using the default sound")
             }
-        } else {
-            logActivity(.alarm, "Could not find built-in speaker, using current device")
-        }
-
-        state.originalVolume = AudioDevice.defaultOutput?.volume
-        logActivity(.alarm, "Saved original volume: \(state.originalVolume.map { String($0) } ?? "unknown")")
-        playing = state
-
-        setSystemVolume(state.targetVolume)
-        AudioDevice.defaultOutput?.unmute()
-        startVolumeEnforcement()
-
-        let preloaded = audioPlayer != nil
-        if let player = audioPlayer ?? AppSettings.shared.alarmSoundFile.flatMap({ makePlayer($0.url) }) {
-            audioPlayer = player
+            send(.preloaded(loadSound()))
+        case .loadSound(let start):
+            send(.soundLoaded(loadSound(), then: start))
+        case .setDefaultOutput(let device):
+            AudioDevice.defaultOutput = device
+        case .setOutputVolume(let volume):
+            // CoreAudio, not AppleScript: enforcement runs on every volume change, on the main thread.
+            AudioDevice.defaultOutput?.setVolume(volume)
+            logActivity(.alarm, "Set volume to \(Int(min(max(volume, 0), 1) * 100))%")
+        case .unmuteOutput:
+            AudioDevice.defaultOutput?.unmute()
+        case .readOutput:
+            send(.outputRead(AudioDevice.defaultOutput.map(Playback.Reading.init)))
+        case .watch(let device):
+            outputWatch.watch(device)
+        case .unwatch:
+            outputWatch.unwatch()
+        case .playSound(let player):
             player.play()
-            logActivity(.alarm, preloaded ? "Playing alarm sound (pre-loaded)" : "Playing alarm sound")
-        } else {
-            logActivity(.alarm, "Alarm sound not found, using system beep")
-            playBeepLoop()
+        case .resumeSound(let player):
+            guard !player.isPlaying else { return }
+            player.play()
+            logActivity(.alarm, "Alarm playback resumed after an output change")
+        case .stopSound(let player):
+            player.stop()
+        case .startBeeping:
+            beeper.start()
+        case .stopBeeping:
+            beeper.stop()
+        case .log(let message):
+            logActivity(.alarm, message)
         }
     }
 
-    /// Stop the alarm and restore volume
-    func stopAlarm() {
-        stopVolumeEnforcement()
-        audioPlayer?.stop()
-        audioPlayer = nil
-        beepTimer?.invalidate()
-        beepTimer = nil
-
-        if let state = playing {
-            playing = nil
-            if let volume = state.originalVolume { setSystemVolume(volume) }
-            if let device = state.deviceToRestore {
-                AudioDevice.defaultOutput = device
-                logActivity(.alarm, "Restored output device to \(device)")
-            }
-        }
-        logActivity(.alarm, "Alarm stopped")
-    }
-
-    private func makePlayer(_ url: URL) -> AVAudioPlayer? {
+    private func loadSound() -> AVAudioPlayer? {
+        guard let file = AppSettings.shared.alarmSoundFile else { return nil }
         do {
-            let player = try AVAudioPlayer(contentsOf: url)
+            let player = try AVAudioPlayer(contentsOf: file.url)
             player.numberOfLoops = -1
             player.volume = 1.0
             player.prepareToPlay()
@@ -219,87 +193,60 @@ class AlarmAudioManager {
         }
     }
 
-    // MARK: - Volume Enforcement
+    deinit {
+        stopAlarm()
+    }
+}
 
-    /// Reacts to output device, volume and mute changes (keys, connecting headphones).
-    private func startVolumeEnforcement() {
-        stopVolumeEnforcement()
-        guard playing != nil else { return }
-        let device = AudioDevice.defaultOutput
+private extension AlarmPlayback.Reading {
+    init(_ device: AudioDevice) {
+        self.init(device: device, volume: device.volume, isMuted: device.isMuted == true)
+    }
+}
+
+/// Listeners on the default-output selection and on one device's volume and mute
+/// (keys, connecting headphones).
+private final class OutputWatch {
+    private let block: AudioObjectPropertyListenerBlock
+    private var listeners: [(object: AudioObjectID, address: AudioObjectPropertyAddress)] = []
+
+    init(_ onChange: @escaping () -> Void) {
+        block = { _, _ in onChange() }
+    }
+
+    func watch(_ device: AudioDevice?) {
+        unwatch()
         let targets = [(AudioObjectID(kAudioObjectSystemObject), AudioDevice.address(kAudioHardwarePropertyDefaultOutputDevice))]
             + (device.map { d in d.enforcementAddresses.map { (d.id, $0) } } ?? [])
-        playing?.enforced = device
         for (object, address) in targets {
             var address = address
-            if AudioObjectAddPropertyListenerBlock(object, &address, .main, enforcementBlock) == noErr {
-                playing?.listeners.append((object, address))
+            if AudioObjectAddPropertyListenerBlock(object, &address, .main, block) == noErr {
+                listeners.append((object, address))
             }
         }
         logActivity(.alarm, "Volume enforcement started")
     }
 
-    private func stopVolumeEnforcement() {
-        for (object, address) in playing?.listeners ?? [] {
+    func unwatch() {
+        for (object, address) in listeners {
             var address = address
-            AudioObjectRemovePropertyListenerBlock(object, &address, .main, enforcementBlock)
+            AudioObjectRemovePropertyListenerBlock(object, &address, .main, block)
         }
-        playing?.listeners = []
+        listeners = []
     }
+}
 
-    private func enforceVolume() {
-        guard var state = playing else { return }
+/// System alert fallback when there is no playable sound.
+private final class Beeper {
+    private var timer: Timer?
 
-        // Connecting headphones moves the default output, and the alarm with it.
-        if let moved = moveToSpeaker(&state) {
-            playing = state
-            logActivity(.alarm, "Output moved to device \(moved) - alarm kept on built-in speaker")
-        }
-        // No built-in speaker to return to: follow the new device instead
-        if AudioDevice.defaultOutput != state.enforced { startVolumeEnforcement() }
-
-        // A device change can stop the player
-        if let player = audioPlayer, !player.isPlaying {
-            player.play()
-            logActivity(.alarm, "Alarm playback resumed after an output change")
-        }
-
-        let output = AudioDevice.defaultOutput
-        if output?.isMuted == true {
-            output?.unmute()
-            setSystemVolume(state.targetVolume)
-            logActivity(.alarm, "Mute blocked - volume restored")
-        }
-        if let current = output?.volume, current < state.targetVolume - 0.05 {
-            setSystemVolume(state.targetVolume)
-            logActivity(.alarm, "Volume restored from \(Int(current * 100))% to \(Int(state.targetVolume * 100))%")
-        }
-    }
-
-    // CoreAudio, not AppleScript: enforcement runs on every volume change, on the main thread.
-    private func setSystemVolume(_ volume: Float) {
-        AudioDevice.defaultOutput?.setVolume(volume)
-        logActivity(.alarm, "Set volume to \(Int(min(max(volume, 0), 1) * 100))%")
-    }
-
-    /// Returns the device it replaced, which becomes the one restored on stop.
-    private func moveToSpeaker(_ state: inout Playing) -> AudioDevice? {
-        guard let speaker = state.speaker, let current = AudioDevice.defaultOutput, current != speaker else { return nil }
-        state.deviceToRestore = current
-        AudioDevice.defaultOutput = speaker
-        return current
-    }
-
-    // MARK: - System Alert Fallback
-
-    private func playBeepLoop() {
-        guard playing != nil else { return }
+    func start() {
         NSSound.beep()
-        beepTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { [weak self] _ in
-            self?.playBeepLoop()
-        }
+        timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in NSSound.beep() }
     }
 
-    deinit {
-        stopAlarm()
+    func stop() {
+        timer?.invalidate()
+        timer = nil
     }
 }
