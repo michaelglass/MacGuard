@@ -107,18 +107,24 @@ struct ProximityTracker: Equatable {
         now.timeIntervalSince(lastNearby ?? .distantPast) < ProximityTiming.disconnectDebounce(lowPower: lowPower)
     }
 
-    mutating func markDisconnected() {
+    mutating func markDisconnected() -> ProximityChange {
+        let wasNearby = isNearby
         proximity = .seen(.away)
+        return wasNearby ? .becameAway : .unchanged
     }
 
     /// So devices don't flap "away" (and auto-arm) while connections recover after BT power-on.
-    mutating func assumeNearbyForRecovery() {
-        if case .seen = proximity {
+    mutating func assumeNearbyForRecovery() -> ProximityChange {
+        switch proximity {
+        case .unobserved, .seen(.nearby): return .unchanged
+        case .seen(.away):
             proximity = .seen(.nearby)
+            return .becameNearby
         }
     }
 
-    /// Forgets the current reading, keeps debounce history.
+    /// Forgets the current reading, keeps debounce history. Not a change: unobserved
+    /// is neither nearby nor away.
     mutating func resetForScan() {
         proximity = .unobserved
         lastObservation = nil

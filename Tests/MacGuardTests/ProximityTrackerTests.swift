@@ -83,12 +83,20 @@ final class ProximityTrackerTests: XCTestCase {
     func testRecoveryAssumptionOnlyTouchesObservedDevices() {
         var observed = ProximityTracker()
         _ = observed.feed(signal(-90), at: 0)
-        observed.assumeNearbyForRecovery()
+        XCTAssertEqual(observed.assumeNearbyForRecovery(), .becameNearby)
         XCTAssertTrue(observed.isNearby)
 
         var unseen = ProximityTracker()
-        unseen.assumeNearbyForRecovery()
+        XCTAssertEqual(unseen.assumeNearbyForRecovery(), .unchanged)
         XCTAssertEqual(unseen.proximity, .unobserved)
+    }
+
+    func testMarkDisconnectedReportsAwayOnlyWhenItWasNearby() {
+        var tracker = ProximityTracker()
+        _ = tracker.feed(signal(-60), at: 0)
+        XCTAssertEqual(tracker.markDisconnected(), .becameAway)
+        XCTAssertEqual(tracker.markDisconnected(), .unchanged)
+        XCTAssertEqual(tracker.proximity, .seen(.away))
     }
 
     func testResetForScanForgetsReadingButKeepsDebounceHistory() {

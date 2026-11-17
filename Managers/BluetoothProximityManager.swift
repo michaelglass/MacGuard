@@ -343,7 +343,11 @@ class BluetoothProximityManager: NSObject, ObservableObject {
             recoveryCooldownActive: recoveryCooldown.isActive(at: now)
         )
 
-        let reading = observation.rssi.map(\.description) ?? "\(observation)"
+        report(change, device: device, reading: observation.rssi.map(\.description) ?? "\(observation)")
+    }
+
+    /// The one place a tracker's change becomes an input for the machine.
+    private func report(_ change: ProximityChange, device: TrustedDevice, reading: String) {
         switch change {
         case .becameNearby:
             logActivity(.bluetooth, "\(device.name) nearby (RSSI: \(reading))")
@@ -450,7 +454,8 @@ extension BluetoothProximityManager: CBCentralManagerDelegate {
             recoveryCooldown.start(at: Date())
             logActivity(.bluetooth, "BT recovery cooldown started (\(Int(RecoveryCooldown.duration))s)")
             for id in tracking.keys {
-                tracking[id]?.proximity.assumeNearbyForRecovery()
+                // An assumption, not an observation: the machine is not told.
+                _ = tracking[id]?.proximity.assumeNearbyForRecovery()
             }
             startScanningIfNeeded()
         }
@@ -497,10 +502,9 @@ extension BluetoothProximityManager: CBCentralManagerDelegate {
 
         logActivity(.bluetooth, "Disconnected: \(peripheral.name ?? "Unknown")")
         connectedPeripherals.removeValue(forKey: deviceID)
-        let wasNearby = tracking[deviceID]?.proximity.isNearby ?? false
-        tracking[deviceID, default: DeviceTracking()].proximity.markDisconnected()
-        // A disconnect is a departure like a weak signal, so the machine hears of it.
-        if wasNearby { onInput(.trustedDeviceAway(trusted)) }
+        // A disconnect is a departure like a weak signal, but not debounced like one.
+        let change = tracking[deviceID, default: DeviceTracking()].proximity.markDisconnected()
+        report(change, device: trusted, reading: "\(Observation.disconnected)")
 
         if isScanning {
             scanForBLE()
