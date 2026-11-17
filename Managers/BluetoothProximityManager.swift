@@ -62,8 +62,7 @@ class BluetoothProximityManager: NSObject, ObservableObject {
     }
 
     // UserDefaults keys for persistence
-    private let trustedDevicesKey = "MacGuard.trustedDevices"
-    private let legacyTrustedDeviceKey = "MacGuard.trustedDevice"  // For migration
+    private let trustedDevicesKey = SettingsMigration.trustedDevicesKey
 
 
     // MARK: - Computed Properties
@@ -188,21 +187,10 @@ class BluetoothProximityManager: NSObject, ObservableObject {
     }
 
     private func loadTrustedDevices() {
-        // Try new key first
         if let data = UserDefaults.standard.data(forKey: trustedDevicesKey),
            let devices = try? JSONDecoder().decode([TrustedDevice].self, from: data) {
             trustedDevices = devices
             logActivity(.bluetooth, "Loaded \(devices.count) trusted devices")
-            return
-        }
-
-        // Migrate from legacy single device
-        if let data = UserDefaults.standard.data(forKey: legacyTrustedDeviceKey),
-           let device = try? JSONDecoder().decode(TrustedDevice.self, from: data) {
-            trustedDevices = [device]
-            saveTrustedDevices()
-            UserDefaults.standard.removeObject(forKey: legacyTrustedDeviceKey)
-            logActivity(.bluetooth, "Migrated single device to array: \(device.name)")
         }
     }
 

@@ -133,6 +133,28 @@ final class SettingsMigrationTests: XCTestCase {
         }
     }
 
+    func testTrustedDeviceMigration() throws {
+        let legacyKey = "MacGuard.trustedDevice"
+        let legacy = try JSONEncoder().encode(TrustedDevice.phone)
+        let other = TrustedDevice(id: UUID(), name: "Watch", transport: .ble)
+        let current = try JSONEncoder().encode([other])
+        let cases: [(String, Data?, [TrustedDevice]?, Bool)] = [
+            ("single device becomes a list", nil, [.phone], false),
+            ("existing list wins", current, [other], true),
+            ("unreadable list falls back", Data("garbage".utf8), [.phone], false),
+        ]
+        for (name, list, expected, legacyKept) in cases {
+            setUpDefaultsFresh()
+            defaults.set(legacy, forKey: legacyKey)
+            if let list { defaults.set(list, forKey: SettingsMigration.trustedDevicesKey) }
+            SettingsMigration.run(defaults)
+            let stored = try defaults.data(forKey: SettingsMigration.trustedDevicesKey)
+                .map { try JSONDecoder().decode([TrustedDevice].self, from: $0) }
+            XCTAssertEqual(stored, expected, name)
+            XCTAssertEqual(defaults.object(forKey: legacyKey) != nil, legacyKept, name)
+        }
+    }
+
     private func setUpDefaultsFresh() {
         defaults.removePersistentDomain(forName: suiteName)
     }

@@ -304,12 +304,16 @@ struct AlarmVolume: Equatable {
     }
 }
 
-/// Older installs kept the custom sound path and custom dBm in second keys; this folds them into one key each.
+/// Folds older installs' keys into current ones: custom sound path and dBm, single trusted device.
+/// Runs once at app launch (main.swift), before anything reads settings.
 enum SettingsMigration {
     static let alarmSoundKey = "alarmSoundChoice"
     static let proximityDistanceKey = "detectionDistance"
+    static let trustedDevicesKey = "MacGuard.trustedDevices"
 
     private enum Legacy {
+        /// One JSON `TrustedDevice`, before several were allowed.
+        static let trustedDevice = "MacGuard.trustedDevice"
         static let alarmSound = "alarmSound"
         static let customSoundPath = "customSoundPath"
         static let proximityDistance = "proximityDistance"
@@ -333,6 +337,20 @@ enum SettingsMigration {
                     Legacy.autoArmMode] {
             defaults.removeObject(forKey: key)
         }
+        migrateTrustedDevice(defaults)
+    }
+
+    /// Only when the list is missing or unreadable, as loading used to fall back to the single device.
+    private static func migrateTrustedDevice(_ defaults: UserDefaults) {
+        guard decoded([TrustedDevice].self, defaults.data(forKey: trustedDevicesKey)) == nil,
+              let device = decoded(TrustedDevice.self, defaults.data(forKey: Legacy.trustedDevice)),
+              let list = try? JSONEncoder().encode([device]) else { return }
+        defaults.set(list, forKey: trustedDevicesKey)
+        defaults.removeObject(forKey: Legacy.trustedDevice)
+    }
+
+    private static func decoded<T: Decodable>(_ type: T.Type, _ data: Data?) -> T? {
+        data.flatMap { try? JSONDecoder().decode(type, from: $0) }
     }
 
     /// "Custom..." with no path used to play (and show) the default.
