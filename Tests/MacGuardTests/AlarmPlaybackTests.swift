@@ -72,8 +72,21 @@ final class AlarmPlaybackTests: XCTestCase {
     func testStartMovesOutputToSpeakerAndRaisesVolume() {
         let (_, effects) = update(.idle(prepared: "siren"), .start(start(speaker: read(speaker), output: read(usb))))
         let actions = effects.filter { if case .log = $0 { return false } else { return true } }
-        XCTAssertEqual(actions, [.setDefaultOutput(speaker), .setOutputVolume(1.0), .unmuteOutput,
+        XCTAssertEqual(actions, [.recordRestore(AudioRestore(displaced: usb, volume: 0.3)),
+                                 .setDefaultOutput(speaker), .setOutputVolume(1.0), .unmuteOutput,
                                  .watch(speaker), .playSound("siren")])
+    }
+
+    /// The record comes before any change, and matches what stop restores.
+    func testStartRecordsTheRestoreFirst() {
+        let cases: [(P.Start, AudioRestore)] = [
+            (start(speaker: read(speaker, 0.2), output: read(usb, 0.7)), AudioRestore(displaced: usb, volume: 0.2)),
+            (start(speaker: read(speaker, 0.2), output: read(speaker, 0.2)), AudioRestore(displaced: nil, volume: 0.2)),
+            (start(speaker: nil, output: read(usb, nil)), AudioRestore(displaced: nil, volume: nil)),
+        ]
+        for (s, expected) in cases {
+            XCTAssertEqual(update(.idle(prepared: "siren"), .start(s)).1.first, .recordRestore(expected), "\(s)")
+        }
     }
 
     func testSecondStartIsIgnored() {
@@ -112,7 +125,10 @@ final class AlarmPlaybackTests: XCTestCase {
     func testHeadphonesMidAlarmKeepTheSpeaker() {
         let state = playing(start(speaker: read(speaker), output: read(speaker)))
         let (moved, effects) = update(state, .outputChanged(headphones))
-        XCTAssertEqual(effects.first, .setDefaultOutput(speaker))
+        XCTAssertEqual(Array(effects.prefix(2)), [.recordRestore(AudioRestore(displaced: headphones, volume: 0.3)),
+                                                  .setDefaultOutput(speaker)])
+        // The same output again changes nothing that stop restores.
+        XCTAssertFalse(update(moved, .outputChanged(headphones)).1.contains { if case .recordRestore = $0 { true } else { false } })
         XCTAssertEqual(effects.last, .readOutput)
         XCTAssertTrue(effects.contains(.resumeSound("siren")))
         // Still watching the speaker, and the headphones are what stop puts back.

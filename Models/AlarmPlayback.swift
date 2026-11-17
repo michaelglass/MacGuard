@@ -3,6 +3,16 @@
 
 import Foundation
 
+/// What a sounding alarm puts back on stop. Recorded before the alarm changes
+/// anything, so an instance relaunched after a kill can restore these rather than
+/// the speaker and volume the killed alarm left behind.
+struct AudioRestore: Equatable {
+    /// The output the alarm moved off; nil when it did not move it.
+    let displaced: AudioDevice?
+    /// The output's volume before the alarm; nil when it had none to read.
+    let volume: Float?
+}
+
 /// Alarm audio decisions as a pure function. `Sound` is the loaded player
 /// (AVAudioPlayer in the app), generic so tests need no audio file.
 enum AlarmPlayback<Sound: Equatable> {
@@ -28,6 +38,13 @@ enum AlarmPlayback<Sound: Equatable> {
         case speaker(AudioDevice, displaced: AudioDevice?)
         /// No built-in speaker: the alarm follows the output.
         case followOutput
+
+        var displaced: AudioDevice? {
+            switch self {
+            case .speaker(_, let displaced): return displaced
+            case .followOutput: return nil
+            }
+        }
     }
 
     enum Output: Equatable {
@@ -44,6 +61,8 @@ enum AlarmPlayback<Sound: Equatable> {
         /// The device whose volume and mute are watched.
         var watched: AudioDevice?
         let output: Output
+
+        var restore: AudioRestore { AudioRestore(displaced: route.displaced, volume: savedVolume) }
     }
 
     enum Model: Equatable {
@@ -66,6 +85,9 @@ enum AlarmPlayback<Sound: Equatable> {
     /// Side effects the shell performs, in order. Volume and mute act on the
     /// default output as it is when the effect runs.
     enum Effect: Equatable {
+        /// Make the restore durable. Emitted before the alarm changes anything,
+        /// and again whenever what stop would put back changes.
+        case recordRestore(AudioRestore)
         case preload
         case loadSound(then: Start)
         case setDefaultOutput(AudioDevice)
@@ -145,6 +167,9 @@ enum AlarmPlayback<Sound: Equatable> {
         }
 
         let savedVolume = alarmOutput?.volume
+        let playing = Playing(targetVolume: start.targetVolume, route: route, savedVolume: savedVolume,
+                              watched: alarmOutput?.device, output: output)
+        effects.insert(.recordRestore(playing.restore), at: 0)
         effects += [.log(.alarm, "Saved original volume: \(savedVolume.map { String($0) } ?? "unknown")"),
                  .setOutputVolume(start.targetVolume),
                  .unmuteOutput,
@@ -154,9 +179,6 @@ enum AlarmPlayback<Sound: Equatable> {
         case .beeping: effects.append(.startBeeping)
         }
         effects.append(.log(.alarm, playLog))
-
-        let playing = Playing(targetVolume: start.targetVolume, route: route, savedVolume: savedVolume,
-                              watched: alarmOutput?.device, output: output)
         return (.playing(playing), effects)
     }
 
@@ -167,7 +189,10 @@ enum AlarmPlayback<Sound: Equatable> {
         // Connecting headphones moves the default output, and the alarm with it.
         case .speaker(let speaker, _):
             if let output, output != speaker {
-                playing.route = .speaker(speaker, displaced: output)
+                if output != playing.route.displaced {
+                    playing.route = .speaker(speaker, displaced: output)
+                    effects.append(.recordRestore(playing.restore))
+                }
                 effects += [.setDefaultOutput(speaker),
                          .log(.alarm, "Output moved to device \(output) - alarm kept on built-in speaker")]
             }

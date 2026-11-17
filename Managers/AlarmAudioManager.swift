@@ -140,6 +140,9 @@ class AlarmAudioManager {
 
     private func perform(_ effect: Playback.Effect) {
         switch effect {
+        case .recordRestore:
+            // Not yet persisted.
+            break
         case .preload:
             send(.preloaded(loadSound()))
         case .loadSound(let start):
