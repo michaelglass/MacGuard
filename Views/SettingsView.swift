@@ -383,8 +383,10 @@ struct SettingsView: View {
             }
         }
 
+        // Resolved once per render: a custom file is opened to check it.
+        let alarmSound = settings.alarmSound.resolved
         Picker("Alarm Sound", selection: Binding(
-            get: { AlarmSoundMenuItem(settings.alarmSound.resolved) },
+            get: { AlarmSoundMenuItem(alarmSound) },
             set: { item in
                 switch item {
                 case .builtIn(let sound): settings.chooseSound(sound)
@@ -397,7 +399,7 @@ struct SettingsView: View {
             }
         }
 
-        switch settings.alarmSound.resolved {
+        switch alarmSound {
         case .builtIn:
             EmptyView()
         case .customUnavailable(let url):
