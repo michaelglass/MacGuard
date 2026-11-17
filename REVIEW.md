@@ -143,6 +143,17 @@ Now there is one rule and no mode:
 - A BLE disconnect now reports the device as away. Before, a device that dropped its connection while armed never counted as having left.
 - The armed marker stores the departed devices; a marker from before this change fails closed (no proximity-disarm rights).
 
+## Round 6: one proximity channel, owned by the machine
+
+- **Assumed is a type.** Proximity held nearby by the Bluetooth recovery cooldown is `Proximity.assumedNearby`. The tracker treats it as nearby for hysteresis and debounce, but it is never a `Sighting`. Only a real reading replaces it. This replaces the time gate on the sightings snapshot, which let an assumed "nearby" count as evidence once the cooldown ended without a new reading.
+- **One channel.** The Bluetooth manager diffs the sightings snapshot after every change and sends one `.proximity(SightingChange)` per device whose sighting changed. Becoming nearby is a return. Becoming away, from anything (a first sighting included), is a departure. Losing sight (scan stopped or reset, device removed, proximity only assumed) is neither.
+- **The machine owns sightings.** `AlarmMachine.Model` holds the alarm state and the sightings. Arming, wake and the idle auto-arm cancel read them from the model, not from an environment snapshot.
+- **One TEA vocabulary.** `AlarmMachine`, `AlarmPlayback` and `DeviceScan` each have `Model`, `Msg`, `Effect` and `update(model, msg) -> (Model, [Effect])`. Round 2's `step`, `AlarmInput` and `AlarmEffect` are now `update`, `AlarmMachine.Msg` and `AlarmMachine.Effect`.
+
+Behaviour changes:
+- A device first seen away is a departure. While armed, it may then disarm on return. While idle with auto-arm on, it starts the grace period. One case: a Classic device that is disconnected (for example AirPods in their case) is seen away again when scanning restarts after a disarm, so auto-arm re-arms after the grace period.
+- During the recovery cooldown, real readings now count as evidence. Before, the gate hid every device for 15 s.
+
 ## Open (not fixed)
 
 - **Tamper relaunch saves the wrong "original" audio state.** The alarm switches output to the built-in speaker and raises the volume. A `kill -9` skips the restore, and the relaunched instance then saves the alarm's speaker and volume as the originals, so disarming "restores" those. Fix: persist the pre-alarm device and volume in the armed marker. Found while planning on-device tests; not verified.
