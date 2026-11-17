@@ -10,6 +10,11 @@ struct ArmSession: Equatable {
     var departed: Set<TrustedDevice.ID>
 }
 
+extension ArmSession {
+    /// No trusted device may disarm.
+    static let noDepartures = ArmSession(departed: [])
+}
+
 /// Why arming started; reported once armed.
 enum ArmOrigin: Equatable {
     case manual, deviceLeft

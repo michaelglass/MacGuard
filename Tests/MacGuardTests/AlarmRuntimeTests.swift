@@ -106,14 +106,14 @@ final class AlarmRuntimeTests: XCTestCase {
 
     func testArmRunsDelayThenStartsMonitoringViaFeedback() {
         runtime.send(.armRequested(auto: false))
-        XCTAssertEqual(runtime.state, .arming(ArmSession(departed: []),
+        XCTAssertEqual(runtime.state, .arming(.noDepartures,
                                               until: scheduler.now().addingTimeInterval(1), origin: .manual))
         XCTAssertFalse(hardware.calls.contains(.startInputMonitoring), "nothing starts before the exit delay")
 
         scheduler.advance(by: 1)
-        XCTAssertEqual(runtime.state, .armed(ArmSession(departed: [])))
+        XCTAssertEqual(runtime.state, .armed(.noDepartures))
         XCTAssertEqual(Array(hardware.calls.suffix(3)),
-                       [.startInputMonitoring, .persistArmedMarker(ArmSession(departed: [])), .startSystemMonitors])
+                       [.startInputMonitoring, .persistArmedMarker(.noDepartures), .startSystemMonitors])
         XCTAssertEqual(events, [.armed(auto: false)])
     }
 
@@ -156,7 +156,7 @@ final class AlarmRuntimeTests: XCTestCase {
         scheduler.advance(by: 2)
         XCTAssertEqual(runtime.state.phase, .triggered)
         scheduler.advance(by: 1)
-        XCTAssertEqual(runtime.state, .alarming(ArmSession(departed: []), .input(.keyboard)))
+        XCTAssertEqual(runtime.state, .alarming(.noDepartures, .input(.keyboard)))
         XCTAssertEqual(hardware.calls.filter { $0 == .playAlarm }.count, 1)
         XCTAssertEqual(scheduler.pending, 0, "countdown timer is stopped once the alarm sounds")
         XCTAssertEqual(events.last, .alarmSounding(.input(.keyboard)))
@@ -200,7 +200,7 @@ final class AlarmRuntimeTests: XCTestCase {
     }
 
     func testTamperResumeSoundsAndRewritesTheMarker() {
-        let session = ArmSession(departed: [])
+        let session = ArmSession.noDepartures
         runtime.send(.resumeAfterTamper(session))
         XCTAssertEqual(runtime.state, .alarming(session, .tamper))
         XCTAssertTrue(hardware.calls.contains(.persistArmedMarker(session)))

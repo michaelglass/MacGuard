@@ -30,7 +30,7 @@ enum LaunchDecision: Equatable {
         guard let markerData else { return .normal }
         // Unreadable marker: fail closed, without proximity-disarm rights.
         guard let marker = try? TamperGuard.decoder.decode(ArmedMarker.self, from: markerData) else {
-            return .resumeAfterTamper(ArmSession(departed: []))
+            return .resumeAfterTamper(.noDepartures)
         }
         return isAlive(marker.pid) ? .normal : .resumeAfterTamper(marker.session)
     }

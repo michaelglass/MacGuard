@@ -6,7 +6,6 @@ import XCTest
 @testable import MacGuard
 
 final class TamperMachineTests: XCTestCase {
-    private let manual = ArmSession(departed: [])
     private let left = ArmSession(departed: [TrustedDevice.phone.id])
 
     private let env = AlarmEnvironment.fixture()
@@ -18,8 +17,8 @@ final class TamperMachineTests: XCTestCase {
 
     func testEveryStandDownClearsTheMarker() {
         let standDowns: [(AlarmState, AlarmInput)] = [
-            (.arming(manual, until: AlarmEnvironment.t0, origin: .manual), .cancelArming),
-            (.arming(manual, until: AlarmEnvironment.t0, origin: .manual), .inputMonitoringStarted(false)),
+            (.arming(.noDepartures, until: AlarmEnvironment.t0, origin: .manual), .cancelArming),
+            (.arming(.noDepartures, until: AlarmEnvironment.t0, origin: .manual), .inputMonitoringStarted(false)),
             (.armed(left), .trustedDeviceNearby(.phone)),
             (.alarming(left, .tamper), .systemWoke),
         ]
@@ -36,7 +35,7 @@ final class TamperMachineTests: XCTestCase {
 
     /// Sounds at once with the stored session: a killed manual arm gains no proximity-disarm rights.
     func testResumeAfterTamperSoundsWithTheStoredSession() {
-        for session in [left, manual] {
+        for session in [left, .noDepartures] {
             let (state, effects) = AlarmMachine.step(.idle, .resumeAfterTamper(session), env)
             XCTAssertEqual(state, .alarming(session, .tamper))
             for required: AlarmEffect in [.persistArmedMarker(session), .startSystemMonitors, .showOverlay,
@@ -47,7 +46,7 @@ final class TamperMachineTests: XCTestCase {
     }
 
     func testResumeIgnoredWhenAlreadyActive() {
-        XCTAssertEqual(AlarmMachine.step(.armed(manual), .resumeAfterTamper(left), env).state, .armed(manual))
+        XCTAssertEqual(AlarmMachine.step(.armed(.noDepartures), .resumeAfterTamper(left), env).state, .armed(.noDepartures))
     }
 }
 
@@ -62,11 +61,11 @@ final class LaunchDecisionTests: XCTestCase {
         let cases: [(String, Data?, Bool, LaunchDecision)] = [
             ("no marker", nil, false, .normal),
             ("dead owner", try markerData(phoneLeft, pid: 4242), false, .resumeAfterTamper(phoneLeft)),
-            ("live owner", try markerData(ArmSession(departed: []), pid: 4242), true, .normal),
+            ("live owner", try markerData(.noDepartures, pid: 4242), true, .normal),
             ("corrupt marker fails closed", Data("garbage".utf8), true,
-             .resumeAfterTamper(ArmSession(departed: []))),
+             .resumeAfterTamper(.noDepartures)),
             ("pre-upgrade marker fails closed", Data(#"{"trustedDeviceHasLeft":true,"armedAt":0,"pid":4242}"#.utf8), false,
-             .resumeAfterTamper(ArmSession(departed: []))),
+             .resumeAfterTamper(.noDepartures)),
         ]
         for (name, data, alive, expected) in cases {
             XCTAssertEqual(LaunchDecision.decide(markerData: data) { _ in alive }, expected, name)
