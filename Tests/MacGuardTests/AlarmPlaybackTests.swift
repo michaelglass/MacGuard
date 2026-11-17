@@ -6,8 +6,8 @@ import XCTest
 
 final class AlarmPlaybackTests: XCTestCase {
     private typealias P = AlarmPlayback<String>
-    private typealias State = P.State
-    private typealias Cmd = P.Cmd
+    private typealias Model = P.Model
+    private typealias Effect = P.Effect
 
     private let speaker = AudioDevice(1)!
     private let usb = AudioDevice(2)!
@@ -21,17 +21,17 @@ final class AlarmPlaybackTests: XCTestCase {
         P.Start(targetVolume: 1.0, speaker: speaker, output: output)
     }
 
-    private func update(_ state: State, _ msg: P.Msg) -> (State, [Cmd]) {
-        P.update(state, msg)
+    private func update(_ model: Model, _ msg: P.Msg) -> (Model, [Effect]) {
+        P.update(model, msg)
     }
 
     /// Starts from a pre-loaded sound and returns the playing state.
-    private func playing(_ start: P.Start) -> State {
+    private func playing(_ start: P.Start) -> Model {
         update(.idle(prepared: "siren"), .start(start)).0
     }
 
-    private func restores(_ cmds: [Cmd]) -> [Cmd] {
-        cmds.filter {
+    private func restores(_ effects: [Effect]) -> [Effect] {
+        effects.filter {
             if case .setOutputVolume = $0 { return true }
             if case .setDefaultOutput = $0 { return true }
             return false
@@ -57,22 +57,22 @@ final class AlarmPlaybackTests: XCTestCase {
     func testStartWithoutPreparedSoundLoadsItFirst() {
         let s = start(speaker: read(speaker), output: read(speaker))
         XCTAssertEqual(update(.idle(prepared: nil), .start(s)).1, [.loadSound(then: s)])
-        let (state, cmds) = update(.idle(prepared: nil), .soundLoaded("siren", then: s))
-        XCTAssertTrue(cmds.contains(.playSound("siren")))
+        let (state, effects) = update(.idle(prepared: nil), .soundLoaded("siren", then: s))
+        XCTAssertTrue(effects.contains(.playSound("siren")))
         guard case .playing = state else { return XCTFail("not playing") }
     }
 
     func testBeepsWhenNoSoundLoads() {
         let s = start(speaker: read(speaker), output: read(speaker))
-        let (state, cmds) = update(.idle(prepared: nil), .soundLoaded(nil, then: s))
-        XCTAssertTrue(cmds.contains(.startBeeping))
+        let (state, effects) = update(.idle(prepared: nil), .soundLoaded(nil, then: s))
+        XCTAssertTrue(effects.contains(.startBeeping))
         XCTAssertTrue(update(state, .stop).1.contains(.stopBeeping))
     }
 
     func testStartMovesOutputToSpeakerAndRaisesVolume() {
-        let (_, cmds) = update(.idle(prepared: "siren"), .start(start(speaker: read(speaker), output: read(usb))))
-        let effects = cmds.filter { if case .log = $0 { return false } else { return true } }
-        XCTAssertEqual(effects, [.setDefaultOutput(speaker), .setOutputVolume(1.0), .unmuteOutput,
+        let (_, effects) = update(.idle(prepared: "siren"), .start(start(speaker: read(speaker), output: read(usb))))
+        let actions = effects.filter { if case .log = $0 { return false } else { return true } }
+        XCTAssertEqual(actions, [.setDefaultOutput(speaker), .setOutputVolume(1.0), .unmuteOutput,
                                  .watch(speaker), .playSound("siren")])
     }
 
@@ -90,7 +90,7 @@ final class AlarmPlaybackTests: XCTestCase {
     }
 
     func testStopRestoresTableDriven() {
-        let cases: [(P.Start, [Cmd])] = [
+        let cases: [(P.Start, [Effect])] = [
             (start(speaker: read(speaker, 0.2), output: read(speaker, 0.2)), [.setOutputVolume(0.2)]),
             (start(speaker: nil, output: read(usb, 0.4)), [.setOutputVolume(0.4)]),
             (start(speaker: read(speaker, nil), output: read(usb)), [.setDefaultOutput(usb)]),
@@ -102,19 +102,19 @@ final class AlarmPlaybackTests: XCTestCase {
     }
 
     func testStopFromIdleRestoresNothing() {
-        let (state, cmds) = update(.idle(prepared: "siren"), .stop)
+        let (state, effects) = update(.idle(prepared: "siren"), .stop)
         XCTAssertEqual(state, .idle(prepared: nil))
-        XCTAssertEqual(cmds, [.log(.alarm, "Alarm stopped")])
+        XCTAssertEqual(effects, [.log(.alarm, "Alarm stopped")])
     }
 
     // MARK: While playing
 
     func testHeadphonesMidAlarmKeepTheSpeaker() {
         let state = playing(start(speaker: read(speaker), output: read(speaker)))
-        let (moved, cmds) = update(state, .outputChanged(headphones))
-        XCTAssertEqual(cmds.first, .setDefaultOutput(speaker))
-        XCTAssertEqual(cmds.last, .readOutput)
-        XCTAssertTrue(cmds.contains(.resumeSound("siren")))
+        let (moved, effects) = update(state, .outputChanged(headphones))
+        XCTAssertEqual(effects.first, .setDefaultOutput(speaker))
+        XCTAssertEqual(effects.last, .readOutput)
+        XCTAssertTrue(effects.contains(.resumeSound("siren")))
         // Still watching the speaker, and the headphones are what stop puts back.
         XCTAssertFalse(update(moved, .outputRead(read(speaker, 1.0))).1.contains { if case .watch = $0 { true } else { false } })
         XCTAssertEqual(restores(update(moved, .stop).1), [.setOutputVolume(0.3), .setDefaultOutput(headphones)])
@@ -123,14 +123,14 @@ final class AlarmPlaybackTests: XCTestCase {
     func testWithoutSpeakerTheAlarmFollowsTheOutput() {
         let state = playing(start(speaker: nil, output: read(usb)))
         XCTAssertEqual(update(state, .outputChanged(headphones)).1, [.resumeSound("siren"), .readOutput])
-        let (followed, cmds) = update(state, .outputRead(read(headphones, 1.0)))
-        XCTAssertEqual(cmds, [.watch(headphones)])
+        let (followed, effects) = update(state, .outputRead(read(headphones, 1.0)))
+        XCTAssertEqual(effects, [.watch(headphones)])
         XCTAssertEqual(update(followed, .outputRead(read(headphones, 1.0))).1, [])
     }
 
     func testEnforcesVolumeAndMute() {
         let state = playing(start(speaker: read(speaker), output: read(speaker)))
-        let cases: [(P.Reading, [Cmd])] = [
+        let cases: [(P.Reading, [Effect])] = [
             (read(speaker, 1.0, muted: true), [.unmuteOutput, .setOutputVolume(1.0)]),
             (read(speaker, 0.5), [.setOutputVolume(1.0)]),
             (read(speaker, 0.96), []),

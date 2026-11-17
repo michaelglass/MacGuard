@@ -46,7 +46,7 @@ enum AlarmPlayback<Sound: Equatable> {
         let output: Output
     }
 
-    enum State: Equatable {
+    enum Model: Equatable {
         case idle(prepared: Sound?)
         case playing(Playing)
     }
@@ -64,8 +64,8 @@ enum AlarmPlayback<Sound: Equatable> {
     }
 
     /// Side effects the shell performs, in order. Volume and mute act on the
-    /// default output as it is when the command runs.
-    enum Cmd: Equatable {
+    /// default output as it is when the effect runs.
+    enum Effect: Equatable {
         case preload
         case loadSound(then: Start)
         case setDefaultOutput(AudioDevice)
@@ -84,16 +84,16 @@ enum AlarmPlayback<Sound: Equatable> {
         case log(ActivityLogCategory, String)
     }
 
-    static func update(_ state: State, _ msg: Msg) -> (State, [Cmd]) {
-        switch (state, msg) {
+    static func update(_ model: Model, _ msg: Msg) -> (Model, [Effect]) {
+        switch (model, msg) {
         case (.idle(.none), .prepare):
-            return (state, [.preload])
+            return (model, [.preload])
         case (.idle(.none), .preloaded(let sound)):
             return (.idle(prepared: sound), sound == nil ? [] : [.log(.alarm, "Audio pre-loaded and ready")])
         case (.idle, .unprepare):
             return (.idle(prepared: nil), [.log(.alarm, "Audio released")])
         case (.idle(.none), .start(let start)):
-            return (state, [.loadSound(then: start)])
+            return (model, [.loadSound(then: start)])
         case (.idle(.some(let sound)), .start(let start)):
             return begin(start, .sound(sound), playLog: "Playing alarm sound (pre-loaded)")
         case (.idle(.none), .soundLoaded(.some(let sound), let start)):
@@ -105,9 +105,9 @@ enum AlarmPlayback<Sound: Equatable> {
             return (.idle(prepared: nil), [.log(.alarm, "Alarm stopped")])
         // Listener callbacks queued before the alarm stopped.
         case (.idle, .outputChanged), (.idle, .outputRead):
-            return (state, [])
+            return (model, [])
         case (.idle(.some), .prepare), (.idle(.some), .preloaded), (.idle(.some), .soundLoaded):
-            return (state, [])
+            return (model, [])
 
         case (.playing(let playing), .outputChanged(let output)):
             return outputChanged(playing, output)
@@ -117,106 +117,106 @@ enum AlarmPlayback<Sound: Equatable> {
             return (.idle(prepared: nil), stop(playing))
         case (.playing, .prepare), (.playing, .preloaded), (.playing, .unprepare),
              (.playing, .start), (.playing, .soundLoaded):
-            return (state, [])
+            return (model, [])
         }
     }
 
-    private static func begin(_ start: Start, _ output: Output, playLog: String) -> (State, [Cmd]) {
-        var cmds: [Cmd] = []
+    private static func begin(_ start: Start, _ output: Output, playLog: String) -> (Model, [Effect]) {
+        var effects: [Effect] = []
         let route: Route
         /// Where the alarm will sound, once any move is done.
         let alarmOutput: Reading?
         if let speaker = start.speaker {
-            cmds.append(.log(.alarm, "Found built-in speaker: device ID \(speaker.device)"))
+            effects.append(.log(.alarm, "Found built-in speaker: device ID \(speaker.device)"))
             if let current = start.output, current.device != speaker.device {
                 route = .speaker(speaker.device, displaced: current.device)
                 alarmOutput = speaker
-                cmds += [.setDefaultOutput(speaker.device),
+                effects += [.setDefaultOutput(speaker.device),
                          .log(.alarm, "Switched from device \(current.device) to built-in speaker \(speaker.device)")]
             } else {
                 route = .speaker(speaker.device, displaced: nil)
                 alarmOutput = start.output
-                cmds.append(.log(.alarm, "Already using built-in speaker"))
+                effects.append(.log(.alarm, "Already using built-in speaker"))
             }
         } else {
             route = .followOutput
             alarmOutput = start.output
-            cmds.append(.log(.alarm, "Could not find built-in speaker, using current device"))
+            effects.append(.log(.alarm, "Could not find built-in speaker, using current device"))
         }
 
         let savedVolume = alarmOutput?.volume
-        cmds += [.log(.alarm, "Saved original volume: \(savedVolume.map { String($0) } ?? "unknown")"),
+        effects += [.log(.alarm, "Saved original volume: \(savedVolume.map { String($0) } ?? "unknown")"),
                  .setOutputVolume(start.targetVolume),
                  .unmuteOutput,
                  .watch(alarmOutput?.device)]
         switch output {
-        case .sound(let sound): cmds.append(.playSound(sound))
-        case .beeping: cmds.append(.startBeeping)
+        case .sound(let sound): effects.append(.playSound(sound))
+        case .beeping: effects.append(.startBeeping)
         }
-        cmds.append(.log(.alarm, playLog))
+        effects.append(.log(.alarm, playLog))
 
         let playing = Playing(targetVolume: start.targetVolume, route: route, savedVolume: savedVolume,
                               watched: alarmOutput?.device, output: output)
-        return (.playing(playing), cmds)
+        return (.playing(playing), effects)
     }
 
-    private static func outputChanged(_ playing: Playing, _ output: AudioDevice?) -> (State, [Cmd]) {
+    private static func outputChanged(_ playing: Playing, _ output: AudioDevice?) -> (Model, [Effect]) {
         var playing = playing
-        var cmds: [Cmd] = []
+        var effects: [Effect] = []
         switch playing.route {
         // Connecting headphones moves the default output, and the alarm with it.
         case .speaker(let speaker, _):
             if let output, output != speaker {
                 playing.route = .speaker(speaker, displaced: output)
-                cmds += [.setDefaultOutput(speaker),
+                effects += [.setDefaultOutput(speaker),
                          .log(.alarm, "Output moved to device \(output) - alarm kept on built-in speaker")]
             }
         case .followOutput:
             break
         }
         switch playing.output {
-        case .sound(let sound): cmds.append(.resumeSound(sound))
+        case .sound(let sound): effects.append(.resumeSound(sound))
         case .beeping: break
         }
-        cmds.append(.readOutput)
-        return (.playing(playing), cmds)
+        effects.append(.readOutput)
+        return (.playing(playing), effects)
     }
 
-    private static func enforce(_ playing: Playing, _ reading: Reading?) -> (State, [Cmd]) {
+    private static func enforce(_ playing: Playing, _ reading: Reading?) -> (Model, [Effect]) {
         var playing = playing
-        var cmds: [Cmd] = []
+        var effects: [Effect] = []
         // No built-in speaker to return to: follow the new device instead.
         if reading?.device != playing.watched {
             playing.watched = reading?.device
-            cmds.append(.watch(reading?.device))
+            effects.append(.watch(reading?.device))
         }
         let target = playing.targetVolume
         if let reading {
             if reading.isMuted {
-                cmds += [.unmuteOutput, .setOutputVolume(target), .log(.alarm, "Mute blocked - volume restored")]
+                effects += [.unmuteOutput, .setOutputVolume(target), .log(.alarm, "Mute blocked - volume restored")]
             } else if let current = reading.volume, current < target - 0.05 {
-                cmds += [.setOutputVolume(target),
+                effects += [.setOutputVolume(target),
                          .log(.alarm, "Volume restored from \(Int(current * 100))% to \(Int(target * 100))%")]
             }
         }
-        return (.playing(playing), cmds)
+        return (.playing(playing), effects)
     }
 
     /// Restores only what the alarm changed.
-    private static func stop(_ playing: Playing) -> [Cmd] {
-        var cmds: [Cmd] = [.unwatch]
+    private static func stop(_ playing: Playing) -> [Effect] {
+        var effects: [Effect] = [.unwatch]
         switch playing.output {
-        case .sound(let sound): cmds.append(.stopSound(sound))
-        case .beeping: cmds.append(.stopBeeping)
+        case .sound(let sound): effects.append(.stopSound(sound))
+        case .beeping: effects.append(.stopBeeping)
         }
-        if let volume = playing.savedVolume { cmds.append(.setOutputVolume(volume)) }
+        if let volume = playing.savedVolume { effects.append(.setOutputVolume(volume)) }
         switch playing.route {
         case .speaker(_, displaced: .some(let device)):
-            cmds += [.setDefaultOutput(device), .log(.alarm, "Restored output device to \(device)")]
+            effects += [.setDefaultOutput(device), .log(.alarm, "Restored output device to \(device)")]
         case .speaker(_, displaced: .none), .followOutput:
             break
         }
-        cmds.append(.log(.alarm, "Alarm stopped"))
-        return cmds
+        effects.append(.log(.alarm, "Alarm stopped"))
+        return effects
     }
 }
