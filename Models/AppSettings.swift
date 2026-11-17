@@ -114,7 +114,7 @@ extension ProximityDistance: RawRepresentable {
 }
 
 /// The Detection Distance menu: the presets plus one "Custom" entry, whatever its dBm.
-enum ProximityMenuItem: Hashable {
+enum ProximityMenuItem: Hashable, Identifiable {
     case preset(ProximityPreset)
     case custom
 
@@ -124,6 +124,17 @@ enum ProximityMenuItem: Hashable {
         case .custom: self = .custom
         }
     }
+
+    var id: String { label }
+
+    var label: String {
+        switch self {
+        case .preset(let preset): return "\(preset.rawValue) (\(preset.description))"
+        case .custom: return "Custom"
+        }
+    }
+
+    static let offered: [ProximityMenuItem] = ProximityPreset.allCases.map(ProximityMenuItem.preset) + [.custom]
 }
 
 /// Available alarm sounds

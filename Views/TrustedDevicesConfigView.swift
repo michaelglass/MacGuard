@@ -238,11 +238,10 @@ struct TrustedDevicesConfigContainerView: View {
                         }
                     }
                 )) {
-                    ForEach(ProximityPreset.allCases) { preset in
-                        Text("\(preset.rawValue) (\(preset.description))").tag(ProximityMenuItem.preset(preset))
+                    ForEach(ProximityMenuItem.offered) { item in
+                        if case .custom = item { Divider() }
+                        Text(item.label).tag(item)
                     }
-                    Divider()
-                    Text("Custom").tag(ProximityMenuItem.custom)
                 }
                 .pickerStyle(.menu)
                 .frame(width: 180)
