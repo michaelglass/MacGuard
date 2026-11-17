@@ -28,11 +28,11 @@ jobs:
       (github.event.pull_request.merged == true &&
        !contains(github.event.pull_request.labels.*.name, 'release:skip')) ||
       github.event_name == 'workflow_dispatch'
-    runs-on: macos-14
+    runs-on: macos-26
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -364,7 +364,7 @@ jobs:
           rm -f "$ITEM_FILE"
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: v${{ steps.version.outputs.new }}
           name: MacGuard v${{ steps.version.outputs.new }}
