@@ -4,7 +4,7 @@
 
 import Foundation
 
-struct ArmSession: Equatable {
+struct ArmSession: Equatable, Codable {
     /// Trusted devices seen away during this session (at arming or since).
     /// Only these may disarm: a phone left on the desk never vouches for the owner.
     var departed: Set<TrustedDevice.ID>

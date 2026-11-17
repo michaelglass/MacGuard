@@ -9,17 +9,8 @@ import SwiftUI
 
 /// Exists from `.armed` until stand down: one whose process is gone means MacGuard was killed.
 struct ArmedMarker: Codable, Equatable {
-    let departed: Set<TrustedDevice.ID>
-    let armedAt: Date
+    let session: ArmSession
     let pid: Int32
-
-    init(_ session: ArmSession, armedAt: Date, pid: Int32) {
-        departed = session.departed
-        self.armedAt = armedAt
-        self.pid = pid
-    }
-
-    var session: ArmSession { ArmSession(departed: departed) }
 }
 
 enum LaunchDecision: Equatable {
@@ -124,7 +115,7 @@ final class TamperGuard: ObservableObject {
 
     func persist(_ session: ArmSession) {
         guard isEnabled else { return }
-        let marker = ArmedMarker(session, armedAt: Date(), pid: getpid())
+        let marker = ArmedMarker(session: session, pid: getpid())
         do {
             try FileManager.default.createDirectory(at: Self.markerURL.deletingLastPathComponent(),
                                                     withIntermediateDirectories: true)

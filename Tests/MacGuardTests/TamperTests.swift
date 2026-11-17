@@ -54,7 +54,7 @@ final class LaunchDecisionTests: XCTestCase {
     private let phoneLeft = ArmSession(departed: [TrustedDevice.phone.id])
 
     private func markerData(_ session: ArmSession, pid: Int32) throws -> Data {
-        try TamperGuard.encoder.encode(ArmedMarker(session, armedAt: Date(), pid: pid))
+        try TamperGuard.encoder.encode(ArmedMarker(session: session, pid: pid))
     }
 
     func testDecision() throws {
@@ -65,6 +65,9 @@ final class LaunchDecisionTests: XCTestCase {
             ("corrupt marker fails closed", Data("garbage".utf8), true,
              .resumeAfterTamper(.noDepartures)),
             ("pre-upgrade marker fails closed", Data(#"{"trustedDeviceHasLeft":true,"armedAt":0,"pid":4242}"#.utf8), false,
+             .resumeAfterTamper(.noDepartures)),
+            ("flat departed marker fails closed",
+             Data(#"{"departed":["\#(TrustedDevice.phone.id)"],"armedAt":0,"pid":4242}"#.utf8), false,
              .resumeAfterTamper(.noDepartures)),
         ]
         for (name, data, alive, expected) in cases {
