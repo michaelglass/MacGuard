@@ -18,6 +18,8 @@ struct DeviceTracking: Equatable {
 
 /// Manages Bluetooth proximity detection for multiple trusted devices
 /// I/O shell: parses callbacks into `Observation`s; `ProximityTracker` decides.
+/// CoreBluetooth delivers on the main queue (`queue: nil`).
+@MainActor
 class BluetoothProximityManager: NSObject, ObservableObject {
     var onInput: (AlarmMachine.Msg) -> Void = { _ in }
 
@@ -127,8 +129,9 @@ class BluetoothProximityManager: NSObject, ObservableObject {
 
     private func schedulePolling() {
         pollTimer?.invalidate()
+        // Scheduled on the main run loop, so it fires on the main thread.
         pollTimer = Timer.scheduledTimer(withTimeInterval: pollingInterval, repeats: true) { [weak self] _ in
-            self?.pollAllDevices()
+            MainActor.assumeIsolated { self?.pollAllDevices() }
         }
     }
 
@@ -411,7 +414,7 @@ enum DeviceConnectionStatus {
 
 // MARK: - CBCentralManagerDelegate
 
-extension BluetoothProximityManager: CBCentralManagerDelegate {
+extension BluetoothProximityManager: @MainActor CBCentralManagerDelegate {
     func centralManagerDidUpdateState(_ central: CBCentralManager) {
         isBluetoothEnabled = central.state == .poweredOn
 
@@ -510,7 +513,7 @@ extension BluetoothProximityManager: CBCentralManagerDelegate {
 
 // MARK: - CBPeripheralDelegate
 
-extension BluetoothProximityManager: CBPeripheralDelegate {
+extension BluetoothProximityManager: @MainActor CBPeripheralDelegate {
     func peripheral(_ peripheral: CBPeripheral, didReadRSSI RSSINumber: NSNumber, error: Error?) {
         if let error {
             logActivity(.bluetooth, "RSSI read error: \(error.localizedDescription)")
@@ -527,7 +530,7 @@ extension BluetoothProximityManager: CBPeripheralDelegate {
 
 extension BluetoothProximityManager: IOBluetoothDeviceInquiryDelegate {
     /// Device discovered during inquiry - provides fresh RSSI
-    func deviceInquiryDeviceFound(_ sender: IOBluetoothDeviceInquiry!, device: IOBluetoothDevice!) {
+    nonisolated func deviceInquiryDeviceFound(_ sender: IOBluetoothDeviceInquiry!, device: IOBluetoothDevice!) {
         guard let address = device.addressString.flatMap(BluetoothAddress.init),
               let rssi = RSSI(Int(device.rawRSSI())) else { return }
 
@@ -543,23 +546,24 @@ extension BluetoothProximityManager: IOBluetoothDeviceInquiryDelegate {
     }
 
     /// Inquiry completed - restart for continuous monitoring
-    func deviceInquiryComplete(_ sender: IOBluetoothDeviceInquiry!, error: IOReturn, aborted: Bool) {
+    nonisolated func deviceInquiryComplete(_ sender: IOBluetoothDeviceInquiry!, error: IOReturn, aborted: Bool) {
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
-            // Restart inquiry for continuous monitoring if still scanning
+            // Restart inquiry for continuous monitoring if still scanning.
+            // `deviceInquiry` is the only inquiry this delegates for, i.e. `sender`.
             if self.isScanning && !aborted {
-                sender.start()
+                self.deviceInquiry?.start()
             }
         }
     }
 
     /// Optional: Called when name resolution starts (not used, but required for protocol)
-    func deviceInquiryUpdatingDeviceNamesStarted(_ sender: IOBluetoothDeviceInquiry!, devicesRemaining: UInt32) {
+    nonisolated func deviceInquiryUpdatingDeviceNamesStarted(_ sender: IOBluetoothDeviceInquiry!, devicesRemaining: UInt32) {
         // Not used - we disabled name updates for speed
     }
 
     /// Optional: Called when device name is updated
-    func deviceInquiryDeviceNameUpdated(_ sender: IOBluetoothDeviceInquiry!, device: IOBluetoothDevice!, devicesRemaining: UInt32) {
+    nonisolated func deviceInquiryDeviceNameUpdated(_ sender: IOBluetoothDeviceInquiry!, device: IOBluetoothDevice!, devicesRemaining: UInt32) {
         // Not used - we disabled name updates for speed
     }
 }

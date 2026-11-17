@@ -37,6 +37,8 @@ final class DeviceScannerWindowController {
 }
 
 /// Shell around `DeviceScan`: parses IOBluetooth/CoreBluetooth callbacks into messages.
+/// CoreBluetooth delivers on the main queue (`queue: nil`).
+@MainActor
 class DeviceScannerViewModel: NSObject, ObservableObject {
     var bluetoothManager: BluetoothProximityManager
     @Published private(set) var scan = DeviceScan.Model()
@@ -98,7 +100,7 @@ class DeviceScannerViewModel: NSObject, ObservableObject {
     }
 }
 
-extension DeviceScannerViewModel: CBCentralManagerDelegate {
+extension DeviceScannerViewModel: @MainActor CBCentralManagerDelegate {
     func centralManagerDidUpdateState(_ central: CBCentralManager) {
         if central.state == .poweredOn {
             central.scanForPeripherals(
