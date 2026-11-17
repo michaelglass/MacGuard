@@ -169,12 +169,20 @@ Behaviour changes:
 - A marker without the `audio` field (from before this change) fails closed, as before.
 - **Not verified on hardware:** the UID lookups (`kAudioDevicePropertyDeviceUID`, `kAudioHardwarePropertyTranslateUIDToDevice`) and the real kill-and-relaunch sequence.
 
+## Round 8: distribution, kiosk mode, checks
+
+- **Updates come from this fork.** `SUFeedURL` is this repo's `appcast.xml` and `SUPublicEDKey` a new EdDSA key (private half in the maintainer's keychain). `Info.plist` is the one source: `create-dmg.sh` and `release.yml` read both values from it. `appcast.xml` dropped upstream's 2.0.8 entry, which this key cannot verify. CI signing needs the private key as the `SPARKLE_PRIVATE_KEY` secret.
+- **Kiosk mode while the overlay is up.** The Dock and menu bar are hidden and process switching, Force Quit, log out and Hide are disabled; the previous presentation options return on hide.
+- **Hardened runtime** when signed with an Apple-issued identity (Developer ID / Apple Development / Apple Distribution), with the camera and Apple Events entitlements. Under the runtime, library validation refuses a Sparkle signed by a self-signed or ad-hoc identity (verified: such a build dies in dyld), so those builds stay without it.
+- **One check verb.** `mise check` builds with warnings as errors and runs the tests; the Check workflow runs it on pull requests.
+- **The machine's switch has no `default:`.** It switches on the message, then exhaustively on the state.
+
 ## Open (not fixed)
 
-- **Fork users auto-update back to upstream.** `Info.plist` `SUFeedURL` points at `shenglong209/MacGuard`, and `SUPublicEDKey` is upstream's key. A build from this fork will offer upstream's release and silently replace these changes. To distribute the fork, change both values and sign the appcast with your own key.
-- **Lid-close protection.** `pmset -a disablesleep 1` is a system-wide, persistent setting. If MacGuard crashes or is force-quit, sleep stays disabled until the user notices. On quit, `resetLidCloseProtection` prompts for an administrator password, although its comment says "silent". A privileged helper (`SMAppService`) or a launchd watchdog that resets the setting would be more robust. This needs on-device testing, so it was left unchanged.
+- **Lid-close protection.** `pmset -a disablesleep 1` is a system-wide, persistent setting. If MacGuard crashes or is force-quit, sleep stays disabled until the user notices. On quit, `resetLidCloseProtection` prompts for an administrator password, although its comment says "silent". Resetting it needs root, and the tamper watchdog runs as the user, so nothing short of a privileged helper (`SMAppService.daemon`) can undo it after a force-quit; prompting for an admin password on every arm and disarm instead would be worse. Left unchanged.
 - **Killing both the app and its watchdog** stops protection until launchd restarts the watchdog (about 10–15 s). A user-space design can't do better without a privileged daemon.
-- **Hardened runtime is not enabled** (`codesign` never passes `--options runtime` or the entitlements file). If it is turned on, add the camera and Apple Events entitlements to `MacGuard.entitlements` and pass it.
+- **Hardened runtime needs an Apple-issued identity.** The self-signed "MacGuard Developer" CI identity builds without it (see round 8); notarized distribution needs a Developer ID certificate.
+- **The armed marker isn't rewritten when a device joins `departed` while armed**, so a tamper relaunch resumes with the departures known at arming. This errs toward fewer proximity-disarm rights.
 - **Likely blind spot after "lock on arm".** Secure input (the lock-screen password field) stops keystrokes reaching other processes' event taps ([TN2150](https://developer.apple.com/library/mac/technotes/tn2150/_index.html)). Whether pointer events still arrive needs testing on hardware. If they don't, only the lid, power, USB and Bluetooth triggers protect a locked Mac.
 - **Bluetooth identity is spoofable.** Classic-BT trusted devices are matched by MAC address (`bluetoothAddress`), and that address can be spoofed with commodity hardware. A connected Classic device whose RSSI is unavailable is treated as −50 dBm (strong, nearby). BLE matching by `CBPeripheral.identifier` is harder to spoof because iPhones use resolvable private addresses. Proximity should be documented as a convenience, not as authentication.
 
