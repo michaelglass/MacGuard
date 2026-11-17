@@ -9,7 +9,7 @@ import IOKit.pwr_mgt
 /// Monitors lid close events via IOKit clamshell state and sleep notifications,
 /// and keeps the Mac awake for as long as it is monitoring.
 class SleepMonitor {
-    var onInput: (AlarmInput) -> Void = { _ in }
+    var onInput: (AlarmMachine.Msg) -> Void = { _ in }
 
     private struct Session {
         let caffeinate: Process?

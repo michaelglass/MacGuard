@@ -36,23 +36,25 @@ enum AlarmEvent: Equatable {
     case alarmSounding(TriggerCause)
 }
 
-enum AlarmInput {
-    case armRequested(auto: Bool)
-    case armingDelayElapsed
-    case inputMonitoringStarted(Bool)
-    case cancelArming
-    case authenticated(OwnerAuthentication)
-    /// Starts the countdown, or sounds at once when there is none.
-    case intrusion(TriggerCause)
-    /// Sounds immediately, even mid-countdown.
-    case severeIntrusion(TriggerCause)
-    case countdownTick
-    case proximity(SightingChange)
-    case systemWoke
-    case autoArmTimerFired
-    case screenLocked
-    case resumeAfterTamper(ArmSession)
-    case settingsChanged
+extension AlarmMachine {
+    enum Msg {
+        case armRequested(auto: Bool)
+        case armingDelayElapsed
+        case inputMonitoringStarted(Bool)
+        case cancelArming
+        case authenticated(OwnerAuthentication)
+        /// Starts the countdown, or sounds at once when there is none.
+        case intrusion(TriggerCause)
+        /// Sounds immediately, even mid-countdown.
+        case severeIntrusion(TriggerCause)
+        case countdownTick
+        case proximity(SightingChange)
+        case systemWoke
+        case autoArmTimerFired
+        case screenLocked
+        case resumeAfterTamper(ArmSession)
+        case settingsChanged
+    }
 }
 
 enum BluetoothHealth: Equatable {
@@ -76,7 +78,7 @@ enum AutoArm: Equatable {
 
 /// Snapshot of parsed settings the machine decides on.
 struct AlarmEnvironment {
-    /// The runtime's clock at this step.
+    /// The runtime's clock at this update.
     var now: Date
     var countdown: Countdown?
     var autoLockOnArm: Bool
@@ -89,77 +91,75 @@ struct AlarmEnvironment {
     var exitDelay: ExitDelay
 }
 
-/// Side effects the shell performs, in order.
-enum AlarmEffect: Equatable {
-    case prepareAudio
-    case lockScreen
-    case closeConfigWindows
-    case scheduleArmingDelay(ExitDelay)
-    case startInputMonitoring
-    case startSystemMonitors
-    case stopMonitors
-    case showOverlay
-    case hideOverlay
-    case playAlarm
-    case stopAlarm
-    case startCountdownTimer
-    case stopCountdownTimer
-    case startAutoArmTimer
-    case cancelAutoArmTimer(reason: String?)
-    case resumeIdleScanning
-    case stopIdleScanning
-    case log(ActivityLogCategory, String)
-    case emit(AlarmEvent)
-    /// Record that this session is armed, so a killed process is detectable.
-    case persistArmedMarker(ArmSession)
-    case clearArmedMarker
-    /// Disarmed: drop wrong-PIN history and any open Touch ID prompt.
-    case endOwnerChallenge
+extension AlarmMachine {
+    /// Side effects the shell performs, in order.
+    enum Effect: Equatable {
+        case prepareAudio
+        case lockScreen
+        case closeConfigWindows
+        case scheduleArmingDelay(ExitDelay)
+        case startInputMonitoring
+        case startSystemMonitors
+        case stopMonitors
+        case showOverlay
+        case hideOverlay
+        case playAlarm
+        case stopAlarm
+        case startCountdownTimer
+        case stopCountdownTimer
+        case startAutoArmTimer
+        case cancelAutoArmTimer(reason: String?)
+        case resumeIdleScanning
+        case stopIdleScanning
+        case log(ActivityLogCategory, String)
+        case emit(AlarmEvent)
+        /// Record that this session is armed, so a killed process is detectable.
+        case persistArmedMarker(ArmSession)
+        case clearArmedMarker
+        /// Disarmed: drop wrong-PIN history and any open Touch ID prompt.
+        case endOwnerChallenge
+    }
 }
 
 /// The alarm's decisions as a pure function: no timers, singletons or I/O.
 enum AlarmMachine {
     struct Model: Equatable {
         var alarm: AlarmState
-        /// Proximity *evidence*, kept from `.proximity` inputs. Unobserved and
+        /// Proximity *evidence*, kept from `.proximity` messages. Unobserved and
         /// assumed devices are absent: not seen is neither here nor gone.
         var sightings: [TrustedDevice.ID: Sighting]
 
         static let initial = Model(alarm: .idle, sightings: [:])
     }
 
-    typealias Transition = (model: Model, effects: [AlarmEffect])
-
-    static func step(_ model: Model, _ input: AlarmInput, _ env: AlarmEnvironment) -> Transition {
+    static func update(_ model: Model, _ msg: Msg, _ env: AlarmEnvironment) -> (Model, [Effect]) {
         var sightings = model.sightings
-        if case .proximity(let change) = input {
+        if case .proximity(let change) = msg {
             switch change {
             case .seen(let device, let sighting): sightings[device.id] = sighting
             case .lost(let device): sightings[device.id] = nil
             }
         }
-        let (alarm, effects) = decide(model.alarm, input, sightings, env)
+        let (alarm, effects) = decide(model.alarm, msg, sightings, env)
         return (Model(alarm: alarm, sightings: sightings), effects)
     }
 
-    private typealias AlarmTransition = (state: AlarmState, effects: [AlarmEffect])
-
-    /// `sightings` already include this input's change.
+    /// `sightings` already include this message's change.
     private static func decide(
         _ state: AlarmState,
-        _ input: AlarmInput,
+        _ msg: Msg,
         _ sightings: [TrustedDevice.ID: Sighting],
         _ env: AlarmEnvironment
-    ) -> AlarmTransition {
+    ) -> (AlarmState, [Effect]) {
         func seen(_ sighting: Sighting) -> Set<TrustedDevice.ID> {
             Set(sightings.filter { $0.value == sighting }.keys)
         }
 
-        switch (state, input) {
+        switch (state, msg) {
 
         // MARK: Arming
         case (.idle, .armRequested(let auto)):
-            var effects: [AlarmEffect] = [.closeConfigWindows, .prepareAudio]
+            var effects: [Effect] = [.closeConfigWindows, .prepareAudio]
             if env.autoLockOnArm { effects.append(.lockScreen) }
             effects.append(.scheduleArmingDelay(env.exitDelay))
             let until = env.now.addingTimeInterval(env.exitDelay.seconds)
@@ -229,7 +229,7 @@ enum AlarmMachine {
             return (state, autoArmGracePeriod("'\(device.name)' left - starting grace period", env.autoArm))
 
         case (_, .proximity(.seen(let device, .away))):
-            var effects: [AlarmEffect] = [.log(.bluetooth, "Trusted device '\(device.name)' left proximity")]
+            var effects: [Effect] = [.log(.bluetooth, "Trusted device '\(device.name)' left proximity")]
             if state.session?.departed.contains(device.id) == false {
                 effects.append(.log(.bluetooth, "'\(device.name)' may now disarm on return"))
             }
@@ -282,7 +282,7 @@ enum AlarmMachine {
         }
     }
 
-    private static func autoArmGracePeriod(_ message: String, _ autoArm: AutoArm) -> [AlarmEffect] {
+    private static func autoArmGracePeriod(_ message: String, _ autoArm: AutoArm) -> [Effect] {
         switch autoArm {
         case .off: return []
         case .onDeviceLeave(.unstable): return [.log(.bluetooth, "Auto-arm blocked - BT unstable or off")]
@@ -290,8 +290,8 @@ enum AlarmMachine {
         }
     }
 
-    private static func soundAlarm(_ session: ArmSession, _ cause: TriggerCause, _ message: String, overlay: Bool) -> AlarmTransition {
-        let effects: [AlarmEffect] = (overlay ? [.showOverlay] : []) + [
+    private static func soundAlarm(_ session: ArmSession, _ cause: TriggerCause, _ message: String, overlay: Bool) -> (AlarmState, [Effect]) {
+        let effects: [Effect] = (overlay ? [.showOverlay] : []) + [
             .stopCountdownTimer,
             .playAlarm,
             .log(.alarm, message),
@@ -300,8 +300,8 @@ enum AlarmMachine {
         return (.alarming(session, cause), effects)
     }
 
-    private static func standDown(_ reason: String, _ env: AlarmEnvironment) -> AlarmTransition {
-        var effects: [AlarmEffect] = [
+    private static func standDown(_ reason: String, _ env: AlarmEnvironment) -> (AlarmState, [Effect]) {
+        var effects: [Effect] = [
             .stopCountdownTimer,
             .cancelAutoArmTimer(reason: nil),
             .stopMonitors,

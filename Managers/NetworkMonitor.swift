@@ -12,7 +12,7 @@ struct NetworkLink: Hashable {
 
 /// Reports when the set of Wi-Fi / wired links in use changes.
 class NetworkMonitor {
-    var onInput: (AlarmInput) -> Void = { _ in }
+    var onInput: (AlarmMachine.Msg) -> Void = { _ in }
 
     private var monitor: NWPathMonitor?
     private var baseline: Set<NetworkLink>?

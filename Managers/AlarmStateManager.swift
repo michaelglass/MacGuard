@@ -46,7 +46,7 @@ class AlarmStateManager: ObservableObject {
 
     init() {
         // Every monitor delivers on the main run loop, already parsed
-        let forward: (AlarmInput) -> Void = { [weak self] input in
+        let forward: (AlarmMachine.Msg) -> Void = { [weak self] input in
             MainActor.assumeIsolated { self?.send(input) }
         }
         inputMonitor.onInput = forward
@@ -139,7 +139,7 @@ class AlarmStateManager: ObservableObject {
         )
     }
 
-    private func send(_ input: AlarmInput) {
+    private func send(_ input: AlarmMachine.Msg) {
         runtime.send(input)
     }
 

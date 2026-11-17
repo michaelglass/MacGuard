@@ -52,7 +52,7 @@ enum IntrusionInput: CaseIterable {
 /// Monitors global keyboard, mouse, and touchpad input using CGEventTap
 /// Requires Accessibility permission
 class InputMonitor {
-    var onInput: (AlarmInput) -> Void = { _ in }
+    var onInput: (AlarmMachine.Msg) -> Void = { _ in }
 
     private var tap: (port: CFMachPort, source: CFRunLoopSource)?
 

@@ -11,7 +11,7 @@ enum PowerSource: Equatable {
 
 /// Monitors power cable connect/disconnect events
 class PowerMonitor {
-    var onInput: (AlarmInput) -> Void = { _ in }
+    var onInput: (AlarmMachine.Msg) -> Void = { _ in }
 
     private var session: (source: CFRunLoopSource, last: PowerSource)?
 

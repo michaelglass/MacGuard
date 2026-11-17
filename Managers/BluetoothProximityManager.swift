@@ -19,7 +19,7 @@ struct DeviceTracking: Equatable {
 /// Manages Bluetooth proximity detection for multiple trusted devices
 /// I/O shell: parses callbacks into `Observation`s; `ProximityTracker` decides.
 class BluetoothProximityManager: NSObject, ObservableObject {
-    var onInput: (AlarmInput) -> Void = { _ in }
+    var onInput: (AlarmMachine.Msg) -> Void = { _ in }
 
     // MARK: - Published Properties
 

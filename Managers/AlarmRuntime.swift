@@ -36,7 +36,7 @@ protocol AlarmScheduler {
     func schedule(after interval: TimeInterval, repeats: Bool, _ action: @escaping @MainActor () -> Void) -> AlarmTimer
 }
 
-/// Steps `AlarmMachine` and runs its effects. Feedback effects (timers,
+/// Updates `AlarmMachine` and runs its effects. Feedback effects (timers,
 /// `startInputMonitoring`) re-enter as inputs.
 @MainActor
 final class AlarmRuntime {
@@ -68,8 +68,8 @@ final class AlarmRuntime {
         self.gracePeriod = gracePeriod
     }
 
-    func send(_ input: AlarmInput) {
-        let (next, effects) = AlarmMachine.step(model, input, environment(scheduler.now()))
+    func send(_ msg: AlarmMachine.Msg) {
+        let (next, effects) = AlarmMachine.update(model, msg, environment(scheduler.now()))
         model = next
         effects.forEach(perform)
     }
@@ -78,7 +78,7 @@ final class AlarmRuntime {
         eventSinks.append(sink)
     }
 
-    private func perform(_ effect: AlarmEffect) {
+    private func perform(_ effect: AlarmMachine.Effect) {
         switch effect {
         case .prepareAudio: hardware.prepareAudio()
         case .lockScreen: hardware.lockScreen()

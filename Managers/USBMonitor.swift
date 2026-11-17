@@ -7,7 +7,7 @@ import IOKit.usb
 
 /// Devices attached before monitoring starts are drained silently.
 class USBMonitor {
-    var onInput: (AlarmInput) -> Void = { _ in }
+    var onInput: (AlarmMachine.Msg) -> Void = { _ in }
 
     private var session: (port: IONotificationPortRef, iterator: io_iterator_t)?
 

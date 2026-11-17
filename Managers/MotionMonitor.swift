@@ -9,7 +9,7 @@ import IOKit.hid
 /// (AppleSPUHIDDevice; no root needed) and feeds the pure detectors.
 /// Sensor layout per github.com/olvvier/apple-silicon-accelerometer (MIT).
 final class MotionMonitor {
-    var onInput: (AlarmInput) -> Void = { _ in }
+    var onInput: (AlarmMachine.Msg) -> Void = { _ in }
 
     private static let accelerometerMatch: [String: Int] = [kIOHIDPrimaryUsagePageKey: 0xFF00, kIOHIDPrimaryUsageKey: 3]
     private static let lidMatch: [String: Int] = [kIOHIDPrimaryUsagePageKey: 0x20, kIOHIDPrimaryUsageKey: 138]
