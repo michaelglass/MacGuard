@@ -7,6 +7,7 @@
 # Usage: ./scripts/export-certificate.sh
 
 set -e
+REPO=$(git remote get-url origin | sed -E 's#.*github\.com[:/]##; s#\.git$##')  # owner/name of this clone's origin
 
 echo "=== Export Apple Development Certificate ==="
 echo ""
@@ -70,7 +71,7 @@ if [ -f "$P12_FILE" ]; then
     echo "  SIGNING_CERTIFICATE_PASSWORD:"
     echo "    The password you set for the .p12 file"
     echo ""
-    echo "Go to: https://github.com/shenglong209/MacGuard/settings/secrets/actions"
+    echo "Go to: https://github.com/$REPO/settings/secrets/actions"
 else
     echo "❌ Export failed. Try exporting manually from Keychain Access:"
     echo "   1. Open Keychain Access"

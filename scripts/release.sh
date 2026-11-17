@@ -9,6 +9,7 @@
 set -e
 
 BUMP_TYPE="${1:-patch}"
+REPO=$(git remote get-url origin | sed -E 's#.*github\.com[:/]##; s#\.git$##')  # owner/name of this clone's origin
 INFO_PLIST="Info.plist"
 
 # Validate bump type
@@ -87,5 +88,5 @@ echo "=== Release Triggered ==="
 echo "✅ Pushed to main"
 echo "🚀 GitHub Actions will build and release v$NEW_VERSION"
 echo ""
-echo "Monitor: https://github.com/shenglong209/MacGuard/actions"
-echo "Release: https://github.com/shenglong209/MacGuard/releases/tag/v$NEW_VERSION (after CI completes)"
+echo "Monitor: https://github.com/$REPO/actions"
+echo "Release: https://github.com/$REPO/releases/tag/v$NEW_VERSION (after CI completes)"

@@ -10,6 +10,9 @@ set -e
 APP_NAME="MacGuard"
 VERSION="${1:-1.2.0}"
 BUNDLE_ID="com.shenglong.macguard"
+# The repo's Info.plist is the one source for the update feed and its signing key.
+FEED_URL=$(/usr/libexec/PlistBuddy -c "Print :SUFeedURL" Info.plist)
+PUBLIC_ED_KEY=$(/usr/libexec/PlistBuddy -c "Print :SUPublicEDKey" Info.plist)
 # Use Apple Developer cert if available, otherwise self-signed, otherwise ad-hoc
 SIGNING_IDENTITY=""
 
@@ -99,9 +102,9 @@ cat > "$APP_BUNDLE/Contents/Info.plist" << PLIST
     <key>CFBundleVersion</key>
     <string>${BUILD_NUM}</string>
     <key>SUFeedURL</key>
-    <string>https://raw.githubusercontent.com/shenglong209/MacGuard/main/appcast.xml</string>
+    <string>$FEED_URL</string>
     <key>SUPublicEDKey</key>
-    <string>I7s26R56gqkm2GqhPOLdjcyK4YGcuEbSWsRBTEumlb8=</string>
+    <string>$PUBLIC_ED_KEY</string>
     <key>SUEnableAutomaticChecks</key>
     <true/>
     <key>SUScheduledCheckInterval</key>

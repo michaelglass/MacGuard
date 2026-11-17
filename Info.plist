@@ -24,10 +24,10 @@
 
     <!-- Sparkle Update Configuration -->
     <key>SUFeedURL</key>
-    <string>https://raw.githubusercontent.com/shenglong209/MacGuard/main/appcast.xml</string>
+    <string>https://raw.githubusercontent.com/michaelglass/MacGuard/main/appcast.xml</string>
 
     <key>SUPublicEDKey</key>
-    <string>I7s26R56gqkm2GqhPOLdjcyK4YGcuEbSWsRBTEumlb8=</string>
+    <string>H1FoK3nAJ8LqQUslk1oZkoYQ8o1GrW44ztBTtql78eI=</string>
 
     <key>SUEnableAutomaticChecks</key>
     <true/>

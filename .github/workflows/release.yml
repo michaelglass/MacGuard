@@ -153,6 +153,9 @@ jobs:
         run: |
           APP_NAME="MacGuard"
           BUNDLE_ID="com.shenglong.macguard"
+          # The repo's Info.plist is the one source for the update feed and its signing key.
+          FEED_URL=$(/usr/libexec/PlistBuddy -c "Print :SUFeedURL" Info.plist)
+          PUBLIC_ED_KEY=$(/usr/libexec/PlistBuddy -c "Print :SUPublicEDKey" Info.plist)
           BUILD_DIR=".build/release"
           DIST_DIR="dist"
           APP_BUNDLE="$DIST_DIR/$APP_NAME.app"
@@ -208,9 +211,9 @@ jobs:
               <key>CFBundleVersion</key>
               <string>$BUILD_NUM</string>
               <key>SUFeedURL</key>
-              <string>https://raw.githubusercontent.com/shenglong209/MacGuard/main/appcast.xml</string>
+              <string>$FEED_URL</string>
               <key>SUPublicEDKey</key>
-              <string>${{ secrets.SPARKLE_PUBLIC_KEY }}</string>
+              <string>$PUBLIC_ED_KEY</string>
               <key>SUEnableAutomaticChecks</key>
               <true/>
               <key>SUScheduledCheckInterval</key>
@@ -340,7 +343,7 @@ jobs:
           # Create new item
           ITEM="    <item>
                 <title>Version ${VERSION}</title>
-                <link>https://github.com/shenglong209/MacGuard/releases/tag/v${VERSION}</link>
+                <link>https://github.com/${GITHUB_REPOSITORY}/releases/tag/v${VERSION}</link>
                 <sparkle:version>${BUILD_NUM}</sparkle:version>
                 <sparkle:shortVersionString>${VERSION}</sparkle:shortVersionString>
                 <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
@@ -350,7 +353,7 @@ jobs:
                 ]]></description>
                 <pubDate>${PUB_DATE}</pubDate>
                 <enclosure
-                  url=\"https://github.com/shenglong209/MacGuard/releases/download/v${VERSION}/MacGuard-${VERSION}.dmg\"
+                  url=\"https://github.com/${GITHUB_REPOSITORY}/releases/download/v${VERSION}/MacGuard-${VERSION}.dmg\"
                   sparkle:edSignature=\"${ED_SIGNATURE}\"
                   length=\"${FILE_LENGTH}\"
                   type=\"application/octet-stream\"
