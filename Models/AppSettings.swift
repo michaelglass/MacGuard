@@ -380,8 +380,6 @@ class AppSettings: ObservableObject {
         set { alarmVolumeRaw = AlarmVolume(clamping: newValue).value }
     }
 
-    var proximityThresholds: ProximityThresholds { proximityDistance.thresholds }
-
     /// Enabling only sticks if the admin prompt succeeds; disabling always clears it.
     var lidCloseProtection: Bool {
         get { _lidCloseProtection }
@@ -410,23 +408,6 @@ class AppSettings: ObservableObject {
         return true
     }
 
-    // Kept for AlarmAudioManager's log line.
-    var customSoundUnavailable: Bool {
-        if case .customUnavailable = alarmSound.resolved { return true }
-        return false
-    }
-
-    // Kept for AlarmAudioManager's log line.
-    var customSoundName: String {
-        switch alarmSound {
-        case .builtIn: return "None"
-        case .custom(let url): return url.lastPathComponent
-        }
-    }
-
-    /// `nil` only if even the bundled sound is missing (the caller beeps).
-    var alarmSoundFile: PlayableSound? { alarmSound.resolved.file }
-
     private init() {
         SettingsMigration.run(.standard)
     }
@@ -439,7 +420,7 @@ class AppSettings: ObservableObject {
 
     /// Preview the selected alarm sound
     func previewSound() {
-        guard let file = alarmSoundFile,
+        guard let file = alarmSound.resolved.file,
               let sound = NSSound(contentsOf: file.url, byReference: true) else {
             NSSound.beep()
             return

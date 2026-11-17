@@ -141,10 +141,6 @@ class AlarmAudioManager {
     private func perform(_ cmd: Playback.Cmd<AVAudioPlayer>) {
         switch cmd {
         case .preload:
-            let settings = AppSettings.shared
-            if settings.customSoundUnavailable {
-                logActivity(.alarm, "Custom sound '\(settings.customSoundName)' is unavailable - using the default sound")
-            }
             send(.preloaded(loadSound()))
         case .loadSound(let start):
             send(.soundLoaded(loadSound(), then: start))
@@ -179,8 +175,16 @@ class AlarmAudioManager {
         }
     }
 
+    /// Resolves the sound now: a custom file may have moved since it was chosen.
     private func loadSound() -> AVAudioPlayer? {
-        guard let file = AppSettings.shared.alarmSoundFile else { return nil }
+        let sound = AppSettings.shared.alarmSound.resolved
+        switch sound {
+        case .customUnavailable(let url):
+            logActivity(.alarm, "Custom sound '\(url.lastPathComponent)' is unavailable - using the default sound")
+        case .builtIn, .custom:
+            break
+        }
+        guard let file = sound.file else { return nil }
         do {
             let player = try AVAudioPlayer(contentsOf: file.url)
             player.numberOfLoops = -1
