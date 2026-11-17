@@ -1,6 +1,7 @@
 // TamperTests.swift
 // MacGuard - Anti-Theft Alarm for macOS
 
+import ServiceManagement
 import XCTest
 @testable import MacGuard
 
@@ -73,5 +74,48 @@ final class LaunchDecisionTests: XCTestCase {
         XCTAssertTrue(TamperGuard.isMacGuardProcess(getpid()))
         XCTAssertFalse(TamperGuard.isMacGuardProcess(1), "launchd is not MacGuard")
         XCTAssertFalse(TamperGuard.isMacGuardProcess(-1))
+    }
+}
+
+final class WatchdogSyncTests: XCTestCase {
+    private let old = CodeHash(rawValue: "aa01")
+    private let new = CodeHash(rawValue: "bb02")
+
+    func testStoredEmptyCodeMeansNeverRegistered() {
+        XCTAssertNil(CodeHash(rawValue: ""))
+        XCTAssertEqual(CodeHash(rawValue: "aa01")?.rawValue, "aa01")
+    }
+
+    func testPlan() {
+        let cases: [(String, Bool, SMAppService.Status, CodeHash?, CodeHash?, WatchdogSync)] = [
+            ("enabled, same signature", true, .enabled, old, old, .keep),
+            ("signature changed", true, .enabled, old, new, .reregister),
+            ("registered before hashes were stored", true, .enabled, nil, new, .reregister),
+            ("unsigned build, registered unsigned", true, .enabled, nil, nil, .keep),
+            ("not registered", true, .notRegistered, old, old, .register),
+            ("awaiting approval", true, .requiresApproval, old, old, .register),
+            ("disabled, still enabled", false, .enabled, old, old, .unregister),
+            ("disabled, awaiting approval", false, .requiresApproval, old, new, .unregister),
+            ("disabled, not registered", false, .notRegistered, old, new, .keep),
+        ]
+        for (name, enabled, service, registered, own, expected) in cases {
+            XCTAssertEqual(WatchdogSync.plan(enabled: enabled, service: service, registered: registered, own: own),
+                           expected, name)
+        }
+    }
+
+    func testStatus() {
+        let failed = WatchdogSyncOutcome.failed(reason: "boom")
+        let cases: [(Bool, WatchdogSyncOutcome, SMAppService.Status, WatchdogStatus)] = [
+            (false, failed, .enabled, .off),
+            (true, failed, .enabled, .unavailable("boom")),
+            (true, .synced, .enabled, .active),
+            (true, .synced, .requiresApproval, .needsApproval),
+            (true, .synced, .notRegistered, .unavailable("Not registered")),
+        ]
+        for (enabled, outcome, service, expected) in cases {
+            XCTAssertEqual(WatchdogStatus(enabled: enabled, outcome: outcome, service: service), expected,
+                           "\(enabled) \(outcome) \(service)")
+        }
     }
 }

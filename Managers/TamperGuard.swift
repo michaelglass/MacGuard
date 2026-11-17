@@ -36,6 +36,41 @@ enum LaunchDecision: Equatable {
     }
 }
 
+/// Code directory hash (hex) of a signed binary.
+struct CodeHash: Equatable, RawRepresentable {
+    let rawValue: String
+
+    init?(rawValue: String) {
+        guard !rawValue.isEmpty else { return nil }
+        self.rawValue = rawValue
+    }
+}
+
+/// What `syncAgent` does to the launchd agent.
+enum WatchdogSync: Equatable {
+    case keep
+    case register
+    /// launchd pins the agent to the registering signature; after a rebuild it
+    /// refuses to start it (EX_CONFIG) while still `.enabled`.
+    case reregister
+    case unregister
+
+    /// `nil` hashes mean unsigned (own) or never registered / registered unsigned (stored).
+    static func plan(enabled: Bool, service: SMAppService.Status,
+                     registered: CodeHash?, own: CodeHash?) -> WatchdogSync {
+        if enabled {
+            guard service == .enabled else { return .register }
+            return registered == own ? .keep : .reregister
+        }
+        return service == .enabled || service == .requiresApproval ? .unregister : .keep
+    }
+}
+
+enum WatchdogSyncOutcome: Equatable {
+    case synced
+    case failed(reason: String)
+}
+
 enum WatchdogStatus: Equatable {
     case off
     case active
@@ -43,15 +78,18 @@ enum WatchdogStatus: Equatable {
     case needsApproval
     case unavailable(String)
 
-    init(enabled: Bool, service: SMAppService.Status, registrationError: String?) {
+    init(enabled: Bool, outcome: WatchdogSyncOutcome, service: SMAppService.Status) {
         guard enabled else { self = .off; return }
-        if let registrationError { self = .unavailable(registrationError); return }
-        switch service {
-        case .enabled: self = .active
-        case .requiresApproval: self = .needsApproval
-        case .notRegistered: self = .unavailable("Not registered")
-        case .notFound: self = .unavailable("Launch agent missing from app bundle")
-        @unknown default: self = .unavailable("Unknown status")
+        switch outcome {
+        case .failed(let reason): self = .unavailable(reason)
+        case .synced:
+            switch service {
+            case .enabled: self = .active
+            case .requiresApproval: self = .needsApproval
+            case .notRegistered: self = .unavailable("Not registered")
+            case .notFound: self = .unavailable("Launch agent missing from app bundle")
+            @unknown default: self = .unavailable("Unknown status")
+            }
         }
     }
 }
@@ -68,9 +106,9 @@ final class TamperGuard: ObservableObject {
     nonisolated static let decoder = JSONDecoder()
 
     @AppStorage("tamperProtection") private var enabledRaw = true
-    @AppStorage("watchdogRegisteredCode") private var registeredCode = ""
+    /// "" when never registered (or registered while unsigned).
+    @AppStorage("watchdogRegisteredCode") private var registeredCodeRaw = ""
     @Published private(set) var status: WatchdogStatus = .off
-    private var registrationError: String?
 
     private var agent: SMAppService { SMAppService.agent(plistName: Self.agentPlistName) }
 
@@ -118,28 +156,38 @@ final class TamperGuard: ObservableObject {
     // MARK: Watchdog agent
 
     func syncAgent() {
-        registrationError = nil
+        let enabled = isEnabled
+        let plan = WatchdogSync.plan(enabled: enabled, service: agent.status,
+                                     registered: CodeHash(rawValue: registeredCodeRaw), own: Self.ownCodeHash)
+        let outcome: WatchdogSyncOutcome
         do {
-            if isEnabled {
-                // launchd pins the agent to the registering signature; after a
-                // rebuild it refuses to start it (EX_CONFIG) while still `.enabled`.
-                let code = Self.ownCodeHash ?? ""
-                if agent.status == .enabled && registeredCode != code {
-                    logActivity(.system, "App signature changed - re-registering tamper watchdog")
-                    try agent.unregister()
-                }
-                if agent.status != .enabled {
-                    try agent.register()
-                    registeredCode = code
-                }
-            } else if agent.status == .enabled || agent.status == .requiresApproval {
-                try agent.unregister()
-            }
+            try apply(plan)
+            outcome = .synced
         } catch {
-            registrationError = error.localizedDescription
-            logActivity(.system, "Tamper watchdog \(isEnabled ? "registration" : "removal") failed: \(error.localizedDescription)")
+            outcome = .failed(reason: error.localizedDescription)
+            logActivity(.system, "Tamper watchdog \(enabled ? "registration" : "removal") failed: \(error.localizedDescription)")
         }
-        status = WatchdogStatus(enabled: isEnabled, service: agent.status, registrationError: registrationError)
+        status = WatchdogStatus(enabled: enabled, outcome: outcome, service: agent.status)
+    }
+
+    private func apply(_ plan: WatchdogSync) throws {
+        switch plan {
+        case .keep:
+            break
+        case .register:
+            try register()
+        case .reregister:
+            logActivity(.system, "App signature changed - re-registering tamper watchdog")
+            try agent.unregister()
+            if agent.status != .enabled { try register() }
+        case .unregister:
+            try agent.unregister()
+        }
+    }
+
+    private func register() throws {
+        try agent.register()
+        registeredCodeRaw = Self.ownCodeHash?.rawValue ?? ""
     }
 
     // MARK: Process identity
@@ -152,8 +200,8 @@ final class TamperGuard: ObservableObject {
         return path == ownExecutablePath
     }
 
-    /// Code directory hash (hex), nil when unsigned.
-    nonisolated static let ownCodeHash: String? = {
+    /// nil when unsigned.
+    nonisolated static let ownCodeHash: CodeHash? = {
         var code: SecCode?
         var staticCode: SecStaticCode?
         var info: CFDictionary?
@@ -161,7 +209,7 @@ final class TamperGuard: ObservableObject {
               SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode,
               SecCodeCopySigningInformation(staticCode, [], &info) == errSecSuccess,
               let unique = (info as? [String: Any])?[kSecCodeInfoUnique as String] as? Data else { return nil }
-        return unique.map { String(format: "%02x", $0) }.joined()
+        return CodeHash(rawValue: unique.map { String(format: "%02x", $0) }.joined())
     }()
 
     nonisolated static var ownExecutablePath: String? {
