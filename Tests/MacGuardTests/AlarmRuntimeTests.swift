@@ -166,7 +166,7 @@ final class AlarmRuntimeTests: XCTestCase {
         XCTAssertEqual(runtime.state.phase, .triggered)
 
         runtime.send(.trustedDeviceAway(name: "Phone"))
-        env = .fixture(any: true)
+        env = .fixture(proximity: .devices(nearby: .some))
         runtime.send(.trustedDeviceNearby(name: "Phone"))
         XCTAssertEqual(runtime.state, .idle)
         XCTAssertEqual(scheduler.pending, 0)
@@ -178,7 +178,7 @@ final class AlarmRuntimeTests: XCTestCase {
     }
 
     func testAutoArmTimerArmsAfterGracePeriodAndCanBeCancelled() {
-        env = .fixture(autoArm: true)
+        env = .fixture(proximity: .autoArmStable)
         runtime.send(.allTrustedDevicesAway)
         XCTAssertEqual(scheduler.pending, 1)
         runtime.send(.trustedDeviceNearby(name: "Phone"))

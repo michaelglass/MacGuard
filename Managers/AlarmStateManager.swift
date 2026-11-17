@@ -127,12 +127,14 @@ class AlarmStateManager: ObservableObject {
         return AlarmEnvironment(
             countdown: settings.countdownDuration.countdown,
             autoLockOnArm: settings.autoLockOnArm,
-            autoArmEnabled: settings.autoArmOnDeviceLeave,
-            autoArmMode: settings.autoArmMode,
-            hasTrustedDevices: !bluetoothManager.trustedDevices.isEmpty,
-            anyTrustedDeviceNearby: bluetoothManager.isTrustedDeviceNearby(),
-            allTrustedDevicesNearby: bluetoothManager.areAllDevicesNearby,
-            bluetoothStable: bluetoothManager.isBluetoothStable,
+            proximity: ProximityEvidence(
+                hasTrustedDevices: !bluetoothManager.trustedDevices.isEmpty,
+                mode: settings.autoArmMode,
+                autoArmEnabled: settings.autoArmOnDeviceLeave,
+                anyNearby: bluetoothManager.isTrustedDeviceNearby(),
+                allNearby: bluetoothManager.areAllDevicesNearby,
+                bluetoothStable: bluetoothManager.isBluetoothStable
+            ),
             usbTriggerEnabled: settings.usbTriggerEnabled,
             networkTriggerEnabled: settings.networkTriggerEnabled,
             motionTriggerEnabled: settings.motionTriggerEnabled,

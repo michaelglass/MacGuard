@@ -8,12 +8,7 @@ extension AlarmEnvironment {
     static func fixture(
         countdown: Int = 3,
         autoLock: Bool = false,
-        autoArm: Bool = false,
-        mode: AutoArmMode = .allDevicesAway,
-        devices: Bool = true,
-        any: Bool = false,
-        all: Bool = false,
-        stable: Bool = true,
+        proximity: ProximityEvidence = .devices(),
         usb: Bool = true,
         network: Bool = false,
         motion: Bool = true,
@@ -23,11 +18,19 @@ extension AlarmEnvironment {
     ) -> AlarmEnvironment {
         AlarmEnvironment(
             countdown: Countdown(seconds: countdown), autoLockOnArm: autoLock,
-            autoArmEnabled: autoArm, autoArmMode: mode, hasTrustedDevices: devices,
-            anyTrustedDeviceNearby: any, allTrustedDevicesNearby: all, bluetoothStable: stable,
+            proximity: proximity,
             usbTriggerEnabled: usb, networkTriggerEnabled: network,
             motionTriggerEnabled: motion, lidAngleTriggerEnabled: lidAngle,
             autoArmOnScreenLock: lockArms, exitDelay: exitDelay
         )
     }
+}
+
+extension ProximityEvidence {
+    static func devices(_ mode: AutoArmMode = .allDevicesAway, nearby: Presence = .none,
+                        autoArm: AutoArm = .off) -> ProximityEvidence {
+        .trusted(TrustedDeviceEvidence(mode: mode, presence: nearby, autoArm: autoArm))
+    }
+
+    static let autoArmStable = devices(autoArm: .onDeviceLeave(.stable))
 }
