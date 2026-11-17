@@ -75,9 +75,26 @@ class BluetoothProximityManager: NSObject, ObservableObject {
     /// Positive evidence only: nothing while not scanning. Proximity assumed during
     /// the BT recovery cooldown is not a sighting, so needs no gate here.
     var sightings: [TrustedDevice.ID: Sighting] {
+        Dictionary(uniqueKeysWithValues: currentSightings.map { ($0.key.id, $0.value) })
+    }
+
+    private var currentSightings: [TrustedDevice: Sighting] {
         guard isScanning else { return [:] }
-        let seen = Proximity.sightings(of: trustedDevices) { tracking[$0]?.proximity.proximity ?? .unobserved }
-        return Dictionary(uniqueKeysWithValues: seen.map { ($0.key.id, $0.value) })
+        return Proximity.sightings(of: trustedDevices) { tracking[$0]?.proximity.proximity ?? .unobserved }
+    }
+
+    /// What the machine has been told, so only changes are sent.
+    private var publishedSightings: [TrustedDevice: Sighting] = [:]
+
+    /// The one place proximity becomes input for the machine. Called after every
+    /// mutation that can change a sighting; one change at a time, so an input
+    /// whose effects re-enter here (e.g. a disarm stopping the scan) never
+    /// leaves a stale change queued behind it.
+    private func publishSightings() {
+        while let change = SightingChange.changes(from: publishedSightings, to: currentSightings).first {
+            publishedSightings = change.applied(to: publishedSightings)
+            onInput(.proximity(change))
+        }
     }
 
     private func device(_ id: UUID) -> TrustedDevice? {
@@ -145,6 +162,7 @@ class BluetoothProximityManager: NSObject, ObservableObject {
         }
         trustedDevices.append(device)
         saveTrustedDevices()
+        publishSightings()
         logActivity(.bluetooth, "Added trusted device: \(device.name) (classic: \(device.isClassicBluetooth), total: \(trustedDevices.count))")
 
         if centralManager.state == .poweredOn {
@@ -165,6 +183,7 @@ class BluetoothProximityManager: NSObject, ObservableObject {
         trustedDevices.removeAll { $0.id == device.id }
         tracking.removeValue(forKey: device.id)
         saveTrustedDevices()
+        publishSightings()
 
         // Disconnect peripheral if connected (BLE only)
         if let peripheral = connectedPeripherals.removeValue(forKey: device.id) {
@@ -179,6 +198,7 @@ class BluetoothProximityManager: NSObject, ObservableObject {
         trustedDevices.removeAll()
         tracking.removeAll()
         saveTrustedDevices()
+        publishSightings()
         disconnectAllPeripherals()
         logActivity(.bluetooth, "Removed all trusted devices")
     }
@@ -226,6 +246,7 @@ class BluetoothProximityManager: NSObject, ObservableObject {
         }
 
         schedulePolling()
+        publishSightings()
         logActivity(.bluetooth, "Started scanning for \(trustedDevices.count) trusted devices (interval: \(pollingInterval)s)")
     }
 
@@ -239,6 +260,7 @@ class BluetoothProximityManager: NSObject, ObservableObject {
         deviceInquiry?.stop()
 
         disconnectAllPeripherals()
+        publishSightings()
 
         logActivity(.bluetooth, "Stopped scanning")
     }
@@ -315,18 +337,16 @@ class BluetoothProximityManager: NSObject, ObservableObject {
             recoveryCooldownActive: recoveryCooldown.isActive(at: now)
         )
 
-        report(change, device: device, reading: observation.rssi.map(\.description) ?? "\(observation)")
+        log(change, device: device, reading: observation.rssi.map(\.description) ?? "\(observation)")
+        publishSightings()
     }
 
-    /// The one place a tracker's change becomes an input for the machine.
-    private func report(_ change: ProximityChange, device: TrustedDevice, reading: String) {
+    private func log(_ change: ProximityChange, device: TrustedDevice, reading: String) {
         switch change {
         case .becameNearby:
             logActivity(.bluetooth, "\(device.name) nearby (RSSI: \(reading))")
-            onInput(.trustedDeviceNearby(device))
         case .becameAway:
             logActivity(.bluetooth, "\(device.name) away (RSSI: \(reading))")
-            onInput(.trustedDeviceAway(device))
         case .awaySuppressedByCooldown:
             logActivity(.bluetooth, "\(device.name) away blocked (BT recovery cooldown)")
         case .awayDebounced(let since):
@@ -426,9 +446,10 @@ extension BluetoothProximityManager: CBCentralManagerDelegate {
             recoveryCooldown.start(at: Date())
             logActivity(.bluetooth, "BT recovery cooldown started (\(Int(RecoveryCooldown.duration))s)")
             for id in tracking.keys {
-                // An assumption, not an observation: the machine is not told.
+                // An assumption, not an observation: at most a lost sighting.
                 _ = tracking[id]?.proximity.assumeNearbyForRecovery()
             }
+            publishSightings()
             startScanningIfNeeded()
         }
     }
@@ -476,7 +497,8 @@ extension BluetoothProximityManager: CBCentralManagerDelegate {
         connectedPeripherals.removeValue(forKey: deviceID)
         // A disconnect is a departure like a weak signal, but not debounced like one.
         let change = tracking[deviceID, default: DeviceTracking()].proximity.markDisconnected()
-        report(change, device: trusted, reading: "\(Observation.disconnected)")
+        log(change, device: trusted, reading: "\(Observation.disconnected)")
+        publishSightings()
 
         if isScanning {
             scanForBLE()

@@ -67,6 +67,35 @@ extension Proximity {
     }
 }
 
+/// A change in what a trusted device is seen as: the one way proximity reaches the
+/// alarm. Becoming nearby is a return, becoming away a departure; losing sight
+/// (scan stopped or reset, device removed, proximity only assumed) is neither.
+enum SightingChange: Equatable {
+    case seen(TrustedDevice, Sighting)
+    case lost(TrustedDevice)
+
+    /// One change per device whose sighting differs, in a stable order.
+    static func changes(from old: [TrustedDevice: Sighting], to new: [TrustedDevice: Sighting]) -> [SightingChange] {
+        let devices = Set(old.keys).union(new.keys).sorted { $0.id.uuidString < $1.id.uuidString }
+        return devices.compactMap { device in
+            switch (old[device], new[device]) {
+            case let (before, now?) where before != now: return .seen(device, now)
+            case (_?, nil): return .lost(device)
+            case (_, _?), (nil, nil): return nil
+            }
+        }
+    }
+
+    func applied(to sightings: [TrustedDevice: Sighting]) -> [TrustedDevice: Sighting] {
+        var result = sightings
+        switch self {
+        case .seen(let device, let sighting): result[device] = sighting
+        case .lost(let device): result[device] = nil
+        }
+        return result
+    }
+}
+
 enum ProximityChange: Equatable {
     case becameNearby
     case becameAway

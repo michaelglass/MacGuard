@@ -47,8 +47,7 @@ enum AlarmInput {
     /// Sounds immediately, even mid-countdown.
     case severeIntrusion(TriggerCause)
     case countdownTick
-    case trustedDeviceNearby(TrustedDevice)
-    case trustedDeviceAway(TrustedDevice)
+    case proximity(SightingChange)
     case systemWoke
     case autoArmTimerFired
     case screenLocked
@@ -188,25 +187,30 @@ enum AlarmMachine {
 
         // MARK: Proximity
         // The grace period runs while any device is still away.
-        case (.idle, .trustedDeviceNearby(let device)):
+        case (.idle, .proximity(.seen(let device, .nearby))):
             guard env.seen(.away).isEmpty else { return (state, []) }
             return (state, [.cancelAutoArmTimer(reason: "Auto-arm cancelled - '\(device.name)' back nearby")])
 
-        case (_, .trustedDeviceNearby(let device)):
+        case (_, .proximity(.seen(let device, .nearby))):
             guard state.session?.departed.contains(device.id) == true else {
                 return (state, [.log(.bluetooth, "'\(device.name)' nearby but was here at arming - not disarming")])
             }
             return standDown("Disarmed via trusted device '\(device.name)'", env)
 
-        case (.idle, .trustedDeviceAway(let device)):
+        // Away from anything, first sighting included: positively observed absent.
+        case (.idle, .proximity(.seen(let device, .away))):
             return (state, autoArmGracePeriod("'\(device.name)' left - starting grace period", env.autoArm))
 
-        case (_, .trustedDeviceAway(let device)):
+        case (_, .proximity(.seen(let device, .away))):
             var effects: [AlarmEffect] = [.log(.bluetooth, "Trusted device '\(device.name)' left proximity")]
             if state.session?.departed.contains(device.id) == false {
                 effects.append(.log(.bluetooth, "'\(device.name)' may now disarm on return"))
             }
             return (state.updatingSession { $0.departed.insert(device.id) }, effects)
+
+        // No longer seen is neither a return nor a departure.
+        case (_, .proximity(.lost)):
+            return (state, [])
 
         case (_, .systemWoke):
             if let session = state.session, !session.departed.isDisjoint(with: env.seen(.nearby)) {

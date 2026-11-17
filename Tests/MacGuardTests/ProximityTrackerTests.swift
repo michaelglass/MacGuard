@@ -182,6 +182,37 @@ final class ClassicLinkTrackerTests: XCTestCase {
     }
 }
 
+final class SightingChangeTests: XCTestCase {
+    private func changes(_ old: [TrustedDevice: Sighting], _ new: [TrustedDevice: Sighting]) -> [SightingChange] {
+        SightingChange.changes(from: old, to: new)
+    }
+
+    func testOnlyDevicesWhoseSightingChangedAreReported() {
+        XCTAssertEqual(changes([:], [:]), [])
+        XCTAssertEqual(changes([.phone: .nearby, .watch: .away], [.phone: .nearby, .watch: .away]), [])
+        XCTAssertEqual(changes([.phone: .nearby, .watch: .away], [.phone: .away, .watch: .away]), [.seen(.phone, .away)])
+    }
+
+    func testNearbyIsAReturnAndAwayADepartureFromAnything() {
+        XCTAssertEqual(changes([:], [.phone: .nearby]), [.seen(.phone, .nearby)])
+        XCTAssertEqual(changes([.phone: .away], [.phone: .nearby]), [.seen(.phone, .nearby)])
+        XCTAssertEqual(changes([:], [.phone: .away]), [.seen(.phone, .away)])
+        XCTAssertEqual(changes([.phone: .nearby], [.phone: .away]), [.seen(.phone, .away)])
+    }
+
+    func testNoLongerSeenIsLostNotAway() {
+        // Scan stopped or reset, device removed, or proximity only assumed
+        XCTAssertEqual(changes([.phone: .nearby, .watch: .away], [:]), [.lost(.phone), .lost(.watch)])
+    }
+
+    func testApplyingTheChangesReachesTheNewSnapshot() {
+        let old: [TrustedDevice: Sighting] = [.phone: .nearby, .watch: .away]
+        for new: [TrustedDevice: Sighting] in [[:], [.phone: .away], [.watch: .nearby], [.phone: .away, .watch: .nearby]] {
+            XCTAssertEqual(changes(old, new).reduce(old) { $1.applied(to: $0) }, new, "\(new)")
+        }
+    }
+}
+
 final class RecoveryCooldownTests: XCTestCase {
     func testCooldownLastsFifteenSeconds() {
         var cooldown = RecoveryCooldown.inactive
