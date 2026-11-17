@@ -58,15 +58,19 @@ enum ProximityDistance: Equatable {
     }
 }
 
-/// Stored as "Near"/"Medium"/"Far" or "custom:<dBm>".
-extension ProximityDistance: RawRepresentable {
-    private static let customPrefix = "custom:"
+/// The stored form of a setting that is a preset or a custom value: the preset's
+/// raw value, or "custom:<payload>" with a non-empty payload.
+enum StoredChoice<Preset: RawRepresentable> where Preset.RawValue == String {
+    case preset(Preset)
+    case custom(String)
+
+    private static var customPrefix: String { "custom:" }
 
     init?(rawValue: String) {
-        if let preset = ProximityPreset(rawValue: rawValue) {
+        if let preset = Preset(rawValue: rawValue) {
             self = .preset(preset)
-        } else if rawValue.hasPrefix(Self.customPrefix), let dBm = Int(rawValue.dropFirst(Self.customPrefix.count)) {
-            self = .custom(DetectionRange(clamping: dBm))
+        } else if rawValue.hasPrefix(Self.customPrefix), rawValue.count > Self.customPrefix.count {
+            self = .custom(String(rawValue.dropFirst(Self.customPrefix.count)))
         } else {
             return nil
         }
@@ -75,7 +79,29 @@ extension ProximityDistance: RawRepresentable {
     var rawValue: String {
         switch self {
         case .preset(let preset): return preset.rawValue
-        case .custom(let range): return Self.customPrefix + String(range.dBm)
+        case .custom(let payload): return Self.customPrefix + payload
+        }
+    }
+}
+
+/// Stored as "Near"/"Medium"/"Far" or "custom:<dBm>".
+extension ProximityDistance: RawRepresentable {
+    private typealias Stored = StoredChoice<ProximityPreset>
+
+    init?(rawValue: String) {
+        switch Stored(rawValue: rawValue) {
+        case .preset(let preset): self = .preset(preset)
+        case .custom(let payload):
+            guard let dBm = Int(payload) else { return nil }
+            self = .custom(DetectionRange(clamping: dBm))
+        case nil: return nil
+        }
+    }
+
+    var rawValue: String {
+        switch self {
+        case .preset(let preset): return Stored.preset(preset).rawValue
+        case .custom(let range): return Stored.custom(String(range.dBm)).rawValue
         }
     }
 }
@@ -144,22 +170,20 @@ enum AlarmSoundChoice: Equatable {
 
 /// Stored as the built-in name or "custom:<path>".
 extension AlarmSoundChoice: RawRepresentable {
-    private static let customPrefix = "custom:"
+    private typealias Stored = StoredChoice<AlarmSound>
 
     init?(rawValue: String) {
-        if let sound = AlarmSound(rawValue: rawValue) {
-            self = .builtIn(sound)
-        } else if rawValue.hasPrefix(Self.customPrefix), rawValue.count > Self.customPrefix.count {
-            self = .custom(URL(fileURLWithPath: String(rawValue.dropFirst(Self.customPrefix.count))))
-        } else {
-            return nil
+        switch Stored(rawValue: rawValue) {
+        case .preset(let sound): self = .builtIn(sound)
+        case .custom(let path): self = .custom(URL(fileURLWithPath: path))
+        case nil: return nil
         }
     }
 
     var rawValue: String {
         switch self {
-        case .builtIn(let sound): return sound.rawValue
-        case .custom(let url): return Self.customPrefix + url.path
+        case .builtIn(let sound): return Stored.preset(sound).rawValue
+        case .custom(let url): return Stored.custom(url.path).rawValue
         }
     }
 }
