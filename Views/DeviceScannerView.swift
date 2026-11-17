@@ -256,12 +256,33 @@ struct DeviceRowButton: View {
 
     @State private var isHovered = false
 
-    private var isAlreadyAdded: Bool { state == .alreadyAdded }
+    private struct RowStyle {
+        let iconColor: Color
+        let nameColor: Color
+        let badge: (text: String, color: Color)
+        let showsChevron: Bool
+        let isEnabled: Bool
+    }
+
+    private var style: RowStyle {
+        let status = device.isConnected ? ("Connected", Theme.StateColor.armed) : ("Paired", Color.orange)
+        switch state {
+        case .selectable:
+            return RowStyle(iconColor: Theme.Accent.primary, nameColor: .primary, badge: status,
+                            showsChevron: true, isEnabled: true)
+        case .alreadyAdded:
+            return RowStyle(iconColor: .secondary, nameColor: .secondary, badge: ("Added", Theme.StateColor.armed),
+                            showsChevron: false, isEnabled: false)
+        case .unavailable:
+            return RowStyle(iconColor: Theme.Accent.primary, nameColor: .primary, badge: status,
+                            showsChevron: true, isEnabled: false)
+        }
+    }
 
     var body: some View {
         switch state {
         case .selectable(let trusted):
-            Button { action(trusted) } label: { row(enabled: true) }
+            Button { action(trusted) } label: { row(style) }
                 .buttonStyle(.plain)
                 .onHover { hovering in
                     withAnimation(.easeInOut(duration: Theme.Animation.hoverDuration)) {
@@ -269,32 +290,26 @@ struct DeviceRowButton: View {
                     }
                 }
         case .alreadyAdded, .unavailable:
-            row(enabled: false)
+            row(style)
         }
     }
 
-    private func row(enabled: Bool) -> some View {
+    private func row(_ style: RowStyle) -> some View {
         HStack(spacing: Theme.Spacing.md) {
             ZStack {
                 GlassIconCircle(size: 40, material: .selection)
                 Image(systemName: TrustedDevice.icon(for: device.name))
                     .font(.system(size: 18))
-                    .foregroundStyle(isAlreadyAdded ? .secondary : Theme.Accent.primary)
+                    .foregroundStyle(style.iconColor)
             }
 
             VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
                 HStack(spacing: Theme.Spacing.sm) {
                     Text(device.name)
                         .font(.body.weight(.medium))
-                        .foregroundStyle(isAlreadyAdded ? .secondary : .primary)
+                        .foregroundStyle(style.nameColor)
 
-                    if isAlreadyAdded {
-                        badge("Added", Theme.StateColor.armed)
-                    } else if device.isConnected {
-                        badge("Connected", Theme.StateColor.armed)
-                    } else {
-                        badge("Paired", Color.orange)
-                    }
+                    badge(style.badge.text, style.badge.color)
                 }
 
                 HStack(spacing: Theme.Spacing.xs) {
@@ -318,7 +333,7 @@ struct DeviceRowButton: View {
 
             Spacer()
 
-            if !isAlreadyAdded {
+            if style.showsChevron {
                 Image(systemName: "chevron.right")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
@@ -330,12 +345,12 @@ struct DeviceRowButton: View {
                 .fill(.clear)
                 .background(
                     VisualEffectView(material: .selection, blendingMode: .withinWindow)
-                        .opacity(isHovered && enabled ? 1 : 0)
+                        .opacity(isHovered && style.isEnabled ? 1 : 0)
                 )
                 .clipShape(RoundedRectangle(cornerRadius: Theme.CornerRadius.md))
         }
         .glassBorder(cornerRadius: Theme.CornerRadius.md)
-        .opacity(enabled ? 1.0 : 0.6)
+        .opacity(style.isEnabled ? 1.0 : 0.6)
     }
 
     private func badge(_ text: String, _ color: Color) -> some View {
