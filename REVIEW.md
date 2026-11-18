@@ -188,8 +188,8 @@ Behaviour changes:
 
 ## Verification
 
-- `swift build`: clean, with no new compiler warnings.
-- `swift test`: 120 tests (see Tests above for the layers and mutation checks).
+- `mise check`: swift-format lint is clean, the build has zero warnings under complete concurrency checking with warnings as errors, and all 170 tests pass. CI runs the same command.
+- Tests: see Tests above for the layers and mutation checks (that section counts 120 because it was written before rounds 5–8).
 - Compile-time check: `m.disarm(OwnerAuthentication(.pin))` from another file is rejected (`initializer is inaccessible due to 'fileprivate' protection level`).
 - Packaging: `create-dmg.sh` builds a bundle that passes `codesign --verify --deep --strict`.
 - `setup-certificate.sh`: `bash -n` and `shellcheck` pass. The export step was exercised against macOS's LibreSSL. The full script was not run, because it writes to the login keychain.
