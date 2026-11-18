@@ -205,7 +205,7 @@ Behaviour changes:
 
 ## Hardware verification checklist (not done here)
 
-None of these have been run on a real machine. They need a signed build on a real Mac:
+None of these have been run on a real machine. They need a signed build on a real Mac. [`docs/manual-qa.md`](docs/manual-qa.md) turns this list into step-by-step checks with expected results, including regressions:
 1. The ⌘Q block while the overlay is up.
 2. The Touch ID / password prompt above the overlay.
 3. The PIN lockout message.
