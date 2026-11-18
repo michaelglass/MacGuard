@@ -131,6 +131,17 @@ To prevent users from needing to re-grant Accessibility permission after each up
 └─────────┘
 ```
 
+## What MacGuard Can't Protect Against
+
+MacGuard is an alarm, not a lock. Know its limits:
+
+- **Holding the power button.** The Mac's hardware cuts power after about 10 seconds, and no app gets a warning. If the thief touched anything first, the alarm sounds through the hold. If MacGuard was armed, it sounds the alarm again at the next login.
+- **Reading or wiping the disk.** Without FileVault, anyone can start the Mac from Recovery or another disk and read or erase it. Settings warns when FileVault is off. Turn it on, along with Find My, so a stolen Mac stays locked to your Apple Account.
+- **Someone who knows your password or PIN.**
+- **Bluetooth proximity is a convenience, not proof of identity.** A trusted device that left can disarm on return, whoever is carrying it. Classic Bluetooth devices are matched by address, which can be spoofed.
+- **Killing MacGuard and its watchdog together** leaves the Mac unprotected for about 10–15 seconds, until launchd restarts the watchdog.
+- **Lid-close protection after a relaunch.** If MacGuard is killed while armed, it comes back with the alarm sounding but asks for the administrator password again. Until someone enters it, closing the lid sleeps the Mac.
+
 ## Project Structure
 
 ```

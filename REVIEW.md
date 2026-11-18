@@ -222,3 +222,11 @@ None of these have been run on a real machine. They need a signed build on a rea
    - the camera light turns off after each capture
 8. Notifications: a real send through each channel, and the Apple Events prompts for Mail and Messages.
 9. BLE: identifier rotation for devices that aren't bonded (possible false "away").
+10. Lid-close protection (round 9):
+    - turning it on shows one admin prompt with MacGuard's wording, and Settings then reads "Mac won't sleep when the lid closes while armed"
+    - armed, closing the lid sounds the alarm and the Mac stays awake; `pmset -g | grep SleepDisabled` reads 1
+    - disarming sets it back to 0
+    - quitting, and `kill -9` of the app while idle, leave it at 0 and the watcher process gone
+    - cancelling the prompt shows "Not active" with Try again
+11. The power button: whether a short press while armed reaches MacGuard as input and triggers the alarm.
+12. FileVault: the Settings row shows On, and the warning when it's off.
