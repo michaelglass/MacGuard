@@ -365,27 +365,7 @@ struct SettingsView: View {
             }
         }
 
-        // Lid Close Protection with warning
-        VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
-            Toggle("Lid close alarm (requires admin)", isOn: $settings.lidCloseProtection)
-
-            if settings.lidCloseProtection {
-                HStack(spacing: Theme.Spacing.sm) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundColor(Theme.StateColor.triggered)
-                        .font(.caption)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Mac won't sleep when lid closes while armed")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        Text("Requires password prompt when arming")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                    }
-                }
-                .padding(.leading, Theme.Spacing.xs)
-            }
-        }
+        LidCloseProtectionRow(protection: .shared)
 
         // Resolved once per render: a custom file is opened to check it.
         let alarmSound = settings.alarmSound.resolved
@@ -789,4 +769,62 @@ struct CheckForUpdatesButton: View {
 
 #Preview {
     SettingsView(alarmManager: AlarmStateManager())
+}
+
+/// The lid-close toggle and what the watcher behind it is doing.
+private struct LidCloseProtectionRow: View {
+    @ObservedObject var protection: LidCloseProtection
+    @ObservedObject private var settings = AppSettings.shared
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+            Toggle(
+                "Lid close alarm (requires admin)",
+                isOn: Binding(get: { settings.lidCloseProtection }, set: protection.setEnabled))
+
+            if settings.lidCloseProtection {
+                HStack(spacing: Theme.Spacing.sm) {
+                    Image(systemName: status.symbol)
+                        .foregroundColor(status.color)
+                        .font(.caption)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(status.text)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Text("Asks for an administrator password each time MacGuard starts")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                    if status.canRetry {
+                        Button("Try again", action: protection.retry)
+                            .controlSize(.small)
+                    }
+                }
+                .padding(.leading, Theme.Spacing.xs)
+            }
+        }
+    }
+
+    private var status: (symbol: String, color: Color, text: String, canRetry: Bool) {
+        switch protection.model.link {
+        case .connected:
+            return (
+                "checkmark.circle.fill", Theme.StateColor.armed, "Mac won't sleep when the lid closes while armed",
+                false
+            )
+        case .authorizing:
+            return ("hourglass", .secondary, "Waiting for the administrator password", false)
+        case .refused:
+            return (
+                "exclamationmark.triangle.fill", Theme.StateColor.triggered,
+                "Not active: the password prompt was cancelled", true
+            )
+        case .lost:
+            return (
+                "exclamationmark.triangle.fill", Theme.StateColor.triggered, "Not active: the watcher stopped", true
+            )
+        case .disabled:
+            return ("exclamationmark.triangle.fill", Theme.StateColor.triggered, "Not active", true)
+        }
+    }
 }

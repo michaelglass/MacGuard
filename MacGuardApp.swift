@@ -26,6 +26,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             alarmManager.resumeAfterTamper(session, audio)
         }
         tamperGuard.syncAgent()
+        LidCloseProtection.shared.start(watching: alarmManager)
     }
 
     /// Reopening shows Settings, so the app is reachable when the menu bar icon is hidden.
@@ -52,8 +53,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        // Reset lid close protection on app exit to restore normal sleep behavior
-        AppSettings.shared.resetLidCloseProtection()
         ActivityLogManager.shared.flush()
     }
 }

@@ -401,7 +401,8 @@ class AppSettings: ObservableObject {
     @AppStorage(SettingsMigration.alarmSoundKey) private(set) var alarmSound: AlarmSoundChoice = .default
     @AppStorage("alarmVolume") private var alarmVolumeRaw: Double = 1.0
     @AppStorage("countdownDuration") var countdownDuration: CountdownDuration = .default
-    @AppStorage("lidCloseProtection") private var _lidCloseProtection: Bool = false
+    /// The preference only; `LidCloseProtection` owns whether sleep is actually disabled.
+    @AppStorage("lidCloseProtection") var lidCloseProtection: Bool = false
     @AppStorage(SettingsMigration.proximityDistanceKey) var proximityDistance: ProximityDistance = .default
     @AppStorage("autoArmOnDeviceLeave") var autoArmOnDeviceLeave: Bool = false
     @AppStorage("exitDelay") var exitDelay: ExitDelay = .default
@@ -416,37 +417,6 @@ class AppSettings: ObservableObject {
     var alarmVolume: Double {
         get { AlarmVolume(clamping: alarmVolumeRaw).value }
         set { alarmVolumeRaw = AlarmVolume(clamping: newValue).value }
-    }
-
-    /// Enabling only sticks if the admin prompt succeeds; disabling always clears it.
-    var lidCloseProtection: Bool {
-        get { _lidCloseProtection }
-        set {
-            guard newValue != _lidCloseProtection else { return }
-            if setDisableSleep(newValue) || !newValue { _lidCloseProtection = newValue }
-        }
-    }
-
-    /// On quit. pmset needs root, so this prompts for an admin password too.
-    func resetLidCloseProtection() {
-        guard _lidCloseProtection else { return }
-        _ = setDisableSleep(false)
-        _lidCloseProtection = false
-    }
-
-    private func setDisableSleep(_ on: Bool) -> Bool {
-        var error: NSDictionary?
-        guard
-            let script = NSAppleScript(
-                source: "do shell script \"pmset -a disablesleep \(on ? 1 : 0)\" with administrator privileges")
-        else { return false }
-        script.executeAndReturnError(&error)
-        if let error {
-            logActivity(.system, "Failed to set disablesleep \(on ? 1 : 0): \(error)")
-            return false
-        }
-        logActivity(.system, "disablesleep \(on ? "enabled" : "disabled")")
-        return true
     }
 
     private init() {}
