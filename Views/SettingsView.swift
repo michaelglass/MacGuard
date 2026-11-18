@@ -44,6 +44,8 @@ struct SettingsView: View {
                         granted: alarmManager.bluetoothManager.isBluetoothEnabled,
                         action: { openBluetoothSettings() }
                     )
+
+                    FileVaultRow()
                 } header: {
                     Label("Permissions", systemImage: "checkmark.shield")
                 }
@@ -780,7 +782,7 @@ private struct LidCloseProtectionRow: View {
         VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
             Toggle(
                 "Lid close alarm (requires admin)",
-                isOn: Binding(get: { settings.lidCloseProtection }, set: protection.setEnabled))
+                isOn: Binding(get: { settings.lidCloseProtection }, set: { protection.setEnabled($0) }))
 
             if settings.lidCloseProtection {
                 HStack(spacing: Theme.Spacing.sm) {
@@ -825,6 +827,55 @@ private struct LidCloseProtectionRow: View {
             )
         case .disabled:
             return ("exclamationmark.triangle.fill", Theme.StateColor.triggered, "Not active", true)
+        }
+    }
+}
+
+/// A warning, not a permission: MacGuard can't protect a disk that isn't encrypted.
+private struct FileVaultRow: View {
+    @State private var status: FileVaultStatus?
+
+    var body: some View {
+        HStack(spacing: Theme.Spacing.md) {
+            ZStack {
+                GlassIconCircle(size: 32, material: .selection)
+                Image(systemName: "lock.doc.fill")
+                    .font(.title2)
+                    .foregroundColor(status == .on ? Theme.StateColor.armed : Theme.StateColor.triggered)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text("FileVault")
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            Spacer()
+            switch status {
+            case .on?:
+                Label("On", systemImage: "checkmark.circle.fill")
+                    .font(.caption)
+                    .foregroundColor(Theme.StateColor.armed)
+            case .off?, .unknown?:
+                Button("Open Settings", action: openFileVaultSettings)
+                    .buttonStyle(GlassBorderedProminentButtonStyle(tint: Theme.StateColor.triggered))
+            case nil:
+                ProgressView().controlSize(.small)
+            }
+        }
+        .task { status = await FileVaultStatus.current() }
+    }
+
+    private var subtitle: String {
+        switch status {
+        case .on?, nil: return "Disk encrypted"
+        case .off?: return "Off: a thief can restart this Mac and read or reset its disk"
+        case .unknown?: return "Couldn't check whether the disk is encrypted"
+        }
+    }
+
+    private func openFileVaultSettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?FileVault") {
+            NSWorkspace.shared.open(url)
         }
     }
 }
