@@ -285,10 +285,14 @@ enum AlarmMachine {
             case .arming(let session, _, _), .armed(let session), .triggered(let session, _, _),
                 .alarming(let session, _):
                 var effects: [Effect] = [.log(.bluetooth, "Trusted device '\(device.name)' left proximity")]
-                if !session.departed.contains(device.id) {
-                    effects.append(.log(.bluetooth, "'\(device.name)' may now disarm on return"))
-                }
-                return (state.updatingSession { $0.departed.insert(device.id) }, effects)
+                guard !session.departed.contains(device.id) else { return (state, effects) }
+                var departed = session
+                departed.departed.insert(device.id)
+                // Rewritten so a tamper relaunch keeps this device's right to disarm.
+                effects += [
+                    .log(.bluetooth, "'\(device.name)' may now disarm on return"), .persistArmedMarker(departed),
+                ]
+                return (state.updatingSession { $0 = departed }, effects)
             }
 
         // An assumption or no longer seen is neither a return nor a departure.

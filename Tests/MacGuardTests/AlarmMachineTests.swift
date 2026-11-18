@@ -151,6 +151,15 @@ final class AlarmMachineTests: XCTestCase {
         XCTAssertEqual(update(away, .proximity(.seen(.phone, .nearby))).state, .idle)
     }
 
+    func testADepartureWhileArmedIsSavedForATamperRelaunch() {
+        let (state, effects) = update(.armed(.noDepartures), .proximity(.seen(.phone, .away)))
+        XCTAssertEqual(state, .armed(phoneLeft))
+        XCTAssertTrue(effects.contains(.persistArmedMarker(phoneLeft)))
+
+        let (_, again) = update(.armed(phoneLeft), .proximity(.seen(.phone, .away)))
+        XCTAssertFalse(again.contains { if case .persistArmedMarker = $0 { return true } else { return false } })
+    }
+
     func testOnlyADepartedDeviceDisarms() {
         XCTAssertEqual(update(.armed(phoneLeft), .proximity(.seen(.watch, .nearby))).state, .armed(phoneLeft))
         XCTAssertEqual(update(.armed(phoneLeft), .proximity(.seen(.phone, .nearby))).state, .idle)
