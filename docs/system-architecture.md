@@ -143,9 +143,9 @@ User Input → CGEventTap → InputMonitor → Delegate → AlarmStateManager �
 #### SleepMonitor (248 LOC)
 **Responsibilities:**
 - Lid open/close detection via IOKit
-- Sleep prevention when "lid close alarm" enabled
-- Execute `pmset disablesleep` (requires admin)
-- Restore sleep state on disarm
+- Sleep prevention while armed when "lid close alarm" is enabled (`LidCloseProtection`, `SleepHold`)
+- A root watcher, started with one admin prompt per launch, sets `pmset disablesleep` on request
+- The watcher clears it when MacGuard's end of its pipe closes, so a crash or force-quit can't leave sleep disabled
 
 **Key Technologies:**
 - IOKit framework

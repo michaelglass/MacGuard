@@ -177,9 +177,17 @@ Behaviour changes:
 - **One check verb.** `mise check` builds with warnings as errors and runs the tests; the Check workflow runs it on pull requests.
 - **The machine's switch has no `default:`.** It switches on the message, then exhaustively on the state.
 
+## Round 9: lid-close protection can't outlive MacGuard
+
+- **The problem.** `pmset -a disablesleep 1` is a system-wide setting that survives the process that set it (and, as an `-a` setting, possibly a reboot). It was set when the toggle was turned on and cleared only on a clean quit, with a second admin prompt. A crash, a force-quit while disarmed, a forced power-off or deleting the app left sleep disabled.
+- **The fix.** MacGuard no longer sets it. One admin prompt per launch starts a root watcher (`WatcherScript`), a few lines of `sh` inlined into the prompt's command, so no file an unprivileged process could edit runs as root. The watcher clears the setting when it starts, applies `1`/`0` lines from a FIFO, and clears it again when the FIFO closes. MacGuard holds the only write end, so the kernel closes it whenever MacGuard exits, however it exits. The watcher ignores any other input (tested with injected shell).
+- **Only while armed.** `SleepHold`, a pure state machine, disables sleep only while the alarm is not idle and only through a connected watcher. The prompt runs in `osascript`, after any tamper resume, so it never blocks the main thread or delays the alarm. Settings shows whether the watcher is connected and offers a retry.
+- **The setting is a preference again.** It used to reset to off on every quit; now it persists, and the watcher makes that safe.
+- **Remaining gap.** After a forced power-off the setting stays as it was until MacGuard next launches and its watcher clears it, if the setting survives a reboot at all. Only a privileged helper that launchd starts at boot would close that, and it is planned as an opt-in alternative to the per-launch prompt.
+
 ## Open (not fixed)
 
-- **Lid-close protection.** `pmset -a disablesleep 1` is a system-wide, persistent setting. If MacGuard crashes or is force-quit, sleep stays disabled until the user notices. On quit, `resetLidCloseProtection` prompts for an administrator password, although its comment says "silent". Resetting it needs root, and the tamper watchdog runs as the user, so nothing short of a privileged helper (`SMAppService.daemon`) can undo it after a force-quit; prompting for an admin password on every arm and disarm instead would be worse. Left unchanged.
+- **Lid-close protection after a forced power-off** stays as it was until the next launch (see round 9). The per-launch prompt can also be cancelled by a thief during a tamper relaunch, leaving that session without lid-close protection.
 - **Killing both the app and its watchdog** stops protection until launchd restarts the watchdog (about 10–15 s). A user-space design can't do better without a privileged daemon.
 - **Hardened runtime needs an Apple-issued identity.** The self-signed "MacGuard Developer" CI identity builds without it (see round 8); notarized distribution needs a Developer ID certificate.
 - **The armed marker isn't rewritten when a device joins `departed` while armed**, so a tamper relaunch resumes with the departures known at arming. This errs toward fewer proximity-disarm rights.

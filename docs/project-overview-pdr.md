@@ -91,8 +91,8 @@ MacGuard is an anti-theft alarm application for macOS that protects laptops in p
 
 **Acceptance Criteria:**
 - ✅ Alarm triggers <500ms after lid close
-- ✅ `pmset disablesleep` executed when enabled
-- ✅ Sleep restored correctly after disarm
+- ✅ `pmset disablesleep` held only while armed, through a root watcher started once per launch
+- ✅ Sleep restored on disarm, and by the watcher when MacGuard exits for any reason
 - ✅ Works with both clamshell and normal modes
 
 **Technical Constraints:**

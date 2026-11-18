@@ -14,7 +14,7 @@ Anti-theft alarm app for macOS. Protects your laptop in public places by trigger
 - **Menu Bar App** - Runs silently in the background with custom styled dropdown
 - **Input Monitoring** - Detects keyboard, mouse, and trackpad activity
 - **Sleep/Power Detection** - Triggers on lid close or power disconnect
-- **Lid Close Alarm** - Instant alarm when lid closes (requires admin, prevents sleep)
+- **Lid Close Alarm** - Instant alarm when lid closes; the Mac stays awake only while armed (one admin prompt per launch)
 - **Bluetooth Proximity** - Auto-arm when any trusted device leaves; auto-disarm only when a device that was away comes back
 - **Multiple Trusted Devices** - Support up to 10 devices (Apple and non-Apple Bluetooth)
 - **Dynamic Menu Bar Icon** - Icon reflects armed/disarmed status
@@ -94,7 +94,7 @@ To prevent users from needing to re-grant Accessibility permission after each up
 
 4. **Configure Behavior** (optional)
    - Toggle "Lock screen when armed" on/off
-   - Enable "Lid close alarm" for instant alarm on lid close (requires admin password)
+   - Enable "Lid close alarm" for instant alarm on lid close (asks for an admin password each time MacGuard starts)
    - Choose alarm sound (system sounds, custom file, or bundled)
    - Adjust volume and preview with 🔊 button
 
@@ -168,7 +168,7 @@ MacGuard/
 |------------|---------|
 | Accessibility | Global input monitoring via CGEventTap |
 | Bluetooth | Trusted device proximity detection |
-| Administrator | Lid close alarm (pmset disablesleep) |
+| Administrator | Lid close alarm: a root watcher that holds `pmset disablesleep` only while armed and clears it when MacGuard exits |
 
 ## Documentation
 

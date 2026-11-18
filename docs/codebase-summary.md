@@ -71,9 +71,9 @@ MacGuard/
 - **Purpose:** Lid close detection and sleep prevention
 - **Responsibilities:**
   - Monitors lid open/close events via IOKit
-  - Prevents sleep when "lid close alarm" is enabled
-  - Executes `pmset disablesleep` (requires admin permission)
-  - Restores sleep state on disarm
+  - Prevents sleep while armed when "lid close alarm" is enabled, through `LidCloseProtection`:
+    one admin prompt per launch starts a root watcher that sets `pmset disablesleep` on request
+    and clears it when MacGuard exits, however it exits
 - **Frameworks:** IOKit
 - **Permissions:** Administrator (for pmset)
 
